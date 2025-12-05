@@ -26,3 +26,33 @@ For FFB, **consistency** is more important than raw throughput.
 *   **Input Lag**: C++ would likely reduce end-to-end input lag by 2-5ms by removing interpreter overhead and wrapper layers (`pyvjoy`).
 
 **Verdict**: For a production-grade FFB app that rivals iRFFB in "feel", a move to C++ (or Rust/C#) is highly recommended. Python is excellent for prototyping the logic (as done here), but the final low-level loop benefits greatly from a compiled language.
+
+## Technology Choice: C++ vs Rust
+
+If a decision is made to port the application to a systems language, the two primary contenders are **C++** and **Rust**.
+
+### C++
+
+**Pros:**
+*   **Industry Standard**: The rFactor 2 plugin SDK and most game modding tools are written in C++. Integration with `ctypes` structs (which mirror C structs) is trivial.
+*   **Direct API Access**: Windows APIs (`OpenFileMapping`, DirectInput) are native C/C++ interfaces. No bindings required.
+*   **Examples**: Abundant sample code exists for rFactor 2 plugins in C++.
+
+**Cons:**
+*   **Memory Safety**: Requires careful management of pointers and buffers. Higher risk of crashes or segfaults if not handled correctly.
+*   **Build Complexity**: CMake or Visual Studio solution management can be verbose.
+
+### Rust
+
+**Pros:**
+*   **Memory Safety**: Rust's ownership model guarantees memory safety without a Garbage Collector, preventing common crashes.
+*   **Modern Tooling**: `cargo` is a superior build system and package manager compared to CMake/MSBuild.
+*   **Zero-Cost Abstractions**: High-level readability with low-level performance matching C++.
+
+**Cons:**
+*   **FFI Complexity**: Interfacing with Windows APIs and C-structs requires `unsafe` blocks and manually defining `#[repr(C)]` structs.
+*   **Learning Curve**: Steeper learning curve for developers coming from Python.
+
+### Recommendation
+*   Choose **C++** if you want the path of least resistance for integrating with existing rF2 C++ SDK examples and documentation.
+*   Choose **Rust** if you prioritize robustness, modern tooling, and safety, and are willing to handle the initial FFI setup.
