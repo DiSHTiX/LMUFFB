@@ -44,24 +44,6 @@ This document details the Force Feedback effects implemented in LMUFFB, how they
 
 ---
 
-## Legacy Implementation Notes (Pre-v0.2.2)
-
-*   **Old Oversteer**: Relied solely on Grip Delta between Front/Rear to boost SoP.
-*   **Old Lockup**: Binary rumble triggered when `SlipRatio < -0.2`.
-*   **Old Wheel Spin**: Binary rumble triggered when `SlipRatio > 0.2`.
-
----
-
-## Comparison of Implementation
-
-| Effect | iRFFB (iRacing) | Marvin's AIRA (iRacing) | LMUFFB (LMU/rF2) |
-| :--- | :--- | :--- | :--- |
-| **Oversteer** | **SoP (Lateral G)** + Yaw logic | **Layered Effect**: Separate "Slip" channel. | **Rear Aligning Torque + SoP**: Synthetic rear-axle torque integration. |
-| **Lockup** | Not explicit (part of "Understeer" feel in iRacing logic) | **Pedal Haptics** (often sent to pedals, but can be on wheel) | **Progressive Wheel Scrub**: Dynamic frequency/amplitude based on slip ratio. |
-| **Wheel Spin** | Not explicit | **Pedal Haptics** / Wheel Rumble | **Torque Drop + Vibration**: Simulates traction loss + progressive rumble. |
-
----
-
 ## Signal Interference & Clarity
 
 A critical challenge in FFB design is managing the "Noise Floor". When multiple effects are active simultaneously, they can interfere with each other or mask the underlying physics.
@@ -84,3 +66,23 @@ A critical challenge in FFB design is managing the "Noise Floor". When multiple 
 *   **Mitigation**:
     *   **Distinct Frequencies**: Future updates will tune Lockup to be "Sharper/Higher Pitch" (square wave) and Wheel Spin to be "Rougher/Lower Pitch" (sawtooth or randomized).
     *   **Context**: Since the driver knows if they are braking or accelerating, this ambiguity is usually resolved by context, but distinct tactile signatures help subconscious reaction times.
+
+
+---
+
+## Comparison of Implementation with iRFFB and Marvin's AIRA
+
+| Effect | iRFFB (iRacing) | Marvin's AIRA (iRacing) | LMUFFB (LMU/rF2) |
+| :--- | :--- | :--- | :--- |
+| **Oversteer** | **SoP (Lateral G)** + Yaw logic | **Layered Effect**: Separate "Slip" channel. | **Rear Aligning Torque + SoP**: Synthetic rear-axle torque integration. |
+| **Lockup** | Not explicit (part of "Understeer" feel in iRacing logic) | **Pedal Haptics** (often sent to pedals, but can be on wheel) | **Progressive Wheel Scrub**: Dynamic frequency/amplitude based on slip ratio. |
+| **Wheel Spin** | Not explicit | **Pedal Haptics** / Wheel Rumble | **Torque Drop + Vibration**: Simulates traction loss + progressive rumble. |
+
+---
+
+## Legacy Implementation Notes (Pre-v0.2.2)
+
+*   **Old Oversteer**: Relied solely on Grip Delta between Front/Rear to boost SoP.
+*   **Old Lockup**: Binary rumble triggered when `SlipRatio < -0.2`.
+*   **Old Wheel Spin**: Binary rumble triggered when `SlipRatio > 0.2`.
+
