@@ -175,6 +175,10 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
     // Scale to -10000..10000
     long magnitude = static_cast<long>(normalizedForce * 10000.0);
 
+    // Optimization: Don't call driver if value hasn't changed
+    if (magnitude == m_last_force) return;
+    m_last_force = magnitude;
+
 #ifdef _WIN32
     if (m_pEffect) {
         DICONSTANTFORCE cf;
@@ -185,9 +189,16 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
         eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
         eff.lpvTypeSpecificParams = &cf;
         
-        // Use DIEP_START ensures it keeps running if interrupted? 
-        // Or just DIEP_TYPESPECIFICPARAMS for update.
-        m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS | DIEP_START);
+        // Only update parameters. 
+        // DO NOT pass DIEP_START here as it restarts the envelope and can cause clicks/latency.
+        // Using DIEP_START in SetParameters effectively restarts the effect.
+        HRESULT hr = m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+        if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) {
+            // Try to re-acquire once
+            if (SUCCEEDED(m_pDevice->Acquire())) {
+                m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+            }
+        }
     }
 #else
     // std::cout << "[DI Mock] Force: " << magnitude << std::endl;

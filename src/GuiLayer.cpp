@@ -3,6 +3,7 @@
 #include "DirectInputFFB.h"
 #include <iostream>
 #include <vector>
+#include <mutex>
 
 #ifdef ENABLE_IMGUI
 #include "imgui.h"
@@ -29,6 +30,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 // External linkage to FFB loop status
 extern std::atomic<bool> g_running;
+extern std::mutex g_engine_mutex;
 
 // Macro stringification helper
 #define XSTR(x) STR(x)
@@ -133,6 +135,9 @@ bool GuiLayer::Render(FFBEngine& engine) {
 }
 
 void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
+    // LOCK MUTEX to prevent race condition with FFB Thread
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+
     // Show Version in title bar or top text
     std::string title = std::string("LMUFFB v") + LMUFFB_VERSION + " - FFB Configuration";
     ImGui::Begin(title.c_str());

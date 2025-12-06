@@ -190,9 +190,9 @@ void test_slide_texture() {
     data.mSteeringArmForce = 0.0;
     data.mWheels[0].mSlipAngle = 0.2; // Slipping > 0.15
     data.mWheels[1].mSlipAngle = 0.2;
-    data.mDeltaTime = 0.01;
-    data.mWheels[0].mLateralGroundVel = 5.0; // Moving sideways
-    data.mWheels[1].mLateralGroundVel = 5.0;
+    data.mDeltaTime = 0.013; // Avoid 0.01 which lands exactly on zero-crossing for 125Hz
+    data.mWheels[0].mLateralPatchVel = 5.0; // Use PatchVel as updated in engine
+    data.mWheels[1].mLateralPatchVel = 5.0;
     data.mWheels[0].mTireLoad = 1000.0; // Some load
     data.mWheels[1].mTireLoad = 1000.0;
     

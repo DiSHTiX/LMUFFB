@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2025-05-23
+### Added
+- **Suspension Bottoming**: Added a new haptic effect that triggers when tire load exceeds thresholds (simulating bump stops/heavy compression).
+- **Physics Refinement**: Updated Slide Texture to use `mLateralPatchVel` for more accurate scrubbing sensation.
+- **Documentation**: Added `docs/telemetry_logging_investigation.md` for future CSV logging features.
+
+### Optimized
+- **DirectInput**: Removed redundant parameter updates and `DIEP_START` calls in the high-frequency loop to reduce driver overhead.
+- **Thread Safety**: Added mutex locking to prevent race conditions when GUI modifies physics engine parameters.
+
 ## [0.3.1] - 2025-05-23
 ### Fixed
 - **vJoy Build Issue**: Fixed an import error in `src/DynamicVJoy.h` or `main.cpp` that was causing build failures on some systems (user contribution).

@@ -1,8 +1,6 @@
 #ifndef FFBENGINE_H
 #define FFBENGINE_H
 
-#define NOMINMAX
-
 #include <cmath>
 #include <algorithm>
 #include "rF2Data.h"
@@ -32,6 +30,10 @@ public:
     
     bool m_road_texture_enabled = false;
     float m_road_texture_gain = 0.5f; // 0.0 - 1.0
+    
+    // Bottoming Effect (v0.3.2)
+    bool m_bottoming_enabled = true;
+    float m_bottoming_gain = 1.0f;
 
     // Internal state
     double m_prev_vert_deflection[2] = {0.0, 0.0}; // FL, FR
@@ -188,25 +190,20 @@ public:
             
             if (avg_slip > 0.15) { // ~8 degrees
                 // Frequency: Scrubbing speed
-                // How fast is the tire moving sideways?
-                // Lateral Ground Velocity is perfect for this.
-                double lat_vel = (std::abs(fl.mLateralGroundVel) + std::abs(fr.mLateralGroundVel)) / 2.0;
+                // Using mLateralPatchVel is more accurate than GroundVel for rubber sliding
+                double lat_vel = (std::abs(fl.mLateralPatchVel) + std::abs(fr.mLateralPatchVel)) / 2.0;
                 
-                // Scrubbing noise is usually high freq. 
-                // Map 1 m/s -> 50Hz, 10 m/s -> 200Hz
-                double freq = 30.0 + (lat_vel * 20.0);
+                // Map 1 m/s -> 40Hz, 10 m/s -> 200Hz
+                double freq = 40.0 + (lat_vel * 17.0);
+                if (freq > 250.0) freq = 250.0;
 
                 m_slide_phase += freq * dt * TWO_PI;
                 if (m_slide_phase > TWO_PI) m_slide_phase -= TWO_PI;
 
-                // Use a Sawtooth wave for "stick-slip" texture (more aggressive than sine)
-                // Sawtooth: (phase / 2PI) * 2 - 1
+                // Sawtooth wave
                 double sawtooth = (m_slide_phase / TWO_PI) * 2.0 - 1.0;
 
-                // Amplitude: Tire Load
-                double load = (fl.mTireLoad + fr.mTireLoad) / 2.0;
-                double load_factor = load / 4000.0; // Normalize
-
+                // Amplitude: Scaled by PRE-CALCULATED global load_factor
                 double noise = sawtooth * m_slide_texture_gain * 300.0 * load_factor;
                 total_force += noise;
             }
@@ -235,7 +232,29 @@ public:
             total_force += road_noise;
         }
 
-        // --- 5. Min Force (Deadzone Removal) ---
+        // --- 5. Suspension Bottoming (High Load Impulse) ---
+        if (m_bottoming_enabled) {
+            // Detect sudden high load spikes which indicate bottoming out
+            // Using Tire Load as proxy for suspension travel limit (bump stop)
+            double max_load = (std::max)(fl.mTireLoad, fr.mTireLoad);
+            
+            // Threshold: 8000N is a heavy hit for a race car corner/bump
+            const double BOTTOM_THRESHOLD = 8000.0;
+            
+            if (max_load > BOTTOM_THRESHOLD) {
+                double excess = max_load - BOTTOM_THRESHOLD;
+                // Non-linear response
+                double bump_force = std::sqrt(excess) * m_bottoming_gain * 0.5;
+                
+                // Add a simplified 50Hz oscillating "crunch" if sustained
+                // or just a direct impulse (DC offset)
+                // Let's make it a DC offset that follows the overload
+                double sign = (total_force > 0) ? 1.0 : -1.0; 
+                total_force += bump_force * sign;
+            }
+        }
+
+        // --- 6. Min Force (Deadzone Removal) ---
         // Boost small forces to overcome wheel friction
         double max_force_ref = 4000.0; 
         double norm_force = total_force / max_force_ref;

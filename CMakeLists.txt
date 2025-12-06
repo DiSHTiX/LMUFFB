@@ -26,7 +26,7 @@ if(NOT BUILD_HEADLESS)
         include_directories(${IMGUI_DIR}/backends)
         # Link DirectX libraries
         link_libraries(d3d11 d3dcompiler dxguid)
-        add_definitions(-DUNICODE -D_UNICODE)
+        add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX)
     else()
         message(FATAL_ERROR "ImGui not found in vendor/imgui. To build headless, use -DBUILD_HEADLESS=ON.")
     endif()

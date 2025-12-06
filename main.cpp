@@ -53,7 +53,8 @@ void FFBThread() {
         if (g_ffb_active && g_pTelemetry) {
             double force = 0.0;
             {
-                // Lock only if we are changing settings often, otherwise std::atomic for settings is better.
+                // PROTECT SETTINGS: Use mutex because GUI modifies engine parameters
+                std::lock_guard<std::mutex> lock(g_engine_mutex);
                 force = g_engine.calculate_force(g_pTelemetry);
             }
 

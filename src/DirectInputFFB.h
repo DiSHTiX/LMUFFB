@@ -57,6 +57,8 @@ private:
     
     // Internal helper to create the Constant Force effect
     bool CreateEffect();
+
+    long m_last_force = -999999; 
 };
 
 #endif // DIRECTINPUTFFB_H

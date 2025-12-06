@@ -11,6 +11,7 @@
 - [ ] **DirectInput Support**: Replace vJoy with native DirectInput "Constant Force" packets.
 - [ ] **Advanced Filtering**: Implement Bi-Quad filters (Low Pass / High Pass) for better road texture isolation.
 - [ ] **Telemetry Analysis**: Add visual graphs to the GUI showing the raw vs. filtered signal.
+- [ ] **Telemetry Logging**: Investigate and implement CSV logging. See `docs/telemetry_logging_investigation.md`.
 
 ## Backlog / Wishlist
 - [ ] **Wheel Profiles**: Save/Load settings per car or wheel base.
