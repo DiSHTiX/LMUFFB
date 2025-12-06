@@ -6,7 +6,7 @@ Experimental alpha version.
 
 ## Architecture
 
-The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via Shared Memory and calculates a synthetic Force Feedback signal to send to a vJoy device.
+The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via Shared Memory and calculates a synthetic Force Feedback signal to send to DirectInput.
 
 ## Features
 
