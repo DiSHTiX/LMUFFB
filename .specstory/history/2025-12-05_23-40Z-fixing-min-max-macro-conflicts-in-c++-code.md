@@ -547,3 +547,129 @@ Would you like me to help with any of these options, or is the build now complet
 
 ---
 
+_**User (2025-12-06 00:38Z)**_
+
+Please update the readme file with instruction for installation , for the final users. Mention that the dll should be in the same folder as the exe file, or in a recognized path.
+
+---
+
+_**Agent (model copilot/claude-haiku-4.5)**_
+
+<tool-use data-tool-type="read" data-tool-name="copilot_readFile">
+<details>
+<summary>Tool use: **copilot_readFile** • Reading [](file:///c%3A/dev/personal/LMUFFB/README.md)</summary>
+
+
+Read [](file:///c%3A/dev/personal/LMUFFB/README.md)
+
+</details>
+</tool-use>
+
+---
+
+<tool-use data-tool-type="unknown" data-tool-name="copilot_replaceString">
+<details>
+<summary>Tool use: **copilot_replaceString**</summary>
+
+Additional data:
+
+```json
+{
+  "vscodeToolId": "copilot_replaceString",
+  "isHidden": true
+}
+```
+Result:
+
+```json
+{
+  "invocationMessage": "Using \"Replace String in File\"",
+  "isConfirmed": {
+    "type": 1
+  },
+  "content": "&#96;&#96;&#96;markdown\n## Documentation\r\n\r\n*   [FFB Customization Guide](docs/ffb_customization.md)\r\n*   [GUI Framework Options](docs/gui_framework_options.md)\r\n*   [DirectInput Implementation Guide](docs/directinput_implementation.md)\r\n*   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)\r\n*   [Licensing &amp; Redistribution](docs/licensing.md)\r\n*   [Python Prototype &amp; Porting Guides](docs/python_version/)\r\n\r\n## Installation (End Users)\r\n\r\n### Prerequisites\r\n*   **vJoy Driver**: Install version **2.1.9.1** (by jshafer817) or compatible. Download from [vJoy releases](https://github.com/jshafer817/vJoy/releases) or the [vJoy Compatibility Guide](docs/vjoy_compatibility.md).\r\n*   **rFactor 2 / Le Mans Ultimate**: The game must be installed.\r\n*   **rF2 Shared Memory Plugin**: Download and install from [the plugin repository](https://github.com/dallasformula/rF2SharedMemoryMapPlugin) into your &#96;Le Mans Ultimate/Plugins&#96; folder.\r\n\r\n### Running LMUFFB\r\n\r\n1.  **Download** the latest release of &#96;LMUFFB.exe&#96; from the [Releases](../../releases) page.\r\n2.  **Extract** the archive to your desired location.\r\n3.  **Important**: Ensure &#96;vJoyInterface.dll&#96; is in the same folder as &#96;LMUFFB.exe&#96;. \r\n    - If the build process copied it automatically, it should already be there.\r\n    - If not, manually copy &#96;vJoyInterface.dll&#96; from &#96;C:\\Program Files\\vJoy\\SDK\\lib\\amd64\\&#96; (for 64-bit) or &#96;C:\\Program Files\\vJoy\\SDK\\lib\\&#96; (for 32-bit) to the folder containing &#96;LMUFFB.exe&#96;.\r\n    - Alternatively, ensure &#96;vJoyInterface.dll&#96; is in a system PATH directory (e.g., &#96;System32&#96;).\r\n4.  **Start rFactor 2 / Le Mans Ultimate** and load a race.\r\n5.  **Run &#96;LMUFFB.exe&#96;**. A GUI window should appear with tuning sliders.\r\n6.  **Configure your wheel** in the GUI and enjoy force feedback!\r\n\r\n### Troubleshooting\r\n\r\n- **\"vJoyInterface.dll not found\"**: Ensure the DLL is in the same folder as the executable or in your system PATH.\r\n- **\"Could not open file mapping object\"**: This is normal if the game isn't running. Start rFactor 2 / Le Mans Ultimate first.\r\n- **No force feedback**: Check that vJoy is installed and the rF2 Shared Memory Plugin is enabled in the game.\r\n\r\n\n&#96;&#96;&#96;\n\n",
+  "textEditContent": "## Documentation\r\n\r\n*   [FFB Customization Guide](docs/ffb_customization.md)\r\n*   [GUI Framework Options](docs/gui_framework_options.md)\r\n*   [DirectInput Implementation Guide](docs/directinput_implementation.md)\r\n*   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)\r\n*   [Licensing &amp; Redistribution](docs/licensing.md)\r\n*   [Python Prototype &amp; Porting Guides](docs/python_version/)\r\n\r\n## Installation (End Users)\r\n\r\n### Prerequisites\r\n*   **vJoy Driver**: Install version **2.1.9.1** (by jshafer817) or compatible. Download from [vJoy releases](https://github.com/jshafer817/vJoy/releases) or the [vJoy Compatibility Guide](docs/vjoy_compatibility.md).\r\n*   **rFactor 2 / Le Mans Ultimate**: The game must be installed.\r\n*   **rF2 Shared Memory Plugin**: Download and install from [the plugin repository](https://github.com/dallasformula/rF2SharedMemoryMapPlugin) into your &#96;Le Mans Ultimate/Plugins&#96; folder.\r\n\r\n### Running LMUFFB\r\n\r\n1.  **Download** the latest release of &#96;LMUFFB.exe&#96; from the [Releases](../../releases) page.\r\n2.  **Extract** the archive to your desired location.\r\n3.  **Important**: Ensure &#96;vJoyInterface.dll&#96; is in the same folder as &#96;LMUFFB.exe&#96;. \r\n    - If the build process copied it automatically, it should already be there.\r\n    - If not, manually copy &#96;vJoyInterface.dll&#96; from &#96;C:\\Program Files\\vJoy\\SDK\\lib\\amd64\\&#96; (for 64-bit) or &#96;C:\\Program Files\\vJoy\\SDK\\lib\\&#96; (for 32-bit) to the folder containing &#96;LMUFFB.exe&#96;.\r\n    - Alternatively, ensure &#96;vJoyInterface.dll&#96; is in a system PATH directory (e.g., &#96;System32&#96;).\r\n4.  **Start rFactor 2 / Le Mans Ultimate** and load a race.\r\n5.  **Run &#96;LMUFFB.exe&#96;**. A GUI window should appear with tuning sliders.\r\n6.  **Configure your wheel** in the GUI and enjoy force feedback!\r\n\r\n### Troubleshooting\r\n\r\n- **\"vJoyInterface.dll not found\"**: Ensure the DLL is in the same folder as the executable or in your system PATH.\r\n- **\"Could not open file mapping object\"**: This is normal if the game isn't running. Start rFactor 2 / Le Mans Ultimate first.\r\n- **No force feedback**: Check that vJoy is installed and the rF2 Shared Memory Plugin is enabled in the game.\r\n\r\n",
+  "toolCallResult": null
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+---
+
+Let me read the current README file first: Now I'll add an Installation section for end users after the Building section: Done! I've added a comprehensive "Installation (End Users)" section to the README that includes:
+- Prerequisites for end users
+- Step-by-step instructions for running LMUFFB
+- **Explicit instructions about the DLL** - emphasizing that `vJoyInterface.dll` must be in the same folder as the executable or in a system PATH directory
+- Troubleshooting tips for common issues
+
+---
+
+_**User (2025-12-06 00:40Z)**_
+
+Please also update this TODO.md so that it is better formatted and more professional.
+
+---
+
+_**Agent (model copilot/claude-haiku-4.5)**_
+
+<tool-use data-tool-type="read" data-tool-name="copilot_readFile">
+<details>
+<summary>Tool use: **copilot_readFile** • Reading [](file:///c%3A/dev/personal/LMUFFB/TODO.md)</summary>
+
+
+Read [](file:///c%3A/dev/personal/LMUFFB/TODO.md)
+
+</details>
+</tool-use>
+
+---
+
+<tool-use data-tool-type="unknown" data-tool-name="copilot_replaceString">
+<details>
+<summary>Tool use: **copilot_replaceString**</summary>
+
+Additional data:
+
+```json
+{
+  "vscodeToolId": "copilot_replaceString",
+  "isHidden": true
+}
+```
+Result:
+
+```json
+{
+  "invocationMessage": "Using \"Replace String in File\"",
+  "isConfirmed": {
+    "type": 1
+  },
+  "content": "&#96;&#96;&#96;markdown\n# LMUFFB - Development Roadmap\r\n\r\n## High Priority\r\n\r\n### Core Functionality\r\n- [ ] **Configuration Persistence**\r\n  - Add \"Save Configuration\" button to export current slider settings to JSON\r\n  - Add \"Reset to Defaults\" button to restore initial app settings\r\n  - Implement auto-load of last used configuration on startup\r\n  - Store configurations in &#96;%APPDATA%/LMUFFB/&#96; directory\r\n\r\n- [ ] **User Feedback &amp; Error Handling**\r\n  - Display game connection errors as GUI notifications instead of console output\r\n  - Show modal dialog when game is not running (if GUI enabled)\r\n  - Display connection status indicator in the GUI window\r\n  - Implement error retry mechanism with visual feedback\r\n\r\n- [ ] **Change Log**\r\n  - Create &#96;CHANGELOG.md&#96; file tracking all releases and major commits\r\n  - Follow semantic versioning (v1.0.0 format)\r\n  - Document new features, bug fixes, and breaking changes per release\r\n\r\n## Medium Priority\r\n\r\n### UI Enhancements\r\n- [ ] Add tooltips to all GUI sliders explaining their purpose\r\n- [ ] Implement presets system (e.g., \"Street\", \"Racing\", \"Smooth\" profiles)\r\n- [ ] Add real-time telemetry display window\r\n- [ ] Status bar showing game connection state and FFB output level\r\n\r\n### Performance &amp; Stability\r\n- [ ] Profile and optimize FFB calculation loop\r\n- [ ] Add configurable FFB update rate (currently ~400Hz)\r\n- [ ] Implement graceful shutdown when game disconnects\r\n- [ ] Add logging system for debugging (optional file output)\r\n\r\n## Lower Priority\r\n\r\n### Advanced Features\r\n- [ ] DirectInput wheel support (alternative to vJoy)\r\n- [ ] Custom effect sequencing\r\n- [ ] Telemetry recording and playback\r\n- [ ] Network multiplayer FFB sharing\r\n- [ ] Integration with other racing simulators (iRacing, Assetto Corsa, etc.)\r\n\r\n## Completed\r\n\r\n- [x] C++ port from Python prototype\r\n- [x] Multi-threaded FFB and GUI loops\r\n- [x] ImGui integration with real-time sliders\r\n- [x] Cross-platform vJoy library detection (32-bit / 64-bit)\r\n- [x] Automated DLL deployment in build process\r\n- [x] Installation documentation for end users\n&#96;&#96;&#96;\n\n",
+  "textEditContent": "# LMUFFB - Development Roadmap\r\n\r\n## High Priority\r\n\r\n### Core Functionality\r\n- [ ] **Configuration Persistence**\r\n  - Add \"Save Configuration\" button to export current slider settings to JSON\r\n  - Add \"Reset to Defaults\" button to restore initial app settings\r\n  - Implement auto-load of last used configuration on startup\r\n  - Store configurations in &#96;%APPDATA%/LMUFFB/&#96; directory\r\n\r\n- [ ] **User Feedback &amp; Error Handling**\r\n  - Display game connection errors as GUI notifications instead of console output\r\n  - Show modal dialog when game is not running (if GUI enabled)\r\n  - Display connection status indicator in the GUI window\r\n  - Implement error retry mechanism with visual feedback\r\n\r\n- [ ] **Change Log**\r\n  - Create &#96;CHANGELOG.md&#96; file tracking all releases and major commits\r\n  - Follow semantic versioning (v1.0.0 format)\r\n  - Document new features, bug fixes, and breaking changes per release\r\n\r\n## Medium Priority\r\n\r\n### UI Enhancements\r\n- [ ] Add tooltips to all GUI sliders explaining their purpose\r\n- [ ] Implement presets system (e.g., \"Street\", \"Racing\", \"Smooth\" profiles)\r\n- [ ] Add real-time telemetry display window\r\n- [ ] Status bar showing game connection state and FFB output level\r\n\r\n### Performance &amp; Stability\r\n- [ ] Profile and optimize FFB calculation loop\r\n- [ ] Add configurable FFB update rate (currently ~400Hz)\r\n- [ ] Implement graceful shutdown when game disconnects\r\n- [ ] Add logging system for debugging (optional file output)\r\n\r\n## Lower Priority\r\n\r\n### Advanced Features\r\n- [ ] DirectInput wheel support (alternative to vJoy)\r\n- [ ] Custom effect sequencing\r\n- [ ] Telemetry recording and playback\r\n- [ ] Network multiplayer FFB sharing\r\n- [ ] Integration with other racing simulators (iRacing, Assetto Corsa, etc.)\r\n\r\n## Completed\r\n\r\n- [x] C++ port from Python prototype\r\n- [x] Multi-threaded FFB and GUI loops\r\n- [x] ImGui integration with real-time sliders\r\n- [x] Cross-platform vJoy library detection (32-bit / 64-bit)\r\n- [x] Automated DLL deployment in build process\r\n- [x] Installation documentation for end users",
+  "toolCallResult": null
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+---
+
+Let me read the `TODO.md` file first: Now I'll reformat this into a professional TODO/Roadmap format: Done! I've completely restructured the `TODO.md` file into a professional development roadmap with:
+
+- **Clear hierarchical organization** - High, Medium, and Lower Priority sections
+- **Structured task formatting** - Each item uses checkbox syntax and descriptive titles
+- **Detailed descriptions** - Specific implementation details for each task
+- **Completed section** - Acknowledging finished work
+- **Professional presentation** - Proper markdown formatting and consistent structure
+
+This is now a proper project roadmap that's easy to track and reference.
+
+---
+
