@@ -51,14 +51,6 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 - **"Could not open file mapping object"**: This is normal if the game isn't running. Start rFactor 2 / Le Mans Ultimate first.
 - **No force feedback**: Check that vJoy is installed and the rF2 Shared Memory Plugin is enabled in the game.
 
-
-
-### Prerequisites
-
-*   **vJoy**: Must be installed and configured.
-*   **rFactor 2 Shared Memory Map Plugin**: Must be installed in `Le Mans Ultimate/Plugins` and enabled.
-
-
 ## Frequently Asked Questions (FAQ)
 
 ### 1. Does this override the in-game FFB settings?
@@ -75,7 +67,9 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
     *   Configure one device with at least **one axis (X)**.
     *   Ensure "Enable Force Feedback" is checked in vJoy configuration if available (though LMUFFB talks to your physical wheel via the bridge or directly).
 *   **LMUFFB**:
-    *   Select your **Physical Wheel** if a device selector is implemented (currently it drives vJoy, which requires a "feeder" or mapping software like vJoyFeeder or SimHub to bridge back to your physical wheel if not using DirectInput mode). *Note: The current C++ version outputs to vJoy. You need a bridge (like vJoy's own feeder or binding vJoy as the game input) to close the loop.*
+    *   Currently, the application calculates the force and updates the **vJoy Axis**. 
+    *   **Crucial Limitation**: The current version effectively visualizes the force on a virtual axis but **does not yet drive the physical wheel's motor**. To actually feel the force, a **DirectInput** implementation is required (planned for v0.2) or a specialized vJoy-to-DirectInput bridge.
+    *   **Does it work now?**: It works as a telemetry analyzer and logic prototype. You can see the sliders moving the vJoy bars in "Monitor vJoy". You will **not** feel force in your hands until the DirectInput feature is completed.
 
 ## Building
 

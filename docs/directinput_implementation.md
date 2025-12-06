@@ -4,10 +4,12 @@ This document outlines the technical steps required to transition LMUFFB from a 
 
 ## 1. Overview
 
-Currently, LMUFFB acts as a virtual joystick (`vJoy`). The game must map its steering axis to this virtual device.
-In a **DirectInput** implementation, the game continues to use the physical wheel for inputs (Steering/Pedals). LMUFFB opens the physical wheel as a separate "FFB-only" client and sends force commands.
+**Priority: CRITICAL / REQUIRED**
 
-*Note: For the current vJoy implementation, version compatibility is critical. See [vJoy Compatibility](vjoy_compatibility.md).*
+Currently, LMUFFB acts as a virtual joystick (`vJoy`) and maps the calculated force to the **Axis Position**. This visualizes the force but does **not** drive the physical motors of a user's steering wheel.
+To function as a true Force Feedback application (like iRFFB or Marvin's AIRA), LMUFFB **must** implement a DirectInput client that opens the physical wheel and sends `Constant Force` packets.
+
+*Hypothetical Feature Note: Implementing DirectInput correctly is complex due to device enumeration, exclusive locking (cooperative levels), and handling lost devices. It effectively turns the app into a specialized driver client.*
 
 ## 2. Technical Requirements
 

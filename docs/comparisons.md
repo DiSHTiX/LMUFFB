@@ -35,9 +35,10 @@ LMUFFB draws inspiration from established tools in the sim racing community. Her
 | Feature | iRFFB | Marvin's AIRA | LMUFFB (C++) |
 | :--- | :--- | :--- | :--- |
 | **Telemetry Rate** | 60Hz / 360Hz | 60Hz / 360Hz | **400Hz** |
+| **FFB Output Method** | **DirectInput** (Direct Mode) | **DirectInput** | *vJoy Axis (Current)* / **DirectInput** (Future) |
+| **vJoy Usage** | Optional (for Input Upsampling) | No | Required (Currently) |
 | **Latency** | Low | Low | **Ultra-Low (Native C++)** |
 | **Grip Loss Feel** | Calc. from Slip | Calc. from Slip | **Direct Grip Telemetry** |
 | **SoP Effect** | Yes | Yes | **Yes (Lateral G)** |
 | **Road Texture** | No (Pass-thru) | **Yes (Boosted)** | **Yes (Suspension Delta)** |
-| **GUI** | Full GUI | Advanced GUI | **Planned (ImGui)** |
-| **Logging** | Yes | Yes | No (Use DAMPlugin) |
+| **GUI** | Full GUI | Advanced GUI | **Yes (Dear ImGui)** |
