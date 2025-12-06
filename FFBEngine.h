@@ -17,6 +17,15 @@ public:
     float m_sop_effect = 0.5f;    // 0.0 - 1.0 (Lateral G injection strength)
     float m_min_force = 0.0f;     // 0.0 - 0.20 (Deadzone removal)
     
+    // New Effects (v0.2)
+    float m_oversteer_boost = 0.0f; // 0.0 - 1.0 (Rear grip loss boost)
+    
+    bool m_lockup_enabled = false;
+    float m_lockup_gain = 0.5f;
+    
+    bool m_spin_enabled = false;
+    float m_spin_gain = 0.5f;
+
     // Texture toggles
     bool m_slide_texture_enabled = true;
     float m_slide_texture_gain = 0.5f; // 0.0 - 1.0
@@ -53,8 +62,52 @@ public:
         double lat_g = data->mLocalAccel.x / 9.81;
         double sop_force = lat_g * m_sop_effect * 1000.0; // Base scaling needs tuning
         
+        // Oversteer Boost: If Rear Grip < Front Grip (car is rotating), boost SoP
+        double grip_rl = data->mWheels[2].mGripFract;
+        double grip_rr = data->mWheels[3].mGripFract;
+        double avg_rear_grip = (grip_rl + grip_rr) / 2.0;
+        
+        // Delta between front and rear grip
+        // If front has 1.0 grip and rear has 0.5, delta is 0.5. Boost SoP.
+        double grip_delta = avg_grip - avg_rear_grip;
+        if (grip_delta > 0.0) {
+            sop_force *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
+        }
+
         double total_force = output_force + sop_force;
         
+        // --- 2b. Lockup Rumble ---
+        if (m_lockup_enabled && data->mUnfilteredBrake > 0.05) {
+            // Check for negative SlipRatio (Locking)
+            // Typically -1.0 is full lock. Let's say < -0.2 is noticeable slip.
+            // Using FL/FR
+            double slip_fl = data->mWheels[0].mSlipRatio;
+            double slip_fr = data->mWheels[1].mSlipRatio;
+            
+            if (slip_fl < -0.2 || slip_fr < -0.2) {
+                // High freq rumble (Square wave)
+                double time = data->mElapsedTime;
+                double rumble = (static_cast<int>(time * 60.0) % 2 == 0) ? m_lockup_gain * 500.0 : -m_lockup_gain * 500.0;
+                total_force += rumble;
+            }
+        }
+
+        // --- 2c. Wheel Spin Rumble ---
+        if (m_spin_enabled && data->mUnfilteredThrottle > 0.05) {
+            // Check for positive SlipRatio (Spinning)
+            // Using RL/RR (Assuming RWD for now, or just check all driven wheels if we knew drivetrain)
+            // Let's check Rear for now as LMU is mostly GTE/Hypercar (RWD/AWD)
+            double slip_rl = data->mWheels[2].mSlipRatio;
+            double slip_rr = data->mWheels[3].mSlipRatio;
+            
+            if (slip_rl > 0.2 || slip_rr > 0.2) {
+                // Medium freq rumble
+                double time = data->mElapsedTime;
+                double rumble = (static_cast<int>(time * 40.0) % 2 == 0) ? m_spin_gain * 400.0 : -m_spin_gain * 400.0;
+                total_force += rumble;
+            }
+        }
+
         // --- 3. Slide Texture (Detail Booster) ---
         if (m_slide_texture_enabled) {
             // Simple noise generator triggered by slip angle or grip loss

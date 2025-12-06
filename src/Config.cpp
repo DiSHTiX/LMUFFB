@@ -11,6 +11,11 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "understeer=" << engine.m_understeer_effect << "\n";
         file << "sop=" << engine.m_sop_effect << "\n";
         file << "min_force=" << engine.m_min_force << "\n";
+        file << "oversteer_boost=" << engine.m_oversteer_boost << "\n";
+        file << "lockup_enabled=" << engine.m_lockup_enabled << "\n";
+        file << "lockup_gain=" << engine.m_lockup_gain << "\n";
+        file << "spin_enabled=" << engine.m_spin_enabled << "\n";
+        file << "spin_gain=" << engine.m_spin_gain << "\n";
         file << "slide_enabled=" << engine.m_slide_texture_enabled << "\n";
         file << "slide_gain=" << engine.m_slide_texture_gain << "\n";
         file << "road_enabled=" << engine.m_road_texture_enabled << "\n";
@@ -42,6 +47,16 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "understeer") engine.m_understeer_effect = std::stof(value);
                     else if (key == "sop") engine.m_sop_effect = std::stof(value);
                     else if (key == "min_force") engine.m_min_force = std::stof(value);
+                    else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
+                    else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
+                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
+                    else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
+                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
+                    else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
+                    else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
+                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
+                    else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
+                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
                     else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
                     else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
                     else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);

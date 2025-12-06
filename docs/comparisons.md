@@ -41,6 +41,8 @@ LMUFFB draws inspiration from established tools in the sim racing community. Her
 | **Grip Loss Feel** | Calc. from Slip | Calc. from Slip | **Direct Grip Telemetry** |
 | **SoP Effect** | Yes | Yes | **Yes (Lateral G)** |
 | **Road Texture** | No (Pass-thru) | **Yes (Boosted)** | **Yes (Suspension Delta)** |
+| **Braking Lockup** | No | **Pedal Haptics** | **Yes (Wheel Rumble)** |
+| **Wheel Spin** | No | **Pedal Haptics** | **Yes (Wheel Rumble)** |
 | **GUI** | Full GUI | Advanced GUI | **Yes (Dear ImGui)** |
 
 ## DirectInput Implementation Deep Dive

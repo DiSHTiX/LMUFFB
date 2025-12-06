@@ -174,6 +174,19 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Text("Effects");
     ImGui::SliderFloat("Understeer (Grip)", &engine.m_understeer_effect, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("SoP (Lateral G)", &engine.m_sop_effect, 0.0f, 2.0f, "%.2f");
+    ImGui::SliderFloat("Oversteer Boost", &engine.m_oversteer_boost, 0.0f, 1.0f, "%.2f");
+
+    ImGui::Separator();
+    ImGui::Text("Haptics");
+    ImGui::Checkbox("Lockup Rumble", &engine.m_lockup_enabled);
+    if (engine.m_lockup_enabled) {
+        ImGui::SameLine(); ImGui::SliderFloat("##Lockup", &engine.m_lockup_gain, 0.0f, 1.0f);
+    }
+    
+    ImGui::Checkbox("Wheel Spin Rumble", &engine.m_spin_enabled);
+    if (engine.m_spin_enabled) {
+        ImGui::SameLine(); ImGui::SliderFloat("##Spin", &engine.m_spin_gain, 0.0f, 1.0f);
+    }
 
     ImGui::Separator();
     ImGui::Text("Textures");

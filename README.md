@@ -116,7 +116,8 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 
 ## Documentation
 
-*   [FFB Customization Guide](docs/ffb_customization.md)
+*   [FFB Effects & Customization Guide](docs/ffb_effects.md)
+*   [FFB Customization Guide (Legacy)](docs/ffb_customization.md)
 *   [GUI Framework Options](docs/gui_framework_options.md)
 *   [DirectInput Implementation Guide](docs/directinput_implementation.md)
 *   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
