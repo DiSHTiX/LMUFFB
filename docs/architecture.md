@@ -2,6 +2,10 @@
 
 LMUFFB uses a multi-threaded architecture implemented in C++ to ensure minimal latency for the Force Feedback signal while allowing for future GUI expansion.
 
+## Deign choices
+
+The app follows best practices for real-time signal generation. A recent update transitioned some remaining "canned" effects to physics-based audio/haptics (Phase Integration).
+
 ## High-Level Pipeline
 
 ```
