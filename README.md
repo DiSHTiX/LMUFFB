@@ -58,7 +58,7 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 ### 1. Does this override the in-game FFB settings?
 **Yes and No.**
 *   **Yes**: LMUFFB generates its own Force Feedback signal derived from telemetry. To feel *only* this signal, you must bind your game's steering axis to the **vJoy Device** (not your physical wheel). In this scenario, the game sends no FFB to your physical wheel directly; LMUFFB handles it all.
-*   **Alternatively**: If you use DirectInput mode (future feature) or mix effects, you might layer them. But the standard usage is to let LMUFFB drive the wheel.
+*   **Alternatively**: If you use DirectInput mode or mix effects, you might layer them. But the standard usage is to let LMUFFB drive the wheel.
 *   **Wheelbase Software**: Your physical wheel's driver (e.g., Fanatec Control Panel, Logitech G-Hub) **still applies**. You should set your max rotation (e.g., 900°) and overall strength there. LMUFFB sends a "constant force" command, which the driver then executes.
 
 ### 2. What do I configure?
@@ -69,7 +69,7 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
     *   Configure one device with at least **one axis (X)**.
     *   Ensure "Enable Force Feedback" is checked in vJoy configuration if available (though LMUFFB talks to your physical wheel via the bridge or directly).
 *   **LMUFFB**:
-    *   **DirectInput Mode (Recommended)**: Select your **Physical Wheel** in the GUI "FFB Device" dropdown. LMUFFB will send force feedback directly to your wheel motors. You still use vJoy for the steering input axis in-game, but the FFB bypasses vJoy.
+    *   **DirectInput Mode (Recommended)**: Select your **Physical Wheel** in the GUI "FFB Device" dropdown. LMUFFB will send force feedback directly to your wheel motors.
     *   **vJoy Mode (Legacy/Monitoring)**: If no device is selected, LMUFFB updates the vJoy axis. This is useful for debugging or if you use a separate tool to bridge vJoy to your wheel.
 
 ## Building
