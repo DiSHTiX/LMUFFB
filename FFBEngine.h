@@ -53,6 +53,18 @@ public:
 
         double game_force = data->mSteeringArmForce;
 
+        // --- PRE-CALCULATION: TIRE LOAD FACTOR ---
+        // Calculate this once to use across multiple effects.
+        // Heavier load = stronger vibration transfer.
+        double avg_load = (fl.mTireLoad + fr.mTireLoad) / 2.0;
+        
+        // Normalize: 4000N is a reference "loaded" GT tire.
+        double load_factor = avg_load / 4000.0;
+        
+        // SAFETY CLAMP: Cap at 1.5x to prevent violent jolts during high-compression
+        // or hard clipping when the user already has high gain.
+        load_factor = (std::min)(1.5, (std::max)(0.0, load_factor));
+
         // --- 1. Understeer Effect (Grip Modulation) ---
         // Grip Fraction (Average of front tires)
         double grip_l = fl.mGripFract;
@@ -216,6 +228,10 @@ public:
             
             // Amplify sudden changes
             double road_noise = (delta_l + delta_r) * 5000.0 * m_road_texture_gain; 
+            
+            // Apply LOAD FACTOR: Bumps feel harder under compression
+            road_noise *= load_factor;
+
             total_force += road_noise;
         }
 
