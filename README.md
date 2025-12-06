@@ -67,9 +67,8 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
     *   Configure one device with at least **one axis (X)**.
     *   Ensure "Enable Force Feedback" is checked in vJoy configuration if available (though LMUFFB talks to your physical wheel via the bridge or directly).
 *   **LMUFFB**:
-    *   Currently, the application calculates the force and updates the **vJoy Axis**. 
-    *   **Crucial Limitation**: The current version effectively visualizes the force on a virtual axis but **does not yet drive the physical wheel's motor**. To actually feel the force, a **DirectInput** implementation is required (planned for v0.2) or a specialized vJoy-to-DirectInput bridge.
-    *   **Does it work now?**: It works as a telemetry analyzer and logic prototype. You can see the sliders moving the vJoy bars in "Monitor vJoy". You will **not** feel force in your hands until the DirectInput feature is completed.
+    *   **DirectInput Mode (Recommended)**: Select your **Physical Wheel** in the GUI "FFB Device" dropdown. LMUFFB will send force feedback directly to your wheel motors. You still use vJoy for the steering input axis in-game, but the FFB bypasses vJoy.
+    *   **vJoy Mode (Legacy/Monitoring)**: If no device is selected, LMUFFB updates the vJoy axis. This is useful for debugging or if you use a separate tool to bridge vJoy to your wheel.
 
 ## Building
 
@@ -121,4 +120,5 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 *   [GUI Framework Options](docs/gui_framework_options.md)
 *   [DirectInput Implementation Guide](docs/directinput_implementation.md)
 *   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
+*   [Comparisons with Other Apps](docs/comparisons.md)
 

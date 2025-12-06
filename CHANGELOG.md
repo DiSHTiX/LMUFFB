@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **DirectInput Support**: Implemented native FFB via DirectInput. Users can now select their physical wheel in the GUI to receive force feedback directly.
+- **Device Selection**: Added a dropdown in the GUI to enumerate and select FFB devices.
 - **GUI Error Popup**: Displays a MessageBox error if the Shared Memory Map cannot be opened (e.g., game not running), improving user feedback.
 - **Configuration Persistence**: Added `Config.h/cpp` to save and load user settings to `config.ini`.
 - **GUI Controls**: Added "Save Configuration" and "Reset Defaults" buttons to the main window.

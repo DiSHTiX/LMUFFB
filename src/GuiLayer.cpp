@@ -30,11 +30,28 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 // External linkage to FFB loop status
 extern std::atomic<bool> g_running;
 
+// Macro stringification helper
+#define XSTR(x) STR(x)
+#define STR(x) #x
+
+// If VERSION is not defined via CMake, default
+#ifndef LMUFFB_VERSION
+#define LMUFFB_VERSION "Dev"
+#endif
+
 bool GuiLayer::Init() {
     // Create Application Window
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"LMUFFB", NULL };
     ::RegisterClassExW(&wc);
-    g_hwnd = ::CreateWindowW(wc.lpszClassName, L"LMUFFB v0.1", WS_OVERLAPPEDWINDOW, 100, 100, 800, 600, NULL, NULL, wc.hInstance, NULL);
+    
+    // Construct Title with Version
+    // We need wide string for CreateWindowW. 
+    // Simplified conversion for version string (assumes ASCII version)
+    std::string ver = LMUFFB_VERSION;
+    std::wstring wver(ver.begin(), ver.end());
+    std::wstring title = L"LMUFFB v" + wver;
+
+    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, 100, 100, 800, 600, NULL, NULL, wc.hInstance, NULL);
 
     // Initialize Direct3D
     if (!CreateDeviceD3D(g_hwnd)) {
@@ -117,7 +134,8 @@ bool GuiLayer::Render(FFBEngine& engine) {
 
 void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     // Show Version in title bar or top text
-    ImGui::Begin("LMUFFB v0.1 - FFB Configuration");
+    std::string title = std::string("LMUFFB v") + LMUFFB_VERSION + " - FFB Configuration";
+    ImGui::Begin(title.c_str());
 
     ImGui::Text("Core Settings");
     

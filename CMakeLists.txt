@@ -52,6 +52,20 @@ add_executable(LMUFFB main.cpp rF2Data.h src/GuiLayer.cpp src/GuiLayer.h src/Con
 
 target_link_libraries(LMUFFB vJoyInterface.lib dinput8.lib dxguid.lib)
 
+# Read Version
+file(STRINGS "VERSION" LMUFFB_VERSION)
+add_definitions(-DLMUFFB_VERSION="${LMUFFB_VERSION}")
+
+# Copy Distribution Files
+add_custom_command(TARGET LMUFFB POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_SOURCE_DIR}/INSTALL.txt"
+            "$<TARGET_FILE_DIR:LMUFFB>/INSTALL.txt")
+add_custom_command(TARGET LMUFFB POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_SOURCE_DIR}/README.txt"
+            "$<TARGET_FILE_DIR:LMUFFB>/README.txt")
+
 # Copy vJoy DLL to output directory
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     # 64-bit
