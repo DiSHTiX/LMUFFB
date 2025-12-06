@@ -12,7 +12,7 @@ EXTENSIONS = {
 
 # Directories to exclude
 EXCLUDE_DIRS = {
-    'build', '.git', 'python_prototype', 'vendor', '__pycache__', '.vscode'
+    'build', '.git', 'python_prototype', 'vendor', '__pycache__', '.vscode', '.specstory'
 }
 
 # Files to exclude
