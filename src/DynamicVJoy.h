@@ -3,7 +3,15 @@
 
 #include <windows.h>
 #include <iostream>
-#include "public.h" // vJoy SDK Header
+
+// vJoy Status Enum (from vJoy SDK, defined here to avoid dependency)
+enum VjdStat {
+    VJD_STAT_OWN,   // The vJoy Device is owned by this application
+    VJD_STAT_FREE,  // The vJoy Device is free
+    VJD_STAT_BUSY,  // The vJoy Device is owned by another application
+    VJD_STAT_MISS,  // The vJoy Device is missing
+    VJD_STAT_UNKN   // Unknown
+};
 
 // Typedefs for vJoy functions
 typedef BOOL (WINAPI *vJoyEnabled_t)();
