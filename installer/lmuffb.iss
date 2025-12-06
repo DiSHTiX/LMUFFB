@@ -35,9 +35,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; The Main Executable (Must be built first)
 Source: "..\build\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; vJoy Interface DLL (Must be present in build folder)
-Source: "..\vJoyInterface.dll"; DestDir: "{app}"; Flags: ignoreversion
-; The rFactor 2 Plugin (Included in repo or build)
-Source: "..\plugins\rFactor2SharedMemoryMapPlugin64.dll"; DestDir: "{app}\PluginBackup"; Flags: ignoreversion
+Source: "..\build\Release\vJoyInterface.dll"; DestDir: "{app}"; Flags: ignoreversion
+; The rFactor 2 Plugin (Included in repo or build) - Optional
+Source: "..\\plugins\\rFactor2SharedMemoryMapPlugin64.dll"; DestDir: "{app}\\PluginBackup"; Flags: ignoreversion external skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
