@@ -58,6 +58,25 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 *   **vJoy**: Must be installed and configured.
 *   **rFactor 2 Shared Memory Map Plugin**: Must be installed in `Le Mans Ultimate/Plugins` and enabled.
 
+
+## Frequently Asked Questions (FAQ)
+
+### 1. Does this override the in-game FFB settings?
+**Yes and No.**
+*   **Yes**: LMUFFB generates its own Force Feedback signal derived from telemetry. To feel *only* this signal, you must bind your game's steering axis to the **vJoy Device** (not your physical wheel). In this scenario, the game sends no FFB to your physical wheel directly; LMUFFB handles it all.
+*   **Alternatively**: If you use DirectInput mode (future feature) or mix effects, you might layer them. But the standard usage is to let LMUFFB drive the wheel.
+*   **Wheelbase Software**: Your physical wheel's driver (e.g., Fanatec Control Panel, Logitech G-Hub) **still applies**. You should set your max rotation (e.g., 900°) and overall strength there. LMUFFB sends a "constant force" command, which the driver then executes.
+
+### 2. What do I configure?
+*   **In-Game (LMU)**:
+    *   **Controls**: Bind **Steering** to the **vJoy Device Axis** (usually X-Axis).
+    *   **FFB**: You can technically turn off in-game FFB since it's going to the vJoy device (which has no motors), but leaving it on is fine as it drives the calculation LMUFFB reads. Ideally, set "FFB Smoothing" in-game to 0 (raw) so LMUFFB gets the cleanest data.
+*   **vJoy**:
+    *   Configure one device with at least **one axis (X)**.
+    *   Ensure "Enable Force Feedback" is checked in vJoy configuration if available (though LMUFFB talks to your physical wheel via the bridge or directly).
+*   **LMUFFB**:
+    *   Select your **Physical Wheel** if a device selector is implemented (currently it drives vJoy, which requires a "feeder" or mapping software like vJoyFeeder or SimHub to bridge back to your physical wheel if not using DirectInput mode). *Note: The current C++ version outputs to vJoy. You need a bridge (like vJoy's own feeder or binding vJoy as the game input) to close the loop.*
+
 ## Building
 
 ### Prerequisites for all methods

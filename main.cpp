@@ -8,6 +8,7 @@
 #include "rF2Data.h"
 #include "FFBEngine.h"
 #include "src/GuiLayer.h"
+#include "src/Config.h"
 
 // vJoy Interface Headers (Assume user has these in include path)
 #include "public.h"
@@ -73,11 +74,14 @@ void FFBThread() {
 int main() {
     std::cout << "Starting LMUFFB (C++ Port)..." << std::endl;
 
+    // Load Configuration
+    Config::Load(g_engine);
+
     // 1. Setup Shared Memory
     HANDLE hMapFile = OpenFileMappingA(FILE_MAP_READ, FALSE, SHARED_MEMORY_NAME);
     if (hMapFile == NULL) {
         std::cerr << "Could not open file mapping object. Ensure game is running." << std::endl;
-        // In a real app, show a popup and wait for game
+        MessageBoxA(NULL, "Could not open file mapping object.\n\nEnsure Le Mans Ultimate is running and the Shared Memory Plugin is enabled.", "LMUFFB Error", MB_ICONERROR | MB_OK);
         return 1;
     }
 
@@ -112,6 +116,9 @@ int main() {
         }
     }
     
+    // Save Config on Exit
+    Config::Save(g_engine);
+
     // Cleanup
     GuiLayer::Shutdown();
     if (ffb_thread.joinable()) ffb_thread.join();

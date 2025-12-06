@@ -1,4 +1,5 @@
 #include "GuiLayer.h"
+#include "Config.h"
 #include <iostream>
 
 #ifdef ENABLE_IMGUI
@@ -142,6 +143,24 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     // or we just show the static gain for now. A real app needs a shared state for 'last_output_force')
     // ImGui::ProgressBar((float)engine.last_force, ImVec2(0.0f, 0.0f)); 
     ImGui::Text("Clipping Visualization Placeholder");
+
+    ImGui::Separator();
+    if (ImGui::Button("Save Configuration")) {
+        Config::Save(engine);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Defaults")) {
+        // Reset Logic
+        engine.m_gain = 1.0f;
+        engine.m_smoothing = 0.5f;
+        engine.m_understeer_effect = 1.0f;
+        engine.m_sop_effect = 0.5f;
+        engine.m_min_force = 0.0f;
+        engine.m_slide_texture_enabled = true;
+        engine.m_slide_texture_gain = 0.5f;
+        engine.m_road_texture_enabled = false;
+        engine.m_road_texture_gain = 0.5f;
+    }
 
     ImGui::End();
 }

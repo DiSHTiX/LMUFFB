@@ -22,3 +22,6 @@ vendor/imgui/**
 !vendor/imgui/README.md
 
 
+python_prototype/LMUFFB/__pycache__/ffb_engine.cpython-312.pyc
+python_prototype/LMUFFB/__pycache__/ffb_output.cpython-312.pyc
+python_prototype/LMUFFB/__pycache__/shared_memory.cpython-312.pyc

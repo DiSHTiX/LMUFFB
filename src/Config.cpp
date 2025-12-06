@@ -1,0 +1,56 @@
+#include "Config.h"
+#include <fstream>
+#include <sstream>
+#include <iostream>
+
+void Config::Save(const FFBEngine& engine, const std::string& filename) {
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        file << "gain=" << engine.m_gain << "\n";
+        file << "smoothing=" << engine.m_smoothing << "\n";
+        file << "understeer=" << engine.m_understeer_effect << "\n";
+        file << "sop=" << engine.m_sop_effect << "\n";
+        file << "min_force=" << engine.m_min_force << "\n";
+        file << "slide_enabled=" << engine.m_slide_texture_enabled << "\n";
+        file << "slide_gain=" << engine.m_slide_texture_gain << "\n";
+        file << "road_enabled=" << engine.m_road_texture_enabled << "\n";
+        file << "road_gain=" << engine.m_road_texture_gain << "\n";
+        file.close();
+        std::cout << "[Config] Saved to " << filename << std::endl;
+    } else {
+        std::cerr << "[Config] Failed to save to " << filename << std::endl;
+    }
+}
+
+void Config::Load(FFBEngine& engine, const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cout << "[Config] No config found, using defaults." << std::endl;
+        return;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream is_line(line);
+        std::string key;
+        if (std::getline(is_line, key, '=')) {
+            std::string value;
+            if (std::getline(is_line, value)) {
+                try {
+                    if (key == "gain") engine.m_gain = std::stof(value);
+                    else if (key == "smoothing") engine.m_smoothing = std::stof(value);
+                    else if (key == "understeer") engine.m_understeer_effect = std::stof(value);
+                    else if (key == "sop") engine.m_sop_effect = std::stof(value);
+                    else if (key == "min_force") engine.m_min_force = std::stof(value);
+                    else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
+                    else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
+                    else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);
+                    else if (key == "road_gain") engine.m_road_texture_gain = std::stof(value);
+                } catch (...) {
+                    std::cerr << "[Config] Error parsing line: " << line << std::endl;
+                }
+            }
+        }
+    }
+    std::cout << "[Config] Loaded from " << filename << std::endl;
+}
