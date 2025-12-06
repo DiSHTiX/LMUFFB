@@ -42,6 +42,7 @@ public:
     double m_lockup_phase = 0.0;
     double m_spin_phase = 0.0;
     double m_slide_phase = 0.0;
+    double m_bottoming_phase = 0.0;
 
     double calculate_force(const rF2Telemetry* data) {
         if (!data) return 0.0;
@@ -243,14 +244,22 @@ public:
             
             if (max_load > BOTTOM_THRESHOLD) {
                 double excess = max_load - BOTTOM_THRESHOLD;
-                // Non-linear response
-                double bump_force = std::sqrt(excess) * m_bottoming_gain * 0.5;
                 
-                // Add a simplified 50Hz oscillating "crunch" if sustained
-                // or just a direct impulse (DC offset)
-                // Let's make it a DC offset that follows the overload
-                double sign = (total_force > 0) ? 1.0 : -1.0; 
-                total_force += bump_force * sign;
+                // Non-linear response (Square root softens the initial onset)
+                double bump_magnitude = std::sqrt(excess) * m_bottoming_gain * 0.5;
+                
+                // FIX: Use a 50Hz "Crunch" oscillation instead of directional DC offset
+                double freq = 50.0; 
+                
+                // Phase Integration
+                m_bottoming_phase += freq * dt * TWO_PI;
+                if (m_bottoming_phase > TWO_PI) m_bottoming_phase -= TWO_PI;
+
+                // Generate vibration (Sine wave)
+                // This creates a heavy shudder regardless of steering direction
+                double crunch = std::sin(m_bottoming_phase) * bump_magnitude;
+                
+                total_force += crunch;
             }
         }
 

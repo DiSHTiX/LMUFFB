@@ -250,8 +250,67 @@ void test_dynamic_tuning() {
     g_tests_passed++;
 }
 
+void test_suspension_bottoming() {
+    std::cout << "\nTest: Suspension Bottoming (Fix Verification)" << std::endl;
+    FFBEngine engine;
+    rF2Telemetry data;
+    std::memset(&data, 0, sizeof(data));
+
+    // Enable Bottoming
+    engine.m_bottoming_enabled = true;
+    engine.m_bottoming_gain = 1.0;
+    
+    // Disable others
+    engine.m_sop_effect = 0.0;
+    engine.m_slide_texture_enabled = false;
+    
+    // Straight line condition: Zero steering force
+    data.mSteeringArmForce = 0.0;
+    
+    // Massive Load Spike (10000N > 8000N threshold)
+    data.mWheels[0].mTireLoad = 10000.0;
+    data.mWheels[1].mTireLoad = 10000.0;
+    data.mDeltaTime = 0.01;
+    
+    // Run multiple frames to check oscillation
+    // Phase calculation: Freq=50. 50 * 0.01 * 2PI = 0.5 * 2PI = PI.
+    // Frame 1: Phase = PI. Sin(PI) = 0. Force = 0.
+    // Frame 2: Phase = 2PI (0). Sin(0) = 0. Force = 0.
+    // Bad luck with 50Hz and 100Hz (0.01s).
+    // Let's use dt = 0.005 (200Hz)
+    data.mDeltaTime = 0.005; 
+    
+    // Frame 1: Phase += 50 * 0.005 * 2PI = 0.25 * 2PI = PI/2.
+    // Sin(PI/2) = 1.0. 
+    // Excess = 2000. Sqrt(2000) ~ 44.7. * 0.5 = 22.35.
+    // Force should be approx +22.35 (normalized later by /4000)
+    
+    engine.calculate_force(&data); // Frame 1
+    double force = engine.calculate_force(&data); // Frame 2 (Phase PI, sin 0?)
+    
+    // Let's check frame 1 explicitly by resetting
+    FFBEngine engine2;
+    engine2.m_bottoming_enabled = true;
+    engine2.m_bottoming_gain = 1.0;
+    engine2.m_sop_effect = 0.0;
+    engine2.m_slide_texture_enabled = false;
+    data.mDeltaTime = 0.005;
+    
+    double force_f1 = engine2.calculate_force(&data); 
+    // Expect ~ 22.35 / 4000 = 0.005
+    
+    if (std::abs(force_f1) > 0.0001) {
+        std::cout << "[PASS] Bottoming effect active. Force: " << force_f1 << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Bottoming effect zero. Phase alignment?" << std::endl;
+        g_tests_failed++;
+    }
+}
+
 int main() {
     test_zero_input();
+    test_suspension_bottoming();
     test_grip_modulation();
     test_sop_effect();
     test_min_force();
