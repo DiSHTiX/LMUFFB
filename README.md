@@ -133,6 +133,7 @@ To create the `LMUFFB_Setup.exe`:
 *   [FFB Customization Guide (Legacy)](docs/ffb_customization.md)
 *   [GUI Framework Options](docs/gui_framework_options.md)
 *   [DirectInput Implementation Guide](docs/directinput_implementation.md)
+*   [Telemetry Data Reference](docs/telemetry_data_reference.md)
 *   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
 *   [Comparisons with Other Apps](docs/comparisons.md)
 
