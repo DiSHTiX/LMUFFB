@@ -19,7 +19,9 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
     *   Toggles for Texture effects (Slide Rumble, Road Details).
 *   **Custom Effects**:
     *   **Grip Modulation**: Feel the wheel lighten as front tires lose grip.
-    *   **Texture Synthesis**: Synthetic road noise and slide vibration injection.
+    *   **Dynamic Oversteer**: Counter-steering force suggestion based on rear axle alignment torque.
+    *   **Progressive Lockup**: Feel the edge of tire braking limit before full lock.
+    *   **Traction Loss**: Feel the rear "float" and spin up under power.
 *   **Easy Installation**: Inno Setup installer script included to manage dependencies (vJoy, Plugins).
 
 ## Screenshot

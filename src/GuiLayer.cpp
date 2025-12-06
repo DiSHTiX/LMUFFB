@@ -177,15 +177,15 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::SliderFloat("Oversteer Boost", &engine.m_oversteer_boost, 0.0f, 1.0f, "%.2f");
 
     ImGui::Separator();
-    ImGui::Text("Haptics");
-    ImGui::Checkbox("Lockup Rumble", &engine.m_lockup_enabled);
+    ImGui::Text("Haptics (Dynamic)");
+    ImGui::Checkbox("Progressive Lockup", &engine.m_lockup_enabled);
     if (engine.m_lockup_enabled) {
-        ImGui::SameLine(); ImGui::SliderFloat("##Lockup", &engine.m_lockup_gain, 0.0f, 1.0f);
+        ImGui::SameLine(); ImGui::SliderFloat("##Lockup", &engine.m_lockup_gain, 0.0f, 1.0f, "Gain: %.2f");
     }
     
-    ImGui::Checkbox("Wheel Spin Rumble", &engine.m_spin_enabled);
+    ImGui::Checkbox("Spin Traction Loss", &engine.m_spin_enabled);
     if (engine.m_spin_enabled) {
-        ImGui::SameLine(); ImGui::SliderFloat("##Spin", &engine.m_spin_gain, 0.0f, 1.0f);
+        ImGui::SameLine(); ImGui::SliderFloat("##Spin", &engine.m_spin_gain, 0.0f, 1.0f, "Gain: %.2f");
     }
 
     ImGui::Separator();

@@ -73,40 +73,75 @@ public:
         if (grip_delta > 0.0) {
             sop_force *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
         }
+        
+        // --- 2a. Rear Aligning Torque Integration (Experimental) ---
+        // Add a "Counter-Steer" suggestion based on rear axle force.
+        // Approx: RearLateralForce * Trail. 
+        // We modulate this by oversteer_boost as well.
+        double rear_lat_force = (data->mWheels[2].mLateralForce + data->mWheels[3].mLateralForce) / 2.0;
+        // Trail approx: 0.03m (3cm). Scaling factor required.
+        // Sign correction: If rear force pushes left, wheel should turn right (align).
+        // rF2 signs: LatForce +Y is Left? We need to tune this.
+        // For now, simpler approximation: if LocalRotAccel.y (Yaw Accel) is high, add counter torque.
+        // Let's stick to the grip delta for now but add a yaw-rate damper if needed.
+        // Actually, let's inject a fraction of rear lateral force directly.
+        double rear_torque = rear_lat_force * 0.05 * m_oversteer_boost; // 0.05 is arb scale
+        sop_force += rear_torque;
 
         double total_force = output_force + sop_force;
         
-        // --- 2b. Lockup Rumble ---
+        // --- 2b. Progressive Lockup (Dynamic) ---
         if (m_lockup_enabled && data->mUnfilteredBrake > 0.05) {
-            // Check for negative SlipRatio (Locking)
-            // Typically -1.0 is full lock. Let's say < -0.2 is noticeable slip.
-            // Using FL/FR
             double slip_fl = data->mWheels[0].mSlipRatio;
             double slip_fr = data->mWheels[1].mSlipRatio;
+            // Use worst slip
+            double max_slip = (std::min)(slip_fl, slip_fr); // Slip is negative for braking
             
-            if (slip_fl < -0.2 || slip_fr < -0.2) {
-                // High freq rumble (Square wave)
+            // Thresholds: -0.1 (Peak Grip), -1.0 (Locked)
+            // Range of interest: -0.1 to -0.5
+            if (max_slip < -0.1) {
+                double severity = (std::abs(max_slip) - 0.1) / 0.4; // 0.0 to 1.0 scale
+                severity = (std::min)(1.0, severity);
+                
+                // Frequency Modulation: 
+                // Light slip -> High Freq (Scrub) ~60Hz
+                // Heavy lock -> Low Freq (Judder) ~10Hz
+                double freq = 60.0 - (severity * 50.0);
+                
+                // Amplitude Modulation
+                double amp = severity * m_lockup_gain * 800.0;
+                
                 double time = data->mElapsedTime;
-                double rumble = (static_cast<int>(time * 60.0) % 2 == 0) ? m_lockup_gain * 500.0 : -m_lockup_gain * 500.0;
+                double rumble = std::sin(time * freq * 6.28) * amp;
                 total_force += rumble;
             }
         }
 
-        // --- 2c. Wheel Spin Rumble ---
+        // --- 2c. Wheel Spin Torque Drop (Dynamic) ---
         if (m_spin_enabled && data->mUnfilteredThrottle > 0.05) {
-            // Check for positive SlipRatio (Spinning)
-            // Using RL/RR (Assuming RWD for now, or just check all driven wheels if we knew drivetrain)
-            // Let's check Rear for now as LMU is mostly GTE/Hypercar (RWD/AWD)
             double slip_rl = data->mWheels[2].mSlipRatio;
             double slip_rr = data->mWheels[3].mSlipRatio;
+            double max_slip = (std::max)(slip_rl, slip_rr);
             
-            if (slip_rl > 0.2 || slip_rr > 0.2) {
-                // Medium freq rumble
-                double time = data->mElapsedTime;
-                double rumble = (static_cast<int>(time * 40.0) % 2 == 0) ? m_spin_gain * 400.0 : -m_spin_gain * 400.0;
+            // Threshold: 0.2 (Spin start)
+            if (max_slip > 0.2) {
+                double severity = (max_slip - 0.2) / 0.5; // Scale 0.2->0.7
+                severity = (std::min)(1.0, severity);
+                
+                // 1. Torque Drop-off (Lightness)
+                // Reduce total force to simulate floating rear
+                total_force *= (1.0 - (severity * m_spin_gain * 0.5)); // Max 50% reduction
+                
+                // 2. Vibration
+                double freq = 40.0 + (severity * 20.0); // Spin faster -> higher pitch? Or lower? Usually higher.
+                double amp = severity * m_spin_gain * 600.0;
+                double rumble = std::sin(data->mElapsedTime * freq * 6.28) * amp;
+                
                 total_force += rumble;
             }
         }
+
+        // --- 3. Slide Texture (Detail Booster) ---
 
         // --- 3. Slide Texture (Detail Booster) ---
         if (m_slide_texture_enabled) {
