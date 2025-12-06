@@ -68,8 +68,7 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 - **"vJoyInterface.dll not found"**: Ensure the DLL is in the same folder as the executable or in your system PATH.
 - **"Could not open file mapping object"**: Start the game and load a track first.
 
-## Known Issues (v0.3.2)
-*   **Suspension Bottoming Direction**: The new Bottoming effect currently applies force in a fixed direction based on current torque, which may cause a pull to one side on straights. See [Bug Report](docs/bug_report_bottoming_logic.md).
+## Known Issues (v0.3.3)
 *   **Telemetry Gaps**: Some users report missing telemetry for Dashboard apps (ERS, Temps). LMUFFB has robust fallbacks, but if `mGripFract` is missing (Tire Temps broken), the Understeer effect may be static. See [Telemetry Report](docs/telemetry_availability_report.md).
 
 ## Building
