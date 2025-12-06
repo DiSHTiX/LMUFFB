@@ -1,7 +1,7 @@
 # Bug Report: Suspension Bottoming Directional Logic
 
 **Date:** 2025-05-23
-**Status:** Known Issue (Open)
+**Status:** Resolved (v0.3.3)
 **Component:** `FFBEngine.h` (Suspension Bottoming Effect)
 
 ## Description
