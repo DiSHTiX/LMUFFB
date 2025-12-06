@@ -673,3 +673,104 @@ This is now a proper project roadmap that's easy to track and reference.
 
 ---
 
+_**User (2025-12-06 00:50Z)**_
+
+I've added a screenshot of the app in C:\dev\personal\LMUFFB\docs\screenshots
+Please include in the mainreadme.
+
+---
+
+_**Agent (model copilot/claude-haiku-4.5)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="copilot_listDirectory">
+<details>
+<summary>Tool use: **copilot_listDirectory**</summary>
+
+
+Parameters:
+
+```json
+{
+  "file_path": "c%3A/dev/personal/LMUFFB/docs/screenshots",
+  "relativeWorkspacePath": "screenshots"
+}
+```
+Additional data:
+
+```json
+{
+  "vscodeToolId": "copilot_listDirectory",
+  "isHidden": false
+}
+```
+Result:
+
+```json
+{
+  "invocationMessage": "Reading [](file:///c%3A/dev/personal/LMUFFB/docs/screenshots)",
+  "pastTenseMessage": "Read [](file:///c%3A/dev/personal/LMUFFB/docs/screenshots)",
+  "isConfirmed": {
+    "type": 1
+  },
+  "content": "",
+  "textEditContent": "",
+  "toolCallResult": null
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+---
+
+<tool-use data-tool-type="read" data-tool-name="copilot_readFile">
+<details>
+<summary>Tool use: **copilot_readFile** • Reading [](file:///c%3A/dev/personal/LMUFFB/README.md#1-1), lines 1 to 30</summary>
+
+
+Read [](file:///c%3A/dev/personal/LMUFFB/README.md#1-1), lines 1 to 30
+
+</details>
+</tool-use>
+
+---
+
+<tool-use data-tool-type="unknown" data-tool-name="copilot_replaceString">
+<details>
+<summary>Tool use: **copilot_replaceString**</summary>
+
+Additional data:
+
+```json
+{
+  "vscodeToolId": "copilot_replaceString",
+  "isHidden": true
+}
+```
+Result:
+
+```json
+{
+  "invocationMessage": "Using \"Replace String in File\"",
+  "isConfirmed": {
+    "type": 1
+  },
+  "content": "&#96;&#96;&#96;markdown\n*   **Easy Installation**: Inno Setup installer script included to manage dependencies (vJoy, Plugins).\r\n\r\n## Screenshot\r\n\r\n![LMUFFB GUI](docs/screenshots/app.png)\r\n\r\n## Architecture\n&#96;&#96;&#96;\n\n",
+  "textEditContent": "*   **Easy Installation**: Inno Setup installer script included to manage dependencies (vJoy, Plugins).\r\n\r\n## Screenshot\r\n\r\n![LMUFFB GUI](docs/screenshots/app.png)\r\n\r\n## Architecture",
+  "toolCallResult": null
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+---
+
+Let me check what screenshots are available: Now let me add the screenshot to the README. I'll add it near the top after the Features section: Done! I've added the screenshot to the README, positioned right after the Features section. It will display the app.png image from the screenshots folder.
+
+---
+

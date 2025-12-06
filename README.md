@@ -16,6 +16,10 @@ This is the main C++ implementation of the LMU Force Feedback App, designed for 
     *   **Texture Synthesis**: Synthetic road noise and slide vibration injection.
 *   **Easy Installation**: Inno Setup installer script included to manage dependencies (vJoy, Plugins).
 
+## Screenshot
+
+![LMUFFB GUI](docs/screenshots/app.png)
+
 ## Architecture
 
 The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via Shared Memory and calculates a synthetic Force Feedback signal to send to a vJoy device.

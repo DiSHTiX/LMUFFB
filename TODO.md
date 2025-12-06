@@ -16,10 +16,15 @@
   - Implement error retry mechanism with visual feedback
   - At startup, still show the main GUI window with the configuration sliders even if the game (LMU or rF2) is not running. Just Display the error popup (game not running) on top.
 
+- [ ] **UI**
+  - Show the version number in the top bar of the app.
+  - Fix the app name in the top bar
+
 - [ ] **Change Log**
   - Create `CHANGELOG.md` file tracking all releases and major commits
   - Follow semantic versioning (v1.0.0 format)
   - Document new features, bug fixes, and breaking changes per release
+
 
 ## Medium Priority
 
