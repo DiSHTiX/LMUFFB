@@ -186,3 +186,20 @@ https://sourceforge.net/projects/vjoystick/files/Beta%202.x/2.1.9.1-160719/
 
 Keep this reference for the version of vJoy to install:
 https://github.com/jshafer817/vJoy/releases/tag/v2.1.9.1
+
+
+## Throubleshooting 6
+
+### vJoy dll location issue
+Address this issue:
+"I have moved LMUFFB.exe to the vJoy installation directory (C:\Program Files\vJoy\x64), because the vJoy config/monitor/feeder was complaining if I moved the 'vJoyInterface.dll' elsewhere. LMUFFB seems fine running in here."
+We might not want to bundle the vJoyInterface.dll with our app, because of the reported issue. We could either bundle the full vJoy SDK with our app, or if the user has it already installed (with the SDK, note that there are versions of vJoy without the SDK) we might ask the user, during the guided installer (and the guided configurator) to set the path in which the vJoyInterface.dll is located. 
+To address this issue, update docs\plan_guided_installer.md and docs\plan_guided_configurator.md .
+
+### wheel binding issues
+
+Address this user reported bug: docs\bug_reports\User bug report 002 VJoy Setup Troubleshooting and Bug.md
+
+Implement "### Recommendation for Developers (Code Fix)". Also add an option in the Gui to enable / disable m_output_ffb_to_vjoy (disabled by default).
+
+Update accordingly this section of the README.md : "4. Steering Axis - Choose ONE method:", and any other relevant section.
