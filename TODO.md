@@ -153,3 +153,5 @@ Investigate: considering licensing and copyright aspects, can we legally bundle 
 ### Update README.txt again
 
 README.txt install instructions must be as detailed as the ones in README.md. Note for example that in README.txt we don't indicate a path to download the vJoy SDK dll.
+
+Review INSTALL.txt: does it contain any additional information that is not in README.txt? It seems it is a redundant file, that should be deleted once we include all the information in README.txt.
