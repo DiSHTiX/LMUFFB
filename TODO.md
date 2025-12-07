@@ -8,7 +8,11 @@
 - [x] **Documentation**: Comprehensive guides for Architecture, Customization, and Licensing.
 
 ## Immediate Tasks
-- [ ] **DirectInput Support**: Replace vJoy with native DirectInput "Constant Force" packets.
+- [x] **DirectInput Support**: Replace vJoy with native DirectInput "Constant Force" packets.
+- [] Guided installer as in docs\plan_guided_installer.md
+- [] Add in app guided configurator to as described in Guided configurator in the app
+- [] If possible, completely remove vJoy dependency as described in docs\investigation_vjoyless_implementation.md
+- [] Troubleshooting visualization of FFB and telemetry values as in (future doc) docs\plan_troubleshooting_FFB_visualizations.md
 - [ ] **Advanced Filtering**: Implement Bi-Quad filters (Low Pass / High Pass) for better road texture isolation.
 - [ ] **Telemetry Analysis**: Add visual graphs to the GUI showing the raw vs. filtered signal.
 - [ ] **Telemetry Logging**: Investigate and implement CSV logging. See `docs/telemetry_logging_investigation.md`.
@@ -53,12 +57,12 @@ Do an investigation on this, and save a report to a markdown file: Apparently Ma
 
 ### FFB Visualizations
 
-Add a new, comprehensive markdown document discussing and planning how can we make the app more easy to debug and troubleshoot. In particular, for cases in which the FFB is not working as intended (eg. forces too strong, jerking, etc.), for be able to more easily identify the cause of the problem. Consider also adding display widgets that show in the GUI more info and visuals on what the FFB is doing, including having separated visual for each effect or formula, so we can see which one is "exploding" with high values, or oscillating, or having other strange behavior.
+Add a new, comprehensive markdown document (docs\plan_troubleshooting_FFB_visualizations.md) discussing and planning how can we make the app more easy to debug and troubleshoot. In particular, for cases in which the FFB is not working as intended (eg. forces too strong, jerking, etc.), for be able to more easily identify the cause of the problem. Consider also adding display widgets that show in the GUI more info and visuals on what the FFB is doing, including having separated visual for each effect or formula, so we can see which one is "exploding" with high values, or oscillating, or having other strange behavior.
 This could also be in the form of a "trail" visualization, in that we show the trails of multiple values over time (eg. over the last 5-10 seconds), so we can see if there are any patterns or anomalies.
 
 In the GUI there should be an option (eg. checkbox or button) to display these additional visualizations for troubleshooting FFB. Each component in our FFB formula should have its own visualization, so that it can be independently visualized and checked.
 
-Consider also adding additional thougble shooting visuals, like status of the shared memory (eg. values we read). We should definitely include also a visual for each telemetry value that we read. It should be visualized like the other trails for the formulas. Also, each visualization must have a checkbox to enable or disable it, to avoid visual clutter.
+Consider also adding additional trouble shooting visuals, like status of the shared memory (eg. values we read). We should definitely include also a visual for each telemetry value that we read. It should be visualized like the other trails for the formulas. Also, each visualization must have a checkbox to enable or disable it, to avoid visual clutter.
 
 We should mention in the readme that there are these visualization options, and that they can be enabled or disabled in the GUI. We should also include a screenshot of the GUI with these visualization options enabled.
 From these visualizations, we will be able also to spot telemetry values that are absent (eg. always constant or zero).
