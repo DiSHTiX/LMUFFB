@@ -18,6 +18,10 @@ public:
 
 private:
     static void DrawTuningWindow(FFBEngine& engine);
+    static void DrawDebugWindow(FFBEngine& engine);
+    
+    // UI State
+    static bool m_show_debug_window;
 };
 
 #endif // GUILAYER_H

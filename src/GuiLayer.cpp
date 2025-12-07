@@ -119,6 +119,11 @@ bool GuiLayer::Render(FFBEngine& engine) {
 
     // Draw Tuning Window
     DrawTuningWindow(engine);
+    
+    // Draw Debug Window (if enabled)
+    if (m_show_debug_window) {
+        DrawDebugWindow(engine);
+    }
 
     // Rendering
     ImGui::Render();
@@ -238,6 +243,11 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         Config::Save(engine);
     }
     ImGui::SameLine();
+    if (ImGui::Checkbox("Show Troubleshooting Graphs", &m_show_debug_window)) {
+        // Just toggles window
+    }
+    
+    ImGui::SameLine();
     if (ImGui::Button("Reset Defaults")) {
         // Reset Logic (Updated v0.3.9)
         engine.m_gain = 0.5f;
@@ -346,3 +356,74 @@ bool GuiLayer::Init() {
 void GuiLayer::Shutdown() {}
 bool GuiLayer::Render(FFBEngine& engine) { return false; } // Always lazy
 #endif
+
+// --- Helper: Ring Buffer for PlotLines ---
+struct RollingBuffer {
+    std::vector<float> data;
+    int offset = 0;
+    
+    RollingBuffer(int size = 2000) {
+        data.resize(size, 0.0f);
+    }
+    
+    void Add(float val) {
+        data[offset] = val;
+        offset = (offset + 1) % data.size();
+    }
+};
+
+// Static buffers for debug plots
+static RollingBuffer plot_base(1000);
+static RollingBuffer plot_sop(1000);
+static RollingBuffer plot_texture(1000);
+static RollingBuffer plot_total(1000);
+static RollingBuffer plot_input_steer(1000); // SteeringArmForce
+static RollingBuffer plot_input_accel(1000); // LocalAccel.x
+
+// Toggle State
+bool GuiLayer::m_show_debug_window = false;
+
+void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
+    ImGui::Begin("FFB Analysis", &m_show_debug_window);
+    
+    // Update Buffers (Ideally this should be done in the FFB thread and passed via a queue,
+    // but sampling at 60Hz from the latest state is "good enough" for visual inspection)
+    // Note: This misses high-freq spikes between frames, but shows trends.
+    // For Phase 3 (Logging), we need proper buffering.
+    
+    plot_base.Add(engine.m_last_debug.base_force);
+    plot_sop.Add(engine.m_last_debug.sop_force);
+    plot_total.Add(engine.m_last_debug.total_output);
+    
+    // Sum textures for simplified view
+    float textures = engine.m_last_debug.texture_road + 
+                     engine.m_last_debug.texture_slide + 
+                     engine.m_last_debug.texture_lockup + 
+                     engine.m_last_debug.texture_spin +
+                     engine.m_last_debug.texture_bottoming;
+    plot_texture.Add(textures);
+    
+    // Inputs
+    plot_input_steer.Add((float)engine.m_last_telemetry.mSteeringArmForce);
+    plot_input_accel.Add((float)engine.m_last_telemetry.mLocalAccel.x);
+
+    // Plots
+    ImGui::Text("Total Output Force (-1 to 1)");
+    ImGui::PlotLines("##Total", plot_total.data.data(), plot_total.data.size(), plot_total.offset, "Total", -1.0f, 1.0f, ImVec2(0, 80));
+    
+    ImGui::Text("Base Force (Game)");
+    ImGui::PlotLines("##Base", plot_base.data.data(), plot_base.data.size(), plot_base.offset, "Base", -4000.0f, 4000.0f, ImVec2(0, 80));
+
+    ImGui::Text("SoP Force (Lateral G)");
+    ImGui::PlotLines("##SoP", plot_sop.data.data(), plot_sop.data.size(), plot_sop.offset, "SoP", -1000.0f, 1000.0f, ImVec2(0, 80));
+    
+    ImGui::Text("Textures (Sum)");
+    ImGui::PlotLines("##Tex", plot_texture.data.data(), plot_texture.data.size(), plot_texture.offset, "Textures", -1000.0f, 1000.0f, ImVec2(0, 80));
+
+    ImGui::Separator();
+    ImGui::Text("Telemetry Inputs");
+    ImGui::PlotLines("SteeringArmForce", plot_input_steer.data.data(), plot_input_steer.data.size(), plot_input_steer.offset, NULL, -5000.0f, 5000.0f, ImVec2(0, 60));
+    ImGui::PlotLines("LocalAccel X (G)", plot_input_accel.data.data(), plot_input_accel.data.size(), plot_input_accel.offset, NULL, -20.0f, 20.0f, ImVec2(0, 60));
+
+    ImGui::End();
+}

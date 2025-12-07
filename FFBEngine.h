@@ -5,6 +5,19 @@
 #include <algorithm>
 #include "rF2Data.h"
 
+// Struct to hold debug values for visualization
+struct FFBOutputDebug {
+    float base_force = 0.0f;
+    float sop_force = 0.0f;
+    float understeer_drop = 0.0f; // Reduction amount
+    float texture_road = 0.0f;
+    float texture_slide = 0.0f;
+    float texture_lockup = 0.0f;
+    float texture_spin = 0.0f;
+    float texture_bottoming = 0.0f;
+    float total_output = 0.0f;
+};
+
 // FFB Engine Class
 class FFBEngine {
 public:
@@ -49,9 +62,17 @@ public:
     
     // Smoothing State
     double m_sop_lat_g_smoothed = 0.0;
+    
+    // Debug State
+    FFBOutputDebug m_last_debug;
+    rF2Telemetry m_last_telemetry; // Copy of latest telemetry for GUI
 
     double calculate_force(const rF2Telemetry* data) {
         if (!data) return 0.0;
+        m_last_telemetry = *data; // Store for debug
+        
+        // Reset debug struct
+        m_last_debug = FFBOutputDebug();
         
         double dt = data->mDeltaTime;
         const double TWO_PI = 6.28318530718;
@@ -84,6 +105,9 @@ public:
         
         double grip_factor = 1.0 - ((1.0 - avg_grip) * m_understeer_effect);
         double output_force = game_force * grip_factor;
+        
+        m_last_debug.base_force = (float)game_force;
+        m_last_debug.understeer_drop = (float)(game_force * (1.0 - grip_factor));
 
         // --- 2. Seat of Pants (SoP) / Oversteer ---
         // Lateral G-force
@@ -127,6 +151,8 @@ public:
         // Actually, let's inject a fraction of rear lateral force directly.
         double rear_torque = rear_lat_force * 0.05 * m_oversteer_boost; // 0.05 is arb scale
         sop_force += rear_torque;
+        
+        m_last_debug.sop_force = (float)sop_force;
 
         double total_force = output_force + sop_force;
         
@@ -159,6 +185,7 @@ public:
                 
                 // Use the integrated phase
                 double rumble = std::sin(m_lockup_phase) * amp;
+                m_last_debug.texture_lockup = (float)rumble;
                 total_force += rumble;
             }
         }
@@ -198,6 +225,7 @@ public:
                 double amp = severity * m_spin_gain * 500.0;
                 double rumble = std::sin(m_spin_phase) * amp;
                 
+                m_last_debug.texture_spin = (float)rumble;
                 total_force += rumble;
             }
         }
@@ -223,6 +251,7 @@ public:
 
                 // Amplitude: Scaled by PRE-CALCULATED global load_factor
                 double noise = sawtooth * m_slide_texture_gain * 300.0 * load_factor;
+                m_last_debug.texture_slide = (float)noise;
                 total_force += noise;
             }
         }
@@ -246,6 +275,8 @@ public:
             
             // Apply LOAD FACTOR: Bumps feel harder under compression
             road_noise *= load_factor;
+            
+            m_last_debug.texture_road = (float)road_noise;
 
             total_force += road_noise;
         }
@@ -276,6 +307,7 @@ public:
                 // This creates a heavy shudder regardless of steering direction
                 double crunch = std::sin(m_bottoming_phase) * bump_magnitude;
                 
+                m_last_debug.texture_bottoming = (float)crunch;
                 total_force += crunch;
             }
         }
@@ -296,6 +328,8 @@ public:
             double sign = (norm_force > 0.0) ? 1.0 : -1.0;
             norm_force = sign * m_min_force;
         }
+        
+        m_last_debug.total_output = (float)norm_force;
 
         // Clip
         return (std::max)(-1.0, (std::min)(1.0, norm_force));
