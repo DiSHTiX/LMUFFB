@@ -253,3 +253,9 @@ Once you do this, the "Bridge" is complete:
 
 This leaves **vJoy Axis X** free for LMUFFB to use for its display without interfering with your steering.
 
+
+
+## Throubleshooting 10
+
+Implement the changes described in this doc:
+docs\dev_docs\proposed_changes_to_disable_vJoy.md
