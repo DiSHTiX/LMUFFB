@@ -75,8 +75,8 @@ void FFBThread() {
                 force = g_engine.calculate_force(g_pTelemetry);
             }
 
-            // Update vJoy Axis (for monitoring) if active
-            if (vJoyActive) {
+            // Update vJoy Axis (for monitoring) if active AND enabled
+            if (vJoyActive && Config::m_output_ffb_to_vjoy) {
                 long axis_val = (long)((force + 1.0) * 0.5 * (axis_max - axis_min) + axis_min);
                 DynamicVJoy::Get().SetAxis(axis_val, VJOY_DEVICE_ID, 0x30); // 0x30 = HID_USAGE_X (hardcoded to avoid public.h dependency issues)
             }

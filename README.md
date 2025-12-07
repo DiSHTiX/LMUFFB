@@ -7,8 +7,7 @@ Experimental alpha version.
 ![lmuFFB GUI](docs/screenshots/app.png)
 
 
-
-## Installation & Configuration
+## Installation & Configuration  
 
 ### 1. Prerequisites
 *   **vJoy Driver**: Install version **2.1.9.1** (by jshafer817) or compatible. Download from [vJoy releases](https://github.com/jshafer817/vJoy/releases).
@@ -35,12 +34,16 @@ Experimental alpha version.
     *   **Method A (Recommended - Requires Feeder):** Bind to **vJoy Device (Axis X)**.
         *   *Requirement:* You MUST use a tool like **vJoy Feeder** (bundled with vJoy), **Joystick Gremlin**, or **Mojo** to map your physical wheel axis to the vJoy axis. lmuFFB does not yet bridge steering input.
         *   *Why?* This guarantees LMU sends FFB to vJoy (Dummy) and not your real wheel.
+        *   *Note:* Ensure lmuFFB "Monitor FFB on vJoy" is **DISABLED** (default) if using this method, to avoid feedback loops.
     *   **Method B (Experimental - No Feeder):** Bind to your **Physical Wheel**.
         *   *Risk:* LMU might try to take exclusive control of the wheel's FFB, causing "Double FFB" or blocking lmuFFB.
 5.  **Force Feedback**:
     *   **Type**: Set to "None" (if available) or reduce **FFB Strength** to **0%** / **Off**.
         *   *Note:* LMU may not have a "None" option; reducing strength to 0 is the workaround.
-    *   **Smoothing**: Set to **0** (Raw) to ensure lmuFFB gets the fastest telemetry updates.
+    *   **Effects**: Set "Force Feedback Effects" to **Off**.
+    *   **Smoothing**: Set to **0** (Raw).
+    *   **Advanced**: Set "Collision Strength" and "Steering Torque Sensitivity" to **0%**.
+    *   **Tweaks**: Disable "Use Constant Steering Force Effect".
 
 **C. Configure lmuFFB (The App)**
 1.  Run `LMUFFB.exe`.
@@ -62,11 +65,11 @@ Experimental alpha version.
     - Ensure the "FFB Device" in lmuFFB is your real wheel.
     - Check if the Shared Memory Plugin is working (Does "Connected to Shared Memory" appear in the console?).
 - **"vJoyInterface.dll not found"**: Ensure the DLL is in the same folder as the executable. You can grab it from `C:\Program Files\vJoy\SDK\lib\amd64\` or download from the [vJoy GitHub](https://github.com/shauleiz/vJoy/tree/master/SDK/lib/amd64/vJoyInterface.dll).
+    - *Alternative:* You can try moving `LMUFFB.exe` directly into `C:\Program Files\vJoy\x64\` if you have persistent DLL issues.
 - **"Could not open file mapping object"**: Start the game and load a track first.
 
 ## Known Issues (v0.3.3)
 *   **Telemetry Gaps**: Some users report missing telemetry for Dashboard apps (ERS, Temps). lmuFFB has robust fallbacks, but if `mGripFract` is missing (Tire Temps broken), the Understeer effect may be static. See [Telemetry Report](docs/dev_docs/telemetry_availability_report.md).
-
 
 ## Documentation
 
@@ -78,6 +81,7 @@ Experimental alpha version.
 *   [Telemetry Data Reference](docs/dev_docs/telemetry_data_reference.md)
 *   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
 *   [Comparisons with Other Apps](docs/comparisons.md)
+
 
 
 ## Architecture
@@ -154,3 +158,4 @@ To create the `LMUFFB_Setup.exe`:
 2.  **Build the Project**: Ensure you have built the `Release` version of `LMUFFB.exe` using Visual Studio.
 3.  **Run Compiler**: Open `installer/lmuffb.iss` in Inno Setup Compiler and click **Compile**.
 4.  **Output**: The installer will be generated in `installer/Output/`.
+

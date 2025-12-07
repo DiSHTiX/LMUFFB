@@ -215,6 +215,19 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
     ImGui::Separator();
     ImGui::Text("Output");
+    
+    // vJoy Monitoring (Safety critical)
+    if (ImGui::Checkbox("Monitor FFB on vJoy (Axis X)", &Config::m_output_ffb_to_vjoy)) {
+        // Warn user if enabling
+        if (Config::m_output_ffb_to_vjoy) {
+            MessageBoxA(NULL, "WARNING: Enabling this will output the FFB signal to vJoy Axis X.\n\n"
+                              "If you have bound Game Steering to vJoy Axis X, this will cause a Feedback Loop (Wheel Spinning).\n"
+                              "Only enable this if you are NOT using vJoy Axis X for steering.", 
+                              "Safety Warning", MB_ICONWARNING | MB_OK);
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Outputs calculated force to vJoy Axis X for visual monitoring in vJoy Monitor.\nDISABLE if binding steering to vJoy Axis X!");
+
     // Visualize Clipping (this requires the calculated force from the engine passed back, 
     // or we just show the static gain for now. A real app needs a shared state for 'last_output_force')
     // ImGui::ProgressBar((float)engine.last_force, ImVec2(0.0f, 0.0f)); 

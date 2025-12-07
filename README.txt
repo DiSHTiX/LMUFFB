@@ -66,7 +66,10 @@ A. Configure Le Mans Ultimate (LMU)
       - Type: Set to "None" (if available) or reduce FFB Strength to 0% / Off
       - Note: LMU may not have a "None" option; reducing strength to 0 is 
         the workaround.
+      - Effects: Set "Force Feedback Effects" to Off
       - Smoothing: Set to 0 (Raw) for fastest telemetry updates
+      - Advanced: Set Collision Strength and Torque Sensitivity to 0%
+      - Tweaks: Disable "Use Constant Steering Force Effect"
 
 B. Configure lmuFFB (The App)
    1. Run LMUFFB.exe
