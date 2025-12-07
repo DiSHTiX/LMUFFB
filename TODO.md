@@ -211,3 +211,8 @@ In the install and configuration instructions, consider (if relevant according t
 We should also probably instruct the user to disable the first toggle, "Force Feedback Effects". Also minimum steering torque should be set to 0%. Pheraphs also "Force Feedback Smoothing" should be set to 0. Also the values in "Advanced Force Feedback" should be set to 0: "Collision Strenght" and "Steering Torque Sensitivity". And also disable the toggle in the final section "Tweaks": "Use Constant Steering Force Effect".
 
 If these suggestions make sense, consider if making them the main instructions, or as secondary suggestions of things to try or for troubleshooting.
+
+## Throubleshooting 7
+
+See docs\bug_reports\User bug report 002 VJoy Setup Troubleshooting and Bug.md , there is an update section from "# Follow up question 1" onward. Please address that and update the README.md and README.txt, and any other relevant document accordingly.
+
