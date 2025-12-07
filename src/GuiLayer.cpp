@@ -172,8 +172,13 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Separator();
     
     ImGui::SliderFloat("Master Gain", &engine.m_gain, 0.0f, 2.0f, "%.2f");
-    ImGui::SliderFloat("Smoothing", &engine.m_smoothing, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f");
+
+    if (ImGui::TreeNode("Advanced Tuning")) {
+        ImGui::SliderFloat("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f (1=Raw)");
+        ImGui::SliderFloat("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.1fx");
+        ImGui::TreePop();
+    }
 
     ImGui::Separator();
     ImGui::Text("Effects");
@@ -221,12 +226,13 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Reset Defaults")) {
-        // Reset Logic
-        engine.m_gain = 1.0f;
-        engine.m_smoothing = 0.5f;
+        // Reset Logic (Updated v0.3.9)
+        engine.m_gain = 0.5f;
         engine.m_understeer_effect = 1.0f;
-        engine.m_sop_effect = 0.5f;
+        engine.m_sop_effect = 0.0f;
         engine.m_min_force = 0.0f;
+        engine.m_sop_smoothing_factor = 0.1f;
+        engine.m_max_load_factor = 1.5f;
         engine.m_oversteer_boost = 0.0f;
         engine.m_lockup_enabled = false;
         engine.m_lockup_gain = 0.5f;

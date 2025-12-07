@@ -10,11 +10,14 @@ class FFBEngine {
 public:
     // Settings (GUI Sliders)
     float m_gain = 0.5f;          // Master Gain (Default 0.5 for safety)
-    float m_smoothing = 0.5f;     // Smoothing factor (placeholder)
     float m_understeer_effect = 1.0f; // 0.0 - 1.0 (How much grip loss affects force)
     float m_sop_effect = 0.0f;    // 0.0 - 1.0 (Lateral G injection strength - Default 0 to prevent jerking)
     float m_min_force = 0.0f;     // 0.0 - 0.20 (Deadzone removal)
     
+    // Configurable Smoothing & Caps (v0.3.9)
+    float m_sop_smoothing_factor = 0.1f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default 0.1 ~5Hz.
+    float m_max_load_factor = 1.5f;      // Cap for load scaling (Default 1.5x)
+
     // New Effects (v0.2)
     float m_oversteer_boost = 0.0f; // 0.0 - 1.0 (Rear grip loss boost)
     
@@ -67,9 +70,8 @@ public:
         // Normalize: 4000N is a reference "loaded" GT tire.
         double load_factor = avg_load / 4000.0;
         
-        // SAFETY CLAMP: Cap at 1.5x to prevent violent jolts during high-compression
-        // or hard clipping when the user already has high gain.
-        load_factor = (std::min)(1.5, (std::max)(0.0, load_factor));
+        // SAFETY CLAMP: Cap at 1.5x (or configured max) to prevent violent jolts.
+        load_factor = (std::min)((double)m_max_load_factor, (std::max)(0.0, load_factor));
 
         // --- 1. Understeer Effect (Grip Modulation) ---
         // Grip Fraction (Average of front tires)
@@ -88,9 +90,14 @@ public:
         double lat_g = data->mLocalAccel.x / 9.81;
         
         // SoP Smoothing (Simple Low Pass Filter)
-        // Alpha = dt / (RC + dt). RC = 1.0 / (2 * PI * freq).
-        // For ~5Hz cutoff (smooth but responsive):
-        double alpha = 0.1; // Placeholder for now, can be dynamic
+        // Alpha determines the "weight" of the new value.
+        // If m_sop_smoothing_factor is 1.0, alpha is 1.0 (No Smoothing).
+        // If m_sop_smoothing_factor is 0.1, alpha is 0.1 (Heavy Smoothing).
+        double alpha = (double)m_sop_smoothing_factor; 
+        
+        // Safety clamp alpha
+        alpha = (std::max)(0.001, (std::min)(1.0, alpha));
+
         m_sop_lat_g_smoothed = m_sop_lat_g_smoothed + alpha * (lat_g - m_sop_lat_g_smoothed);
         
         double sop_force = m_sop_lat_g_smoothed * m_sop_effect * 1000.0; // Base scaling needs tuning
