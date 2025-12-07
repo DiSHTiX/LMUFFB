@@ -55,3 +55,5 @@ Add a new, comprehensive markdown document discussing and planning how can we ma
 This could also be in the form of a "trail" visualization, in that we show the trails of multiple values over time (eg. over the last 5-10 seconds), so we can see if there are any patterns or anomalies.
 
 In the GUI there should be an option (eg. checkbox or button) to display these additional visualizations for troubleshooting FFB. Each component in our FFB formula should have its own visualization, so that it can be independently visualized and checked.
+
+Consider also adding additional thougble shooting visuals, like status of the shared memory (eg. values we read). We should definitely include also a visual for each telemetry value that we read. It should be visualized like the other trails for the formulas. Also, each visualization must have a checkbox to enable or disable it, to avoid visual clutter.
