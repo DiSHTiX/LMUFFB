@@ -26,11 +26,11 @@ public:
     // Settings (GUI Sliders)
     float m_gain = 0.5f;          // Master Gain (Default 0.5 for safety)
     float m_understeer_effect = 1.0f; // 0.0 - 1.0 (How much grip loss affects force)
-    float m_sop_effect = 0.0f;    // 0.0 - 1.0 (Lateral G injection strength - Default 0 to prevent jerking)
+    float m_sop_effect = 0.15f;   // 0.0 - 2.0 (Lateral G injection strength - Default 0.15 for balanced feel)
     float m_min_force = 0.0f;     // 0.0 - 0.20 (Deadzone removal)
     
     // Configurable Smoothing & Caps (v0.3.9)
-    float m_sop_smoothing_factor = 0.1f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default 0.1 ~5Hz.
+    float m_sop_smoothing_factor = 0.05f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default 0.05 for responsive feel.
     float m_max_load_factor = 1.5f;      // Cap for load scaling (Default 1.5x)
 
     // New Effects (v0.2)

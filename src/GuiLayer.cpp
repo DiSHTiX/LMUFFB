@@ -249,12 +249,12 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     
     ImGui::SameLine();
     if (ImGui::Button("Reset Defaults")) {
-        // Reset Logic (Updated v0.3.9)
+        // Reset Logic (Updated v0.3.13)
         engine.m_gain = 0.5f;
         engine.m_understeer_effect = 1.0f;
-        engine.m_sop_effect = 0.0f;
+        engine.m_sop_effect = 0.15f;
         engine.m_min_force = 0.0f;
-        engine.m_sop_smoothing_factor = 0.1f;
+        engine.m_sop_smoothing_factor = 0.05f;
         engine.m_max_load_factor = 1.5f;
         engine.m_oversteer_boost = 0.0f;
         engine.m_lockup_enabled = false;
