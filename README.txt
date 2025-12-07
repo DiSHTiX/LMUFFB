@@ -1,4 +1,4 @@
-LMUFFB - Le Mans Ultimate Force Feedback
+lmuFFB - Le Mans Ultimate Force Feedback
 ========================================
 Version: 0.3.7
 
@@ -10,7 +10,7 @@ PREREQUISITES
    Download: https://github.com/jshafer817/vJoy/releases
    
    Why vJoy? LMU needs a "dummy" device to bind steering to, so it doesn't 
-   try to send its own FFB to your real wheel while LMUFFB is controlling it.
+   try to send its own FFB to your real wheel while lmuFFB is controlling it.
    
    Configuration:
    - Open "Configure vJoy" tool
@@ -28,7 +28,7 @@ PREREQUISITES
    - Note: LMU does not have an in-game menu to enable plugins. It is enabled 
      automatically if the file is present.
 
-3. vJoyInterface.dll (Required for LMUFFB to run)
+3. vJoyInterface.dll (Required for lmuFFB to run)
    This DLL MUST be in the same folder as LMUFFB.exe
    
    Download from:
@@ -60,7 +60,7 @@ A. Configure Le Mans Ultimate (LMU)
       METHOD B (Experimental - No Feeder):
       - Bind to your Physical Wheel directly
       - Risk: LMU might take exclusive control of the wheel's FFB, causing 
-        "Double FFB" or blocking LMUFFB.
+        "Double FFB" or blocking lmuFFB.
    
    5. Force Feedback Settings:
       - Type: Set to "None" (if available) or reduce FFB Strength to 0% / Off
@@ -68,7 +68,7 @@ A. Configure Le Mans Ultimate (LMU)
         the workaround.
       - Smoothing: Set to 0 (Raw) for fastest telemetry updates
 
-B. Configure LMUFFB (The App)
+B. Configure lmuFFB (The App)
    1. Run LMUFFB.exe
    2. FFB Device: Select your Physical Wheel (e.g., "Simucube 2 Pro", "Fanatec DD1")
       - Do NOT select the vJoy device here
@@ -94,7 +94,7 @@ No Steering (Car won't turn):
   - Select your physical wheel and ensure it moves the vJoy axis
 
 No FFB:
-  - Ensure "FFB Device" in LMUFFB is your real wheel
+  - Ensure "FFB Device" in lmuFFB is your real wheel
   - Check if Shared Memory Plugin is working (console should show "Connected")
   - Verify the plugin DLL is in Le Mans Ultimate/Plugins/ folder
 
@@ -111,7 +111,7 @@ No FFB:
 KNOWN ISSUES (v0.3.7)
 ---------------------
 - Telemetry Gaps: Some users report missing telemetry for Dashboard apps 
-  (ERS, Temps). LMUFFB has robust fallbacks, but if Tire Temperature data 
+  (ERS, Temps). lmuFFB has robust fallbacks, but if Tire Temperature data 
   is broken, the Understeer effect may be static.
 
 
