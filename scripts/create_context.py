@@ -25,7 +25,9 @@ def is_text_file(filename):
 
 def main():
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    output_path = os.path.join(root_dir, OUTPUT_FILE)
+    output_dir = os.path.join(root_dir, 'docs', 'dev_docs')
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, OUTPUT_FILE)
 
     with open(output_path, 'w', encoding='utf-8') as outfile:
         outfile.write("# LMUFFB Project Context\n\n")
