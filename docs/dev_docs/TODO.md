@@ -288,3 +288,8 @@ These int casting are present for all PlotLines calls. Make sure you edit your c
 ### Mutex bug
 
 Verify the issues described here and in case fix it: docs\dev_docs\Missing Mutex Lock (Race Condition).md
+
+## Troubleshooting 13
+
+Implement the changes described in this doc:
+docs\dev_docs\decouple_plots_from_gui_refresh.md
