@@ -47,12 +47,17 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 
 **B. Configure Le Mans Ultimate (The Game)**
 1.  Start the game.
-2.  Go to **Controls / Bindings**.
-3.  **Steering Axis**: Bind this to the **vJoy Device (Axis X)**. 
-    *   *Tip:* You might need to use the **vJoy Feeder** app (installed with vJoy) to wiggle the virtual X-axis so the game detects it for binding.
-    *   **IMPORTANT:** Run Le Mans Ultimate in **Borderless Window** mode. Fullscreen mode may cause the game or app to crash/minimize when interacting with overlays.
-4.  **Force Feedback**:
-    *   **Type**: Set to "None" or minimal strength for the vJoy device (since it has no motors).
+2.  Go to **Settings > Graphics**:
+    *   Set **Display Mode** to **Borderless**. (Prevents crashes/minimizing).
+3.  Go to **Controls / Bindings**.
+4.  **Steering Axis**: 
+    *   **Method A (Recommended - Requires Feeder):** Bind to **vJoy Device (Axis X)**.
+        *   *Requirement:* You MUST use a tool like **vJoy Feeder** (bundled with vJoy), **Joystick Gremlin**, or **Mojo** to map your physical wheel axis to the vJoy axis. LMUFFB does not yet bridge steering input.
+        *   *Why?* This guarantees the game sends FFB to vJoy (Dummy) and not your real wheel.
+    *   **Method B (Experimental - No Feeder):** Bind to your **Physical Wheel**.
+        *   *Risk:* The game might try to take exclusive control of the wheel's FFB, causing "Double FFB" or blocking LMUFFB.
+5.  **Force Feedback**:
+    *   **Type**: Set to "None" (if available) or reduce strength.
     *   **Smoothing**: Set to **0** (Raw) to ensure LMUFFB gets the fastest telemetry updates.
 
 **C. Configure LMUFFB (The App)**
@@ -69,6 +74,8 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
     - Ensure in-game Steering is bound to **vJoy**, NOT your real wheel.
     - Ensure in-game FFB is sending to vJoy.
     - If the wheel oscillates on straights, reduce **SOP Effect** to 0.0 and increase smoothing.
+- **No Steering (Car won't turn)**:
+    - If you bound Game Steering to vJoy, you need a "Feeder" app to map your real wheel to vJoy. Open "vJoy Feeder" (installed with vJoy), select your wheel, and ensure it moves the vJoy axis.
 - **No FFB**: 
     - Ensure the "FFB Device" in LMUFFB is your real wheel.
     - Check if the Shared Memory Plugin is working (Does "Connected to Shared Memory" appear in the console?).
