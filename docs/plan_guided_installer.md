@@ -37,9 +37,8 @@ When `LMUFFB.exe` is run for the first time (no config.ini):
 *   "Rotate your wheel". Bar moves.
 *   "Select this device".
 
-### Phase 3: Auto-Launch
-*   Option to add to Startup.
-*   "Start LMU" button.
+### Phase 3: Launch
+*   Tell the user everything should be ready and LMU can be launched.
 
 ## Technical Requirements
 1.  **Bundled Resources:**
