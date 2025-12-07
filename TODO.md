@@ -178,3 +178,11 @@ For each case in which apply smoothing or other corrections to the FFB formula (
 ### vJoy bundling
 
 Note that we can consider separately the vJoy installer and the vJoy sdk dll. We could only bundle the sdk dll, and let the user install vJoy through the installer. But we must also check that the installed vJoy version is the expected one, otherwise show a popup with a warning (with a "don't show again" checkbox) and a warning message to the console (this one always active since it is less intrusive). Confirm this is already fully implemented or not.
+
+### vJoy links
+
+Keep this reference for the link to download the vJoy SDk (although we can bundle it with our app): 
+https://sourceforge.net/projects/vjoystick/files/Beta%202.x/2.1.9.1-160719/
+
+Keep this reference for the version of vJoy to install:
+https://github.com/jshafer817/vJoy/releases/tag/v2.1.9.1
