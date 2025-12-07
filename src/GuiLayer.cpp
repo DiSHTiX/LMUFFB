@@ -438,48 +438,48 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
     // --- Draw UI ---
     if (ImGui::CollapsingHeader("FFB Components (Stack)", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Text("Total Output");
-        ImGui::PlotLines("##Total", plot_total.data.data(), plot_total.data.size(), plot_total.offset, "Total", -1.0f, 1.0f, ImVec2(0, 60));
+        ImGui::PlotLines("##Total", plot_total.data.data(), (int)plot_total.data.size(), plot_total.offset, "Total", -1.0f, 1.0f, ImVec2(0, 60));
         
         ImGui::Columns(2, "FFBCols", false);
-        ImGui::Text("Base Force"); ImGui::PlotLines("##Base", plot_base.data.data(), plot_base.data.size(), plot_base.offset, NULL, -4000.0f, 4000.0f, ImVec2(0, 40));
+        ImGui::Text("Base Force"); ImGui::PlotLines("##Base", plot_base.data.data(), (int)plot_base.data.size(), plot_base.offset, NULL, -4000.0f, 4000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("SoP (Lat G)"); ImGui::PlotLines("##SoP", plot_sop.data.data(), plot_sop.data.size(), plot_sop.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
+        ImGui::Text("SoP (Lat G)"); ImGui::PlotLines("##SoP", plot_sop.data.data(), (int)plot_sop.data.size(), plot_sop.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Understeer Cut"); ImGui::PlotLines("##Under", plot_understeer.data.data(), plot_understeer.data.size(), plot_understeer.offset, NULL, -2000.0f, 2000.0f, ImVec2(0, 40));
+        ImGui::Text("Understeer Cut"); ImGui::PlotLines("##Under", plot_understeer.data.data(), (int)plot_understeer.data.size(), plot_understeer.offset, NULL, -2000.0f, 2000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Oversteer Boost"); ImGui::PlotLines("##Over", plot_oversteer.data.data(), plot_oversteer.data.size(), plot_oversteer.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Oversteer Boost"); ImGui::PlotLines("##Over", plot_oversteer.data.data(), (int)plot_oversteer.data.size(), plot_oversteer.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Road Texture"); ImGui::PlotLines("##Road", plot_road.data.data(), plot_road.data.size(), plot_road.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
+        ImGui::Text("Road Texture"); ImGui::PlotLines("##Road", plot_road.data.data(), (int)plot_road.data.size(), plot_road.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Slide Texture"); ImGui::PlotLines("##Slide", plot_slide.data.data(), plot_slide.data.size(), plot_slide.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Slide Texture"); ImGui::PlotLines("##Slide", plot_slide.data.data(), (int)plot_slide.data.size(), plot_slide.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Lockup Vib"); ImGui::PlotLines("##Lock", plot_lockup.data.data(), plot_lockup.data.size(), plot_lockup.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Lockup Vib"); ImGui::PlotLines("##Lock", plot_lockup.data.data(), (int)plot_lockup.data.size(), plot_lockup.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Spin Vib"); ImGui::PlotLines("##Spin", plot_spin.data.data(), plot_spin.data.size(), plot_spin.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Spin Vib"); ImGui::PlotLines("##Spin", plot_spin.data.data(), (int)plot_spin.data.size(), plot_spin.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Bottoming"); ImGui::PlotLines("##Bot", plot_bottoming.data.data(), plot_bottoming.data.size(), plot_bottoming.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
+        ImGui::Text("Bottoming"); ImGui::PlotLines("##Bot", plot_bottoming.data.data(), (int)plot_bottoming.data.size(), plot_bottoming.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Clipping"); ImGui::PlotLines("##Clip", plot_clipping.data.data(), plot_clipping.data.size(), plot_clipping.offset, NULL, 0.0f, 1.1f, ImVec2(0, 40));
+        ImGui::Text("Clipping"); ImGui::PlotLines("##Clip", plot_clipping.data.data(), (int)plot_clipping.data.size(), plot_clipping.offset, NULL, 0.0f, 1.1f, ImVec2(0, 40));
         ImGui::Columns(1);
     }
 
     if (ImGui::CollapsingHeader("Telemetry Inspector (Raw)", ImGuiTreeNodeFlags_None)) {
         ImGui::Columns(2, "TelCols", false);
-        ImGui::Text("Steering Force"); ImGui::PlotLines("##StForce", plot_input_steer.data.data(), plot_input_steer.data.size(), plot_input_steer.offset, NULL, -5000.0f, 5000.0f, ImVec2(0, 40));
+        ImGui::Text("Steering Force"); ImGui::PlotLines("##StForce", plot_input_steer.data.data(), (int)plot_input_steer.data.size(), plot_input_steer.offset, NULL, -5000.0f, 5000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Local Accel X"); ImGui::PlotLines("##LatG", plot_input_accel.data.data(), plot_input_accel.data.size(), plot_input_accel.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
+        ImGui::Text("Local Accel X"); ImGui::PlotLines("##LatG", plot_input_accel.data.data(), (int)plot_input_accel.data.size(), plot_input_accel.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Avg Tire Load"); ImGui::PlotLines("##Load", plot_input_load.data.data(), plot_input_load.data.size(), plot_input_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+        ImGui::Text("Avg Tire Load"); ImGui::PlotLines("##Load", plot_input_load.data.data(), (int)plot_input_load.data.size(), plot_input_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Avg Grip Fract"); ImGui::PlotLines("##Grip", plot_input_grip.data.data(), plot_input_grip.data.size(), plot_input_grip.offset, NULL, 0.0f, 1.2f, ImVec2(0, 40));
+        ImGui::Text("Avg Grip Fract"); ImGui::PlotLines("##Grip", plot_input_grip.data.data(), (int)plot_input_grip.data.size(), plot_input_grip.offset, NULL, 0.0f, 1.2f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Avg Slip Ratio"); ImGui::PlotLines("##SlipR", plot_input_slip_ratio.data.data(), plot_input_slip_ratio.data.size(), plot_input_slip_ratio.offset, NULL, -1.0f, 1.0f, ImVec2(0, 40));
+        ImGui::Text("Avg Slip Ratio"); ImGui::PlotLines("##SlipR", plot_input_slip_ratio.data.data(), (int)plot_input_slip_ratio.data.size(), plot_input_slip_ratio.offset, NULL, -1.0f, 1.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Avg Slip Angle"); ImGui::PlotLines("##SlipA", plot_input_slip_angle.data.data(), plot_input_slip_angle.data.size(), plot_input_slip_angle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+        ImGui::Text("Avg Slip Angle"); ImGui::PlotLines("##SlipA", plot_input_slip_angle.data.data(), (int)plot_input_slip_angle.data.size(), plot_input_slip_angle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Avg Lat PatchVel"); ImGui::PlotLines("##PatchV", plot_input_patch_vel.data.data(), plot_input_patch_vel.data.size(), plot_input_patch_vel.offset, NULL, 0.0f, 20.0f, ImVec2(0, 40));
+        ImGui::Text("Avg Lat PatchVel"); ImGui::PlotLines("##PatchV", plot_input_patch_vel.data.data(), (int)plot_input_patch_vel.data.size(), plot_input_patch_vel.offset, NULL, 0.0f, 20.0f, ImVec2(0, 40));
         ImGui::NextColumn();
-        ImGui::Text("Avg Deflection"); ImGui::PlotLines("##Defl", plot_input_vert_deflection.data.data(), plot_input_vert_deflection.data.size(), plot_input_vert_deflection.offset, NULL, 0.0f, 0.1f, ImVec2(0, 40));
+        ImGui::Text("Avg Deflection"); ImGui::PlotLines("##Defl", plot_input_vert_deflection.data.data(), (int)plot_input_vert_deflection.data.size(), plot_input_vert_deflection.offset, NULL, 0.0f, 0.1f, ImVec2(0, 40));
         ImGui::Columns(1);
     }
 
