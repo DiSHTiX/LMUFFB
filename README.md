@@ -4,29 +4,9 @@ A FFB app for LMU, similar to irFFB and Marvin’s iRacing App
 
 Experimental alpha version.
 
-## Architecture
-
-The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via Shared Memory and calculates a synthetic Force Feedback signal to send to DirectInput.
-
-## Features
-
-*   **High Performance Core**: Native C++ Multi-threaded architecture.
-    *   **FFB Loop**: Runs at ~400Hz to match game physics.
-    *   **GUI Loop**: Runs at ~60Hz with lazy rendering to save CPU.
-*   **Real-time Tuning GUI**:
-    *   Built with **Dear ImGui** for responsive adjustment of parameters.
-    *   Sliders for Master Gain, Understeer (Grip Loss), SoP (Seat of Pants), and Min Force.
-    *   Toggles for Texture effects (Slide Rumble, Road Details).
-*   **Custom Effects**:
-    *   **Grip Modulation**: Feel the wheel lighten as front tires lose grip.
-    *   **Dynamic Oversteer**: Counter-steering force suggestion based on rear axle alignment torque (v0.2.2).
-    *   **Progressive Lockup**: Feel the edge of tire braking limit before full lock (v0.2.2).
-    *   **Traction Loss**: Feel the rear "float" and spin up under power (v0.2.2).
-*   **Easy Installation**: Inno Setup installer script included to manage dependencies (vJoy, Plugins).
-
-## Screenshot
-
 ![LMUFFB GUI](docs/screenshots/app.png)
+
+
 
 ## Installation & Configuration (End Users)
 
@@ -87,6 +67,40 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 ## Known Issues (v0.3.3)
 *   **Telemetry Gaps**: Some users report missing telemetry for Dashboard apps (ERS, Temps). LMUFFB has robust fallbacks, but if `mGripFract` is missing (Tire Temps broken), the Understeer effect may be static. See [Telemetry Report](docs/telemetry_availability_report.md).
 
+
+## Documentation
+
+*   [The Physics of Feel - Driver's Guide](docs/the_physics_of__feel_-_driver_guide.md) - **Comprehensive guide** explaining how LMUFFB translates telemetry into tactile sensations, with telemetry visualizations
+*   [FFB Effects & Customization Guide](docs/ffb_effects.md)
+*   [FFB Customization Guide (Legacy)](docs/ffb_customization.md)
+*   [GUI Framework Options](docs/gui_framework_options.md)
+*   [DirectInput Implementation Guide](docs/directinput_implementation.md)
+*   [Telemetry Data Reference](docs/telemetry_data_reference.md)
+*   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
+*   [Comparisons with Other Apps](docs/comparisons.md)
+
+
+## Architecture
+
+The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via Shared Memory and calculates a synthetic Force Feedback signal to send to DirectInput.
+
+## Features
+
+*   **High Performance Core**: Native C++ Multi-threaded architecture.
+    *   **FFB Loop**: Runs at ~400Hz to match game physics.
+    *   **GUI Loop**: Runs at ~60Hz with lazy rendering to save CPU.
+*   **Real-time Tuning GUI**:
+    *   Built with **Dear ImGui** for responsive adjustment of parameters.
+    *   Sliders for Master Gain, Understeer (Grip Loss), SoP (Seat of Pants), and Min Force.
+    *   Toggles for Texture effects (Slide Rumble, Road Details).
+*   **Custom Effects**:
+    *   **Grip Modulation**: Feel the wheel lighten as front tires lose grip.
+    *   **Dynamic Oversteer**: Counter-steering force suggestion based on rear axle alignment torque (v0.2.2).
+    *   **Progressive Lockup**: Feel the edge of tire braking limit before full lock (v0.2.2).
+    *   **Traction Loss**: Feel the rear "float" and spin up under power (v0.2.2).
+*   **Easy Installation**: Inno Setup installer script included to manage dependencies (vJoy, Plugins).
+
+
 ## Building (for developers)
 
 ### Prerequisites for all methods
@@ -140,16 +154,3 @@ To create the `LMUFFB_Setup.exe`:
 2.  **Build the Project**: Ensure you have built the `Release` version of `LMUFFB.exe` using Visual Studio.
 3.  **Run Compiler**: Open `installer/lmuffb.iss` in Inno Setup Compiler and click **Compile**.
 4.  **Output**: The installer will be generated in `installer/Output/`.
-
-
-## Documentation
-
-*   [The Physics of Feel - Driver's Guide](docs/the_physics_of__feel_-_driver_guide.md) - **Comprehensive guide** explaining how LMUFFB translates telemetry into tactile sensations, with telemetry visualizations
-*   [FFB Effects & Customization Guide](docs/ffb_effects.md)
-*   [FFB Customization Guide (Legacy)](docs/ffb_customization.md)
-*   [GUI Framework Options](docs/gui_framework_options.md)
-*   [DirectInput Implementation Guide](docs/directinput_implementation.md)
-*   [Telemetry Data Reference](docs/telemetry_data_reference.md)
-*   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
-*   [Comparisons with Other Apps](docs/comparisons.md)
-
