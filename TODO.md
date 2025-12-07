@@ -160,3 +160,13 @@ Todo: do a check at startup that the vJoy installed version is the expected one,
 
 Investigate: considering licensing and copyright aspects, can we legally bundle the vJoy sdk dll with our exe in the installer or redistributable zip? Should we include a license txt specific to vJoy? 
 
+
+## Throubleshooting 5
+
+### LMU control and FFB in-game settings
+
+See these screenshots to see the available options in LMU:
+* docs\bug_reports\LMU_settings_controls.png
+* docs\bug_reports\LMU_settings_FFB.png
+
+In particular the relevant setting seems to be "Force Feedback Strenght", that we should set to 0% , so that LMU does not send FFB to the wheel. Update README.md and README.txt to reflect this (instructing on setting this value to 0% in the in-game settings).
