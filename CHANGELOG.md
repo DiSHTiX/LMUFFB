@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.7] - 2025-05-23
+### Added
+- **Priority Check**: Implemented logic to detect if Le Mans Ultimate (LMU) has locked the FFB device in Exclusive Mode ("Double FFB"). If detected, a warning is logged to the console.
+- **Documentation Updates**:
+    - Updated `README.md` and `README.txt` to be LMU-specific (replaced "Game" references).
+    - Clarified that LMU lacks a "None" FFB option; advised setting Strength to 0% as a workaround.
+    - Updated `investigation_vjoyless_implementation.md` with LMU-specific experiments.
+    - Updated `plan_troubleshooting_FFB_visualizations.md` to specify "Rolling Trace Plots" for all telemetry/physics values.
+
 ## [0.3.6] - 2025-05-23
 ### Documentation
 - **Troubleshooting**: Added comprehensive plans for "FFB Visualizations" (`docs/plan_troubleshooting_FFB_visualizations.md`) and "Guided Configurator" (`docs/plan_guided_configurator.md`).

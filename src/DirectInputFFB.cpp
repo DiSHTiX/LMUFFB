@@ -195,8 +195,15 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
         HRESULT hr = m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
         if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) {
             // Try to re-acquire once
-            if (SUCCEEDED(m_pDevice->Acquire())) {
+            HRESULT hrAcq = m_pDevice->Acquire();
+            if (SUCCEEDED(hrAcq)) {
                 m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+            } else if (hrAcq == DIERR_OTHERAPPHASPRIO) {
+                static int log_limit = 0;
+                if (log_limit++ % 400 == 0) { // Log once per sec approx
+                    std::cerr << "[DI Warning] Device unavailable. LMU (or another app) has Exclusive Priority. " 
+                              << "You may have a 'Double FFB' conflict." << std::endl;
+                }
             }
         }
     }

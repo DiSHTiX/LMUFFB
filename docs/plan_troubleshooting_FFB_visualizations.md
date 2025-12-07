@@ -12,26 +12,36 @@ Implement comprehensive real-time visualizations and logging to assist users and
 A real-time stacked area chart or multi-line graph showing the contribution of each effect to the total output.
 *   **X-Axis:** Time (last 5-10 seconds sliding window).
 *   **Y-Axis:** Force (-1.0 to 1.0).
-*   **Lines/Layers:**
-    *   `Base Force` (Game Physics)
-    *   `SoP Force` (Lateral G)
-    *   `Understeer Cut` (Negative contribution)
-    *   `Texture Noise` (Road + Slide + Lockup high freq)
+*   **Lines/Layers (Individual Traces):**
+    *   `Base Force` (Game Physics: `mSteeringArmForce` scaled)
+    *   `SoP Force` (Smoothed Lateral G)
+    *   `Understeer Drop` (Reduction factor)
+    *   `Oversteer Boost` (Rear Aligning Torque)
+    *   `Road Texture` (Vertical Deflection impulse)
+    *   `Slide Texture` (Scrubbing vibration)
+    *   `Lockup Vibration` (Brake slip impulse)
+    *   `Wheel Spin Vibration` (Throttle slip impulse)
+    *   `Bottoming Impulse` (High load limiter)
     *   `Total Output` (Thick white line)
     *   `Clipping` (Red indicator when Total > 1.0)
 
+*Visual Style:* All graphs should be **Rolling Trace Plots** (Oscilloscope style), showing the last 5-10 seconds of data. This helps spot patterns like oscillation or spikes.
+
 **UI Controls:**
 *   Checkbox: "Show Debug Graphs" (to save CPU when not needed).
-*   Toggles: Enable/Disable individual lines to isolate visual noise.
+*   Toggles: Enable/Disable individual trace lines to isolate visual noise.
 
 ### B. Telemetry Inspector
-A table or bar chart showing raw inputs from Shared Memory.
-*   **Critical Values:**
+A set of **Rolling Trace Plots** for each raw input value from Shared Memory. 
+*   **Critical Values (Traced):**
     *   `mSteeringArmForce` (Is the game sending physics?)
     *   `mLocalAccel.x` (Is SoP working? Is it noisy?)
     *   `mTireLoad` (Are we airborne? Is bottoming logic valid?)
     *   `mGripFract` (Is it stuck at 0 or 1? Indicates tire model issues).
-    *   `mSlipRatio` / `mSlipAngle`.
+    *   `mSlipRatio` (Brake/Accel slip)
+    *   `mSlipAngle` (Cornering slip)
+    *   `mLateralPatchVel` (Slide speed)
+    *   `mVerticalTireDeflection` (Road surface)
 *   **Indicators:**
     *   Green dot: Value updating.
     *   Red dot: Value static/zero (Dead signal warning).

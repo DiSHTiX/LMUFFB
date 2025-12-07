@@ -45,19 +45,21 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 2.  Set up **Device 1** with at least **X Axis** enabled.
 3.  Click Apply.
 
-**B. Configure Le Mans Ultimate (The Game)**
-1.  Start the game.
+**B. Configure Le Mans Ultimate (LMU)**
+1.  Start LMU.
 2.  Go to **Settings > Graphics**:
     *   Set **Display Mode** to **Borderless**. (Prevents crashes/minimizing).
 3.  Go to **Controls / Bindings**.
+    *   *Screenshot:* ![LMU Controls](docs/screenshots/lmu_controls.png) *(To be added)*
 4.  **Steering Axis**: 
     *   **Method A (Recommended - Requires Feeder):** Bind to **vJoy Device (Axis X)**.
         *   *Requirement:* You MUST use a tool like **vJoy Feeder** (bundled with vJoy), **Joystick Gremlin**, or **Mojo** to map your physical wheel axis to the vJoy axis. LMUFFB does not yet bridge steering input.
-        *   *Why?* This guarantees the game sends FFB to vJoy (Dummy) and not your real wheel.
+        *   *Why?* This guarantees LMU sends FFB to vJoy (Dummy) and not your real wheel.
     *   **Method B (Experimental - No Feeder):** Bind to your **Physical Wheel**.
-        *   *Risk:* The game might try to take exclusive control of the wheel's FFB, causing "Double FFB" or blocking LMUFFB.
+        *   *Risk:* LMU might try to take exclusive control of the wheel's FFB, causing "Double FFB" or blocking LMUFFB.
 5.  **Force Feedback**:
-    *   **Type**: Set to "None" (if available) or reduce strength.
+    *   **Type**: Set to "None" (if available) or reduce **FFB Strength** to **0%** / **Off**.
+        *   *Note:* LMU may not have a "None" option; reducing strength to 0 is the workaround.
     *   **Smoothing**: Set to **0** (Raw) to ensure LMUFFB gets the fastest telemetry updates.
 
 **C. Configure LMUFFB (The App)**

@@ -1,6 +1,6 @@
 LMUFFB - Le Mans Ultimate Force Feedback
 ========================================
-Version: 0.3.6
+Version: 0.3.7
 
 See README.md for full documentation with images and links.
 
@@ -9,7 +9,7 @@ PREREQUISITES
 1. vJoy Driver (Version 2.1.9.1 recommended)
    Download: https://github.com/jshafer817/vJoy/releases
    
-   Why vJoy? The game needs a "dummy" device to bind steering to, so it doesn't 
+   Why vJoy? LMU needs a "dummy" device to bind steering to, so it doesn't 
    try to send its own FFB to your real wheel while LMUFFB is controlling it.
    
    Configuration:
@@ -39,8 +39,8 @@ PREREQUISITES
 STEP-BY-STEP SETUP
 ------------------
 
-A. Configure Le Mans Ultimate (The Game)
-   1. Start the game
+A. Configure Le Mans Ultimate (LMU)
+   1. Start LMU
    2. Go to Settings > Graphics:
       - Set Display Mode to "Borderless" (Prevents crashes/minimizing)
    
@@ -53,17 +53,19 @@ A. Configure Le Mans Ultimate (The Game)
         * vJoy Feeder (bundled with vJoy installation)
         * Joystick Gremlin
         * Mojo
-      - Tip: Move the vJoy slider in vJoy Feeder to help the game detect it
-      - Why? This guarantees the game sends FFB to vJoy (Dummy) and not your 
+      - Tip: Move the vJoy slider in vJoy Feeder to help LMU detect it
+      - Why? This guarantees LMU sends FFB to vJoy (Dummy) and not your 
         real wheel, preventing "Double FFB" conflicts.
       
       METHOD B (Experimental - No Feeder):
       - Bind to your Physical Wheel directly
-      - Risk: The game might take exclusive control of the wheel's FFB, causing 
+      - Risk: LMU might take exclusive control of the wheel's FFB, causing 
         "Double FFB" or blocking LMUFFB.
    
    5. Force Feedback Settings:
-      - Type: Set to "None" (if available) or reduce strength to minimum
+      - Type: Set to "None" (if available) or reduce FFB Strength to 0% / Off
+      - Note: LMU may not have a "None" option; reducing strength to 0 is 
+        the workaround.
       - Smoothing: Set to 0 (Raw) for fastest telemetry updates
 
 B. Configure LMUFFB (The App)
@@ -82,12 +84,12 @@ TROUBLESHOOTING
 
 Wheel Jerking / Fighting:
   - You likely have a "Double FFB" conflict
-  - Ensure in-game Steering is bound to vJoy, NOT your real wheel
-  - Ensure in-game FFB is sending to vJoy (or disabled)
+  - Ensure LMU Steering is bound to vJoy, NOT your real wheel
+  - Ensure LMU FFB is sending to vJoy (or disabled/strength at 0)
   - If the wheel oscillates on straights, reduce SOP Effect to 0.0
 
 No Steering (Car won't turn):
-  - If you bound Game Steering to vJoy, you need a Feeder app
+  - If you bound LMU Steering to vJoy, you need a Feeder app
   - Open "vJoy Feeder" (installed with vJoy)
   - Select your physical wheel and ensure it moves the vJoy axis
 
@@ -102,11 +104,11 @@ No FFB:
   - Or download: https://github.com/shauleiz/vJoy/tree/master/SDK/lib/amd64/vJoyInterface.dll
 
 "Could not open file mapping object":
-  - Start the game and load a track first
+  - Start LMU and load a track first
   - The Shared Memory Plugin only activates when driving
 
 
-KNOWN ISSUES (v0.3.6)
+KNOWN ISSUES (v0.3.7)
 ---------------------
 - Telemetry Gaps: Some users report missing telemetry for Dashboard apps 
   (ERS, Temps). LMUFFB has robust fallbacks, but if Tire Temperature data 

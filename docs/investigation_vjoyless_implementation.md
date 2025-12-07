@@ -34,6 +34,7 @@ If LMU allows binding an axis *without* acquiring the device for FFB:
     *   **Test Required:** Can LMUFFB send FFB to a device that LMU is actively reading steering from?
         - If yes: vJoy is NOT needed.
         - If no (Access Denied): We need vJoy.
+    *   **LMU Specific Note:** Users report LMU lacks a "None" FFB option. The workaround is setting FFB strength to 0 or disabling effects, which *might* not release the exclusive lock.
 
 #### Method 2: Proxy Driver (HID Guardian)
 Some apps use a filter driver (like HidGuardian) to hide the physical wheel from the game, presenting a virtual one instead. This effectively *is* vJoy but hidden. Complex to install.
