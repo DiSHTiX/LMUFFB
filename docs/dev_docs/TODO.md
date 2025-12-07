@@ -297,3 +297,10 @@ Then implement the changes described in this doc:
 docs\dev_docs\decouple_plots_from_gui_refresh.md
 
 Please also add a changelog entry for version 0.3.17 and for this upcoming change (version 0.3.18).
+
+## Troubleshooting 14
+
+Do a pull.
+
+Add the following logs / prints to console:
+When we release vJoy. When we unselect vJoy as a device.
