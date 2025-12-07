@@ -71,7 +71,7 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 ## Known Issues (v0.3.3)
 *   **Telemetry Gaps**: Some users report missing telemetry for Dashboard apps (ERS, Temps). LMUFFB has robust fallbacks, but if `mGripFract` is missing (Tire Temps broken), the Understeer effect may be static. See [Telemetry Report](docs/telemetry_availability_report.md).
 
-## Building
+## Building (for developers)
 
 ### Prerequisites for all methods
 *   **Compiler**: MSVC (Visual Studio 2022 Build Tools) or generic C++ compiler.
