@@ -11,11 +11,11 @@
 - [x] **DirectInput Support**: Replace vJoy with native DirectInput "Constant Force" packets.
 - [] Guided installer as in docs\plan_guided_installer.md
 - [] Add in app guided configurator to as described in Guided configurator in the app
-- [] If possible, completely remove vJoy dependency as described in docs\investigation_vjoyless_implementation.md
+- [] If possible, completely remove vJoy dependency as described in docs\dev_docs\investigation_vjoyless_implementation.md
 - [] Troubleshooting visualization of FFB and telemetry values as in (future doc) docs\plan_troubleshooting_FFB_visualizations.md
 - [ ] **Advanced Filtering**: Implement Bi-Quad filters (Low Pass / High Pass) for better road texture isolation.
 - [ ] **Telemetry Analysis**: Add visual graphs to the GUI showing the raw vs. filtered signal.
-- [ ] **Telemetry Logging**: Investigate and implement CSV logging. See `docs/telemetry_logging_investigation.md`.
+- [ ] **Telemetry Logging**: Investigate and implement CSV logging. See `docs/dev_docs/telemetry_logging_investigation.md`.
 
 ## Backlog / Wishlist
 - [ ] **Wheel Profiles**: Save/Load settings per car or wheel base.
@@ -154,7 +154,7 @@ See image docs\bug_reports\telemetry_trail_example.png , which display a typical
 
 ### More about vJoy
 
-- [x] **Bundling Investigation**: Yes, we can bundle `vJoyInterface.dll` (x64). See `docs/investigation_vjoy_bundling.md`.
+- [x] **Bundling Investigation**: Yes, we can bundle `vJoyInterface.dll` (x64). See `docs/dev_docs/investigation_vjoy_bundling.md`.
 - [x] **Version Check**: Implemented startup check for vJoy driver version (warns if < 2.1.8).
 - [x] **Licensing**: vJoy is MIT licensed. Added `licenses/vJoy_LICENSE.txt`.
 
@@ -194,7 +194,7 @@ https://github.com/jshafer817/vJoy/releases/tag/v2.1.9.1
 Address this issue:
 "I have moved LMUFFB.exe to the vJoy installation directory (C:\Program Files\vJoy\x64), because the vJoy config/monitor/feeder was complaining if I moved the 'vJoyInterface.dll' elsewhere. LMUFFB seems fine running in here."
 We might not want to bundle the vJoyInterface.dll with our app, because of the reported issue. We could either bundle the full vJoy SDK with our app, or if the user has it already installed (with the SDK, note that there are versions of vJoy without the SDK) we might ask the user, during the guided installer (and the guided configurator) to set the path in which the vJoyInterface.dll is located. 
-To address this issue, update docs\plan_guided_installer.md and docs\plan_guided_configurator.md .
+To address this issue, update docs\plan_guided_installer.md and docs\dev_docs\plan_guided_configurator.md .
 
 ### wheel binding issues
 

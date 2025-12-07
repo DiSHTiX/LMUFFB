@@ -4,7 +4,7 @@ This document outlines the implementation details for the version 0.3.0 update, 
 
 ## 1. Analysis of Requirements
 
-The user requested improvements based on `docs/report_on_ffb_improvements.md`. Key findings from the analysis:
+The user requested improvements based on `docs/dev_docs/report_on_ffb_improvements.md`. Key findings from the analysis:
 
 *   **The Math Problem**: Using absolute time (`mElapsedTime`) with dynamic frequencies causes phase discontinuity ("clicks/pops").
     *   **Solution**: Adopt **Phase Accumulation** (`phase += freq * dt`).

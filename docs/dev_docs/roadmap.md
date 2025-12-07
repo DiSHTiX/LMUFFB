@@ -17,7 +17,7 @@ To evolve LMUFFB from a prototype to a daily-driver application, the following s
 *   [ ] **Config Persistence**: Save/Load user settings to an `.ini` or `.json` file.
 
 ## Medium Term
-*   **DirectInput FFB Support**: Documentation guide created (`docs/directinput_implementation.md`). Implementation pending.
+*   **DirectInput FFB Support**: Documentation guide created (`docs/dev_docs/directinput_implementation.md`). Implementation pending.
 
 ## Long Term (Performance)
 *   **Wheel-Specific Modes**: Add specific protocols for popular bases (Fanatec, Simucube, Logitech) to display data on wheel screens (RPM LEDs) using the telemetry data.

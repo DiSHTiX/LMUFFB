@@ -65,7 +65,7 @@ Experimental alpha version.
 - **"Could not open file mapping object"**: Start the game and load a track first.
 
 ## Known Issues (v0.3.3)
-*   **Telemetry Gaps**: Some users report missing telemetry for Dashboard apps (ERS, Temps). lmuFFB has robust fallbacks, but if `mGripFract` is missing (Tire Temps broken), the Understeer effect may be static. See [Telemetry Report](docs/telemetry_availability_report.md).
+*   **Telemetry Gaps**: Some users report missing telemetry for Dashboard apps (ERS, Temps). lmuFFB has robust fallbacks, but if `mGripFract` is missing (Tire Temps broken), the Understeer effect may be static. See [Telemetry Report](docs/dev_docs/telemetry_availability_report.md).
 
 
 ## Documentation
@@ -74,8 +74,8 @@ Experimental alpha version.
 *   [FFB Effects & Customization Guide](docs/ffb_effects.md)
 *   [FFB Customization Guide (Legacy)](docs/ffb_customization.md)
 *   [GUI Framework Options](docs/gui_framework_options.md)
-*   [DirectInput Implementation Guide](docs/directinput_implementation.md)
-*   [Telemetry Data Reference](docs/telemetry_data_reference.md)
+*   [DirectInput Implementation Guide](docs/dev_docs/directinput_implementation.md)
+*   [Telemetry Data Reference](docs/dev_docs/telemetry_data_reference.md)
 *   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
 *   [Comparisons with Other Apps](docs/comparisons.md)
 
