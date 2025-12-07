@@ -75,3 +75,15 @@ A dedicated "Calibration / Diagnostic" mode.
 
 ### Phase 3: Diagnostic Logger (v0.5.0)
 *   Implement CSV writer and Wizard UI.
+
+## 4. Implementation Status (v0.3.13)
+
+**Phase 1 & 2 Completed.**
+The GUI now includes a "Show Troubleshooting Graphs" toggle which opens an "FFB Analysis" window containing:
+1.  **FFB Components Stack:** Real-time rolling plots for all 11 signal components (Base, SoP, Understeer, Oversteer, Road, Slide, Lockup, Spin, Bottoming, Clipping).
+2.  **Telemetry Inspector:** Real-time rolling plots for 8 critical telemetry inputs (Steering Force, Lat G, Load, Grip, Slip Ratio/Angle, Patch Vel, Deflection).
+
+**Technical Implementation:**
+- `FFBEngine` populates a debug struct `m_last_debug` and `m_last_telemetry` every frame.
+- `GuiLayer` maintains static `RollingBuffer` vectors (1000 samples) for each channel.
+- `ImGui::PlotLines` renders the data at 60Hz.

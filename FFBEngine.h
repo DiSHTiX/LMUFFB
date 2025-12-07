@@ -10,12 +10,14 @@ struct FFBOutputDebug {
     float base_force = 0.0f;
     float sop_force = 0.0f;
     float understeer_drop = 0.0f; // Reduction amount
+    float oversteer_boost = 0.0f; // Boost + Rear Torque
     float texture_road = 0.0f;
     float texture_slide = 0.0f;
     float texture_lockup = 0.0f;
     float texture_spin = 0.0f;
     float texture_bottoming = 0.0f;
     float total_output = 0.0f;
+    float clipping = 0.0f; // 1.0 if clipping, 0.0 otherwise
 };
 
 // FFB Engine Class
@@ -124,7 +126,8 @@ public:
 
         m_sop_lat_g_smoothed = m_sop_lat_g_smoothed + alpha * (lat_g - m_sop_lat_g_smoothed);
         
-        double sop_force = m_sop_lat_g_smoothed * m_sop_effect * 1000.0; // Base scaling needs tuning
+        double sop_base_force = m_sop_lat_g_smoothed * m_sop_effect * 1000.0; // Base scaling needs tuning
+        double sop_total = sop_base_force;
         
         // Oversteer Boost: If Rear Grip < Front Grip (car is rotating), boost SoP
         double grip_rl = data->mWheels[2].mGripFract;
@@ -135,7 +138,7 @@ public:
         // If front has 1.0 grip and rear has 0.5, delta is 0.5. Boost SoP.
         double grip_delta = avg_grip - avg_rear_grip;
         if (grip_delta > 0.0) {
-            sop_force *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
+            sop_total *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
         }
         
         // --- 2a. Rear Aligning Torque Integration (Experimental) ---
@@ -150,11 +153,13 @@ public:
         // Let's stick to the grip delta for now but add a yaw-rate damper if needed.
         // Actually, let's inject a fraction of rear lateral force directly.
         double rear_torque = rear_lat_force * 0.05 * m_oversteer_boost; // 0.05 is arb scale
-        sop_force += rear_torque;
+        sop_total += rear_torque;
         
-        m_last_debug.sop_force = (float)sop_force;
+        // Log split components
+        m_last_debug.sop_force = (float)sop_base_force; // Pure Lat G
+        m_last_debug.oversteer_boost = (float)(sop_total - sop_base_force); // The extra boost + rear torque
 
-        double total_force = output_force + sop_force;
+        double total_force = output_force + sop_total;
         
         // --- 2b. Progressive Lockup (Dynamic) ---
         // Ensure phase updates even if force is small, but gated by enabled
@@ -330,6 +335,7 @@ public:
         }
         
         m_last_debug.total_output = (float)norm_force;
+        m_last_debug.clipping = (std::abs(norm_force) > 1.0) ? 1.0f : 0.0f;
 
         // Clip
         return (std::max)(-1.0, (std::min)(1.0, norm_force));
