@@ -4,7 +4,8 @@ A FFB app for LMU, similar to irFFB and Marvin’s iRacing App
 
 Experimental alpha version.
 
-![lmuFFB GUI](docs/screenshots/app.png)
+![lmuFFB GUI](docs/screenshots/main_app.png)
+![lmuFFB GUI2](docs/screenshots/ffb_analysis.png)
 
 
 ## Installation & Configuration  
