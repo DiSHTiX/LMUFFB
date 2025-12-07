@@ -51,6 +51,8 @@ Do an investigation on this, and save a report to a markdown file: Apparently Ma
 
 # Throubleshooting 2
 
+### FFB Visualizations
+
 Add a new, comprehensive markdown document discussing and planning how can we make the app more easy to debug and troubleshoot. In particular, for cases in which the FFB is not working as intended (eg. forces too strong, jerking, etc.), for be able to more easily identify the cause of the problem. Consider also adding display widgets that show in the GUI more info and visuals on what the FFB is doing, including having separated visual for each effect or formula, so we can see which one is "exploding" with high values, or oscillating, or having other strange behavior.
 This could also be in the form of a "trail" visualization, in that we show the trails of multiple values over time (eg. over the last 5-10 seconds), so we can see if there are any patterns or anomalies.
 
@@ -61,3 +63,27 @@ Consider also adding additional thougble shooting visuals, like status of the sh
 We should mention in the readme that there are these visualization options, and that they can be enabled or disabled in the GUI. We should also include a screenshot of the GUI with these visualization options enabled.
 From these visualizations, we will be able also to spot telemetry values that are absent (eg. always constant or zero).
 We should also log more info to the console every time something is not as expected. Eg. if we detect that some telemetry values are always constant or zero, we should log a warning to the console (be carefull not to clutter it and repeat the same warning multiple times, or too often).
+
+Additionally, we could have an app mode to start a "troubleshooting" sesssion (like a "calibration" or something smilar), in that we ask the user to perform a series of actions to help us identify the cause of the problem. These actions could be things like: 
+* drive the car in a straight line, 
+* do a braking in a straight line,
+* drive the car in a corner, 
+* do some train braking (braking and turning into a corner)
+* accelerate flat out to try indice wheel sping,
+* etc.
+During this "troubleshooting session", we should log all the telemetry and FFB values to a file (or at least a summary of them). The FFB values should include the individual values of each effect or formula in the FFB. We should also log the FFB values that we are receiving from the game.
+We could either have a mechanism for allowing the user to send this data (logged values and / or summary) to us, or have some code that automatically analyzes that data and spots issue, so that the user can copy and paste the issues report / summary into a bug report.
+
+### Clarify how it works the communication of steering inputs among real wheel, vJoy and game
+
+Solve this contradiction:
+the readme instructions say that we must bind the ingame control to vJoy,  so that it is a dummy wheel to send the FFB to instead of the real wheel, but if we do that, we can't control the car from the game right? Or would vJoy take the position information from the real wheel and send it to the game? 
+In any case, if possible we need to perform additional checks on this (possibly at regular intervals during runtime, as a throubleshooting feature), eg. if vJoy is receiving control inputs from the real wheel.
+Should we add an instruction in the readme that says we should bind the real wheel to vJoy?
+
+### Guided configurator in the app
+In addition to the guided installer, from the main GUI of the app, should we have a button to run a guided configurator? This is both for initial configuration, and if things mess up and need to be reconfigured.
+
+### Checks for FFB outputs from the game (not the app)
+
+See if it is possible to check if the game is sending FFB to the wheel instead of vJoy: eg. from the shared memory, maybe there is info about it. If we detect it, we should print a warning to the console.
