@@ -57,10 +57,6 @@ add_definitions(-DLMUFFB_VERSION="${LMUFFB_VERSION}")
 # Copy Distribution Files
 add_custom_command(TARGET LMUFFB POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_SOURCE_DIR}/INSTALL.txt"
-            "$<TARGET_FILE_DIR:LMUFFB>/INSTALL.txt")
-add_custom_command(TARGET LMUFFB POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_SOURCE_DIR}/README.txt"
             "$<TARGET_FILE_DIR:LMUFFB>/README.txt")
 
