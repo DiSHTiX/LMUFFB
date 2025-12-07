@@ -171,3 +171,12 @@ See these screenshots to see the available options in LMU:
 
 In particular the relevant setting seems to be "Force Feedback Strenght", that we should set to 0% , so that LMU does not send FFB to the wheel. Update README.md and README.txt to reflect this (instructing on setting this value to 0% in the in-game settings).
 We should also probably instruct the user to disable the first toggle, "Force Feedback Effects". Also minimum steering torque should be set to 0%. Pheraphs also "Force Feedback Smoothing" should be set to 0. Also the values in "Advanced Force Feedback" should be set to 0: "Collision Strenght" and "Steering Torque Sensitivity". And also disable the toggle in the final section "Tweaks": "Use Constant Steering Force Effect".
+
+### Smoothing options
+
+For each case in which apply smoothing or other corrections to the FFB formula (eg. cap to values), we should add support to disable/enable each (individually) and, when possible, to configure them within a range of values (eg. from a minimum to a maximum value). For the cap to values, we might allow to increase or decrease the cap value, so that the user can fine tune the FFB to their liking. We might still enforce some hard limits on the ranges of configuration values allowed (to prevent values that will cause clear issues or bugs).
+
+
+### vJoy bundling
+
+Note that we can consider separately the vJoy installer and the vJoy sdk dll. We could only bundle the sdk dll, and let the user install vJoy through the installer. But we must also check that the installed vJoy version is the expected one, otherwise show a popup with a warning (with a "don't show again" checkbox) and a warning message to the console (this one always active since it is less intrusive).
