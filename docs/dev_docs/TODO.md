@@ -277,8 +277,14 @@ Please review again docs\dev_docs\proposed_changes_to_disable_vJoy.md
 
 ## Throubleshooting 12
 
+### More on enabling vJoy checkboxes
 The difference between vJoy enabled and vJoy monitoring (the two checkboxes) it that monitoring additionally reads the vJoy values and displays them in the telemetry, for debugging purposes. In theory, we could have vJoy enabled without monitoring (but not the other way around I think).
 
+### Casting to int for Plotting
 Note that to avoid a compile warning to precision loss I added some casting in src\GuiLayer.cpp, eg:
         ImGui::PlotLines("##Total", plot_total.data.data(), (int)plot_total.data.size(), plot_total.offset, "Total", -1.0f, 1.0f, ImVec2(0, 60));
 These int casting are present for all PlotLines calls. Make sure you edit your code with this change, so I don't get any merge issue later.
+
+### Mutex bug
+
+Verify the issues described here and in case fix it: docs\dev_docs\Missing Mutex Lock (Race Condition).md
