@@ -120,7 +120,7 @@ Where in vJoy feeder do I select my Moza wheel?
 
 [see image] docs\bug_reports\vJoy Feeder.jpeg
 
-# Answer
+# Answer 1
 
 That is my mistake, and I apologize for the confusion. Thank you for the screenshot—it clarifies exactly what is happening.
 
@@ -167,7 +167,7 @@ Do you think this is a feasible solution for "Fix "No Steering" (The Bridge)​"
 It seems strange that we need this bridge thing.. no other app like irFBB or Marvin's app needed Joystick Gremlin, as far as I am aware.
 
 
-# Answer
+# Answer 2
 
 
 This is a **very good suggestion**, and yes, it is absolutely a feasible solution. In fact, if it works on the user's specific system, it is the **preferred solution** because it eliminates the complexity of Joystick Gremlin entirely.

@@ -223,3 +223,33 @@ See docs\bug_reports\User bug report 002 VJoy Setup Troubleshooting and Bug.md ,
 2. Implement this major new feature:
 - [] Troubleshooting visualization of FFB and telemetry values as in (future doc) docs\plan_troubleshooting_FFB_visualizations.md
 
+## Throubleshooting 9
+
+In the readmes, for the "bridge" solution, include more detailed instructions as described here: docs\bug_reports\User bug report 002 VJoy Setup Troubleshooting and Bug.md , "# Answer 1" section. I copy them here:
+
+### 1. Download Joystick Gremlin
+*   Download it here: [https://whitemagic.github.io/JoystickGremlin/](https://whitemagic.github.io/JoystickGremlin/)
+*   Install and run it.
+
+### 2. Map Your Wheel (The Bridge)
+1.  In Joystick Gremlin, you will see tabs at the top for your connected devices. Click the tab for your **Moza R9**.
+2.  Turn your physical wheel. You should see one of the axes in the list highlight/move (usually "X Axis" or "Rotation X").
+3.  Click on that axis in the list.
+4.  On the right side, under "Action", choose **"Map to vJoy"**.
+5.  **Crucial Step (To fix the spinning bug):**
+    *   Select vJoy Device: **1**
+    *   Select Axis: **Y** (Do **NOT** select X, as LMUFFB is currently overwriting X for its display, causing the spinning).
+
+### 3. Activate the Bridge
+*   In the top menu of Joystick Gremlin, click the **"Activate"** button (the Gamepad icon turns green).
+*   *Test:* Now, when you turn your physical Moza wheel, the **Y bar** in the vJoy Monitor (or the Feeder you screenshotted) should move.
+
+### 4. Bind in Game
+*   Go into Le Mans Ultimate.
+*   Bind **Steering** to that new **vJoy Axis Y**.
+
+Once you do this, the "Bridge" is complete:
+**Moza** -> **Joystick Gremlin** -> **vJoy Axis Y** -> **Game**.
+
+This leaves **vJoy Axis X** free for LMUFFB to use for its display without interfering with your steering.
+
