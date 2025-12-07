@@ -261,5 +261,24 @@ Implement the changes described in this doc:
 docs\dev_docs\proposed_changes_to_disable_vJoy.md
 
 ## Throubleshooting 11
+1. I repea what I requested above:
+I have done a change to your latest code in main.pp, please review if this is correct: Line 71 (my version): if (vJoyDllLoaded && DynamicVJoy::Get().Enabled()) { // TODO: I have re-added " && DynamicVJoy::Get().Enabled()" make sure this is correct (your version): if (vJoyDllLoaded) {
 
-In our FFB formula, we have an hardocoded scaling factor of 1000 for the SoP. Instead, expose the scaling factor in the GUI so that it can be adjusted by the user within a range of values.
+Verify if this change is correct. Note that I have not pushed the changes, so you must compare your local code with the line I have pasted here.
+
+
+2.  Also, in your latest changes, I don't see any addition of a new GUI checkbox to "release" vJoy ("Output FFB to vJoy").
+Have you merged / confused it with "Monitor FFB on vJoy" checkbox? I think they should remain two separate checkboxes.
+Also, every time you enable / disable it, and we acquire or release vJoy, we should print that info on the console.
+Please review again docs\dev_docs\proposed_changes_to_disable_vJoy.md
+
+
+3. In our FFB formula, we have an hardcoded scaling factor of 1000 for the SoP. Instead, expose the scaling factor in the GUI so that it can be adjusted by the user within a range of values.
+
+## Throubleshooting 12
+
+The difference between vJoy enabled and vJoy monitoring (the two checkboxes) it that monitoring additionally reads the vJoy values and displays them in the telemetry, for debugging purposes. In theory, we could have vJoy enabled without monitoring (but not the other way around I think).
+
+Note that to avoid a compile warning to precision loss I added some casting in src\GuiLayer.cpp, eg:
+        ImGui::PlotLines("##Total", plot_total.data.data(), (int)plot_total.data.size(), plot_total.offset, "Total", -1.0f, 1.0f, ImVec2(0, 60));
+These int casting are present for all PlotLines calls. Make sure you edit your code with this change, so I don't get any merge issue later.

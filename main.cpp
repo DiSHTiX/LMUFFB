@@ -31,9 +31,10 @@ void FFBThread() {
     long axis_min = 1;
     long axis_max = 32768;
     
-    // Attempt to load vJoy
-    bool vJoyActive = false;
+    // Attempt to load vJoy (but don't acquire yet)
+    bool vJoyDllLoaded = false;
     if (DynamicVJoy::Get().Load()) {
+        vJoyDllLoaded = true;
         // Version Check
         SHORT ver = DynamicVJoy::Get().GetVersion();
         std::cout << "[vJoy] DLL Version: " << std::hex << ver << std::dec << std::endl;
@@ -47,22 +48,13 @@ void FFBThread() {
                  Config::Save(g_engine); // Save immediately
              }
         }
-
-        if (DynamicVJoy::Get().Enabled()) {
-            VjdStat status = DynamicVJoy::Get().GetStatus(VJOY_DEVICE_ID);
-            if ((status == VJD_STAT_OWN) || ((status == VJD_STAT_FREE) && DynamicVJoy::Get().Acquire(VJOY_DEVICE_ID))) {
-                vJoyActive = true;
-                std::cout << "[vJoy] Device " << VJOY_DEVICE_ID << " acquired." << std::endl;
-            } else {
-                std::cerr << "[vJoy] Failed to acquire device " << VJOY_DEVICE_ID << std::endl;
-            }
-        } else {
-            std::cout << "[vJoy] Driver not enabled." << std::endl;
-        }
     } else {
         std::cerr << "[vJoy] Failed to load vJoyInterface.dll. Please ensure it is in the same folder as the executable." << std::endl;
         MessageBoxA(NULL, "Failed to load vJoyInterface.dll.\n\nPlease ensure vJoy is installed and the DLL is in the app folder.", "LMUFFB Error", MB_ICONERROR | MB_OK);
     }
+
+    // Track acquisition state locally
+    bool vJoyAcquired = false;
 
     std::cout << "[FFB] Loop Started." << std::endl;
 
@@ -75,10 +67,28 @@ void FFBThread() {
                 force = g_engine.calculate_force(g_pTelemetry);
             }
 
-            // Update vJoy Axis (for monitoring) if active AND enabled
-            if (vJoyActive && Config::m_output_ffb_to_vjoy) {
-                long axis_val = (long)((force + 1.0) * 0.5 * (axis_max - axis_min) + axis_min);
-                DynamicVJoy::Get().SetAxis(axis_val, VJOY_DEVICE_ID, 0x30); // 0x30 = HID_USAGE_X (hardcoded to avoid public.h dependency issues)
+            // --- DYNAMIC vJoy LOGIC (State Machine) ---
+            if (vJoyDllLoaded && DynamicVJoy::Get().Enabled()) { // TODO: I have re-added  " && DynamicVJoy::Get().Enabled()" make sure this is correct
+                // STATE 1: User wants vJoy, but we don't have it -> TRY ACQUIRE
+                if (Config::m_output_ffb_to_vjoy && !vJoyAcquired) {
+                    VjdStat status = DynamicVJoy::Get().GetStatus(VJOY_DEVICE_ID);
+                    if ((status == VJD_STAT_OWN) || ((status == VJD_STAT_FREE) && DynamicVJoy::Get().Acquire(VJOY_DEVICE_ID))) {
+                        vJoyAcquired = true;
+                        std::cout << "[vJoy] Device " << VJOY_DEVICE_ID << " acquired for debug output." << std::endl;
+                    }
+                }
+                // STATE 2: User disabled vJoy, but we hold it -> RELEASE
+                else if (!Config::m_output_ffb_to_vjoy && vJoyAcquired) {
+                    DynamicVJoy::Get().Relinquish(VJOY_DEVICE_ID);
+                    vJoyAcquired = false;
+                    std::cout << "[vJoy] Device " << VJOY_DEVICE_ID << " relinquished." << std::endl;
+                }
+
+                // STATE 3: If owned, update axis
+                if (vJoyAcquired) {
+                    long axis_val = (long)((force + 1.0) * 0.5 * (axis_max - axis_min) + axis_min);
+                    DynamicVJoy::Get().SetAxis(axis_val, VJOY_DEVICE_ID, 0x30); 
+                }
             }
             
             // Update DirectInput (for FFB)
@@ -89,7 +99,7 @@ void FFBThread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
-    if (vJoyActive) {
+    if (vJoyAcquired) {
         DynamicVJoy::Get().Relinquish(VJOY_DEVICE_ID);
     }
     std::cout << "[FFB] Loop Stopped." << std::endl;
