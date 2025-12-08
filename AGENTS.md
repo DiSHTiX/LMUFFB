@@ -49,6 +49,11 @@ This document provides the Standard Operating Procedures (SOP), context, and con
 ### 7. 📤 Delivery
 *   **Do Not Push**: You do not have write access to the repository.
 *   **Save Files**: Ensure all modified files (including `AGENTS_MEMORY.md`) are saved. The user will download your work as a ZIP.
+*   **MANDATORY CHECKLIST**:
+    *   [ ] **Version Bumped**: Did you increment the number in `VERSION`?
+    *   [ ] **Changelog Updated**: Did you add a section in `CHANGELOG.md`?
+    *   [ ] **Documentation Updated**: Did you update technical docs or README?
+    *   [ ] **Tests Passed**: Did you verify with `run_tests`?
 
 ---
 

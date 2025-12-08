@@ -53,6 +53,9 @@ To avoid "aliasing" (square-wave look) in the GUI graphs:
 
 ## 4. Recent Architectural Changes (v0.3.x)
 
+### v0.3.20: Documentation Discipline
+*   **Lesson:** Every submission **MUST** include updates to `VERSION` and `CHANGELOG.md`. This is now enforced in `AGENTS.md`.
+
 ### v0.3.18: Decoupled Plotting
 *   Refactored `FFBEngine` to store debug snapshots in `m_debug_buffer`.
 *   Updated `GuiLayer` to consume batches, enabling "oscilloscope" style visualization.

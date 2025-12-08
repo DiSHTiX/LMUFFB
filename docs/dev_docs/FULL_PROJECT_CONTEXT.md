@@ -56,6 +56,11 @@ This document provides the Standard Operating Procedures (SOP), context, and con
 ### 7. 📤 Delivery
 *   **Do Not Push**: You do not have write access to the repository.
 *   **Save Files**: Ensure all modified files (including `AGENTS_MEMORY.md`) are saved. The user will download your work as a ZIP.
+*   **MANDATORY CHECKLIST**:
+    *   [ ] **Version Bumped**: Did you increment the number in `VERSION`?
+    *   [ ] **Changelog Updated**: Did you add a section in `CHANGELOG.md`?
+    *   [ ] **Documentation Updated**: Did you update technical docs or README?
+    *   [ ] **Tests Passed**: Did you verify with `run_tests`?
 
 ---
 
@@ -185,6 +190,9 @@ To avoid "aliasing" (square-wave look) in the GUI graphs:
 
 ## 4. Recent Architectural Changes (v0.3.x)
 
+### v0.3.20: Documentation Discipline
+*   **Lesson:** Every submission **MUST** include updates to `VERSION` and `CHANGELOG.md`. This is now enforced in `AGENTS.md`.
+
 ### v0.3.18: Decoupled Plotting
 *   Refactored `FFBEngine` to store debug snapshots in `m_debug_buffer`.
 *   Updated `GuiLayer` to consume batches, enabling "oscilloscope" style visualization.
@@ -230,6 +238,10 @@ tests\test_ffb_engine.exe
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [0.3.20] - 2025-12-08
+### Fixed
+- **Configurable Plot History**: Replaced the hardcoded 2.5-second buffer size for GUI plots with a configurable parameter (currently set to 10 seconds), ensuring consistent visualization regardless of frame rate.
 
 ## [0.3.19] - 2025-12-08
 ### Added
@@ -964,7 +976,7 @@ void FFBThread() {
             }
 
             // --- DYNAMIC vJoy LOGIC (State Machine) ---
-            if (vJoyDllLoaded && DynamicVJoy::Get().Enabled()) { 
+            if (vJoyDllLoaded && DynamicVJoy::Get().Enabled()) { // TODO: I have re-added  " && DynamicVJoy::Get().Enabled()" make sure this is correct
                 // STATE 1: User enabled vJoy -> ACQUIRE
                 if (Config::m_enable_vjoy && !vJoyAcquired) {
                     VjdStat status = DynamicVJoy::Get().GetStatus(VJOY_DEVICE_ID);
@@ -1120,12 +1132,6 @@ This is an **experimental early alpha version** of a force feedback application.
 - Your safety and equipment protection depend on having a hardware-level force limiter in place
 
 **Do not skip this step.** No software-level safety can replace proper hardware configuration.
-
-## 📥 Download
-
-**[Download the latest release from GitHub](https://github.com/coasting-nc/LMUFFB/releases)**
-
-Get the latest stable version with the installer and all necessary files.
 
 ![lmuFFB GUI](docs/screenshots/main_app.png)
 ![lmuFFB GUI2](docs/screenshots/ffb_analysis.png)

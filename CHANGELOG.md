@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.20] - 2025-12-08
+### Fixed
+- **Configurable Plot History**: Replaced the hardcoded 2.5-second buffer size for GUI plots with a configurable parameter (currently set to 10 seconds), ensuring consistent visualization regardless of frame rate.
+
 ## [0.3.19] - 2025-12-08
 ### Added
 - **Telemetry Robustness**: Implemented sanity checks to detect and mitigate missing telemetry data.
