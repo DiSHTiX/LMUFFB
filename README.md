@@ -4,6 +4,16 @@ A FFB app for LMU, similar to irFFB and Marvin’s iRacing App
 
 Experimental alpha version.
 
+## 📥 Download
+
+**[Download the latest release from GitHub](https://github.com/coasting-nc/LMUFFB/releases)**
+
+Get the latest stable version with the installer and all necessary files.
+
+![lmuFFB GUI](docs/screenshots/main_app.png)
+![lmuFFB GUI2](docs/screenshots/ffb_analysis.png)
+
+
 ## ⚠️ CRITICAL SAFETY WARNING ⚠️
 
 **BEFORE USING THIS APPLICATION, YOU MUST CONFIGURE YOUR STEERING WHEEL DEVICE DRIVER:**
@@ -25,16 +35,6 @@ This is an **experimental early alpha version** of a force feedback application.
 - Your safety and equipment protection depend on having a hardware-level force limiter in place
 
 **Do not skip this step.** No software-level safety can replace proper hardware configuration.
-
-## 📥 Download
-
-**[Download the latest release from GitHub](https://github.com/coasting-nc/LMUFFB/releases)**
-
-Get the latest stable version with the installer and all necessary files.
-
-![lmuFFB GUI](docs/screenshots/main_app.png)
-![lmuFFB GUI2](docs/screenshots/ffb_analysis.png)
-
 
 ## Installation & Configuration  
 
