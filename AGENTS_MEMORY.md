@@ -7,19 +7,21 @@ This file represents your "Long-Term Memory". It contains lessons learned from p
 
 ---
 
-## 🔧 Environment & Command Workarounds
+## 🔧 Environment & Workflow
 
-### Git Synchronization
-*   **Issue**: `git pull` often fails because the environment is read-only or lacks credentials for the upstream repo.
-*   **Solution**: Use `git fetch` followed by `git reset --hard origin/main` (or specific branch) if strictly necessary, but generally, just work with the files present in the VM. Do not attempt to push.
+### Git Protocol
+*   **Status**: Write access is enabled.
+*   **Workflow**: Work directly on the `main` branch.
+*   **Requirement**: Always `git pull` before starting. Always `git push origin main` after finishing.
 
-### CMake & Build
-*   **Constraint**: The Linux VM cannot build the `LMUFFB.exe` target (Windows only).
-*   **Working Command**: Always target the tests directory explicitly:
+### CMake & Build (Linux VM)
+*   **Constraint**: This environment (Ubuntu Linux) **cannot** build the main `LMUFFB.exe` target because it lacks Windows headers (`d3d11.h`, `dinput.h`, `windows.h`).
+*   **Solution**: Do not attempt to build the root `CMakeLists.txt`. Instead, **always** target the tests directory explicitly to verify logic:
     ```bash
     mkdir -p build_tests && cd build_tests
     cmake ../tests
     cmake --build .
+    ./run_tests
     ```
 
 ---

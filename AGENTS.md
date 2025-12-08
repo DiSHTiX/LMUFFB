@@ -8,19 +8,17 @@ This document provides the Standard Operating Procedures (SOP), context, and con
 
 **Perform these steps for EVERY task to ensure quality and consistency.**
 
-### 1. 🧠 Consult Memory
-*   **Action**: Read `AGENTS_MEMORY.md`.
-*   **Why**: It contains workarounds (like Git fixes) and architectural lessons learned from previous sessions.
+### 1. 🔄 Sync (Direct to Main)
+*   **Sync**: Run `git checkout main` and `git pull` to ensure you have the latest code.
+*   **Policy**: You are authorized to work directly on the `main` branch.
 
-### 2. 🔄 Sync & Context
-*   **Sync**: Try to ensure you have the latest code. Run `git fetch`.
-    *   *Note*: If git fails, ignore the error and proceed with the files currently in the environment.
-*   **Context**: If you need to refresh your understanding of the full codebase, run `python scripts/create_context.py`.
+### 2. 🧠 Consult Memory
+*   **Action**: Read `AGENTS_MEMORY.md`.
+*   **Why**: It contains build workarounds (Linux vs Windows) and architectural lessons.
 
 ### 3. 🧪 Test-Driven Development
-*   **Requirement**: You **must** add or update C++ unit tests for every logic change or new feature.
-*   **Location**: Add test cases to `tests/test_ffb_engine.cpp`.
-*   **Verification**: You **must** compile and run the tests to prove your code works.
+*   **Requirement**: You **must** add or update C++ unit tests for every logic change.
+*   **Verification**: You **must** compile and run the tests in the Linux VM.
     *   *Command*:
         ```bash
         mkdir -p build_tests && cd build_tests
@@ -28,27 +26,20 @@ This document provides the Standard Operating Procedures (SOP), context, and con
         cmake --build .
         ./run_tests
         ```
-    *   *Constraint*: Do not submit code if `run_tests` fails.
+    *   **CRITICAL**: Do not commit or push code if `run_tests` fails. Since you are pushing to `main`, breaking the build is forbidden.
 
 ### 4. 📚 Documentation Updates
-*   **Requirement**: Update relevant Markdown files to reflect your changes.
-    *   If you changed math/physics -> Update `docs/dev_docs/FFB_formulas.md`.
-    *   If you added telemetry usage -> Update `docs/dev_docs/telemetry_data_reference.md`.
-    *   If you changed the GUI -> Update `README.md` (text descriptions).
+*   **Requirement**: Update relevant Markdown files (`FFB_formulas.md`, `README.md`, etc.) to reflect your changes.
 
 ### 5. 📦 Versioning & Changelog
-*   **Update Version**: Increment the number in the `VERSION` file (root directory).
-    *   *Patch (0.0.X)*: Bug fixes, tweaks, refactoring.
-    *   *Minor (0.X.0)*: New features, new effects.
-*   **Update Changelog**: Add a concise entry to `CHANGELOG.md` under the new version number.
+*   **Update Version**: Increment the number in the `VERSION` file.
+*   **Update Changelog**: Add a concise entry to `CHANGELOG.md`.
 
-### 6. 🧠 Update Memory (Critical)
-*   **Action**: If you encountered a build error, a command failure, or learned something new about the code structure, append it to `AGENTS_MEMORY.md`.
-*   **Goal**: Help the *next* AI session avoid the same problem.
-
-### 7. 📤 Delivery
-*   **Do Not Push**: You do not have write access to the repository.
-*   **Save Files**: Ensure all modified files (including `AGENTS_MEMORY.md`) are saved. The user will download your work as a ZIP.
+### 6. 📤 Delivery (Commit & Push)
+*   **Commit**: Stage your changes (`git add .`) and commit with a descriptive message.
+*   **Memory**: If you learned something new (e.g., a new build quirk), update `AGENTS_MEMORY.md` *before* committing.
+*   **Push**: Push directly to the remote.
+    *   Command: `git push origin main`
 
 ---
 
