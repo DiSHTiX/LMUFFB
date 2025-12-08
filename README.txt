@@ -47,7 +47,27 @@ configuration.
 
 PREREQUISITES
 -------------
-1. vJoy Driver (Version 2.1.9.1 recommended)
+
+1. rF2 Shared Memory Plugin (rFactor2SharedMemoryMapPlugin64.dll)
+   Download from:
+   - https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin#download
+   - Or bundled with CrewChief: https://thecrewchief.org/
+   
+   Installation Steps:
+   - Place the rFactor2SharedMemoryMapPlugin64.dll file into "Le Mans Ultimate/Plugins/" 
+     directory
+   - NOTE: The "Plugins" folder may not exist by default - create it manually if needed
+   - TIP: If you've installed apps like CrewChief, this plugin might already be present. 
+     Check before downloading.
+   
+   Activation:
+   - LMU requires manual activation: Open "Le Mans Ultimate\UserData\player\
+     CustomPluginVariables.JSON" and set the " Enabled" field to 1 for the plugin entry
+   - IMPORTANT: Restart LMU completely after making this change
+   - If the plugin entry is missing: Install the Visual C++ 2013 (VC12) runtime from 
+     your game's "Support\Runtimes" folder, then restart LMU to auto-generate the entry
+
+2. vJoy Driver (Version 2.1.9.1 recommended)
    Download: https://github.com/jshafer817/vJoy/releases
    
    Why vJoy? LMU needs a "dummy" device to bind steering to, so it doesn't 
@@ -58,16 +78,6 @@ PREREQUISITES
    - Set up Device 1 with at least X Axis enabled
    - Disable all vJoy FFB Effects EXCEPT "Constant Force"
    - Click Apply
-
-2. rF2 Shared Memory Plugin (rFactor2SharedMemoryMapPlugin64.dll)
-   Download from one of these sources:
-   - https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin#download
-   - Bundled with CrewChief: https://thecrewchief.org/
-   
-   Installation:
-   - Copy rFactor2SharedMemoryMapPlugin64.dll to "Le Mans Ultimate/Plugins/" folder
-   - Note: LMU does not have an in-game menu to enable plugins. It is enabled 
-     automatically if the file is present.
 
 3. vJoyInterface.dll (Required for lmuFFB to run)
    This DLL MUST be in the same folder as LMUFFB.exe

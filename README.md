@@ -39,13 +39,20 @@ This is an **experimental early alpha version** of a force feedback application.
 ## Installation & Configuration  
 
 ### 1. Prerequisites
+
+*   **rF2 Shared Memory Plugin**: Download `rFactor2SharedMemoryMapPlugin64.dll` from [TheIronWolfModding's GitHub](https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin#download).
+    *   **Installation Steps**: 
+        *   Place the `rFactor2SharedMemoryMapPlugin64.dll` file into `Le Mans Ultimate/Plugins/` directory.
+        *   **Note**: The `Plugins` folder may not exist by default - create it manually if needed.
+        *   **Tip**: If you've installed apps like [CrewChief](https://thecrewchief.org/), this plugin might already be present. Check before downloading.
+    *   **Activation**:
+        *   LMU requires manual activation: Open `Le Mans Ultimate\UserData\player\CustomPluginVariables.JSON` and set the `" Enabled"` field to `1` for the plugin entry.
+        *   **Important**: Restart LMU completely after making this change.
+        *   **If the plugin entry is missing**: Install the **Visual C++ 2013 (VC12) runtime** from your game's `Support\Runtimes` folder, then restart LMU to auto-generate the entry.
+
 *   **vJoy Driver**: Install version **2.1.9.1** (by jshafer817) or compatible. Download from [vJoy releases](https://github.com/jshafer817/vJoy/releases).
     *   *Why vJoy?* The game needs a "dummy" device to bind steering to, so it doesn't try to send its own FFB to your real wheel while lmuFFB is controlling it.
     *   *Tip:* **Disable all vJoy FFB Effects** in the "Configure vJoy" tool, except "Constant Force" (though lmuFFB drives your wheel directly, this prevents vJoy from trying to interfere if you use legacy mode).
-*   **rF2 Shared Memory Plugin**: Download `rFactor2SharedMemoryMapPlugin64.dll` from [TheIronWolfModding](https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin#download) or use the version bundled with [CrewChief](https://thecrewchief.org/).
-    *   **Installation**: Copy `rFactor2SharedMemoryMapPlugin64.dll` to your `Le Mans Ultimate/Plugins/` folder.
-    *   *Note:* LMU does not have an in-game menu to enable plugins like rFactor 2 did. It is usually enabled by default if the file is present.
-
 ### 2. Step-by-Step Setup
 
 **A. Configure vJoy**
