@@ -358,13 +358,19 @@ void GuiLayer::Shutdown() {}
 bool GuiLayer::Render(FFBEngine& engine) { return false; } // Always lazy
 #endif
 
+// --- CONFIGURABLE PLOT SETTINGS ---
+const float PLOT_HISTORY_SEC = 10.0f;   // 10 Seconds History
+const int PHYSICS_RATE_HZ = 400;        // Fixed update rate
+const int PLOT_BUFFER_SIZE = (int)(PLOT_HISTORY_SEC * PHYSICS_RATE_HZ); // 4000 points
+
 // --- Helper: Ring Buffer for PlotLines ---
 struct RollingBuffer {
     std::vector<float> data;
     int offset = 0;
     
-    RollingBuffer(int size = 2000) {
-        data.resize(size, 0.0f);
+    // Initialize with the calculated size
+    RollingBuffer() {
+        data.resize(PLOT_BUFFER_SIZE, 0.0f);
     }
     
     void Add(float val) {
@@ -374,27 +380,27 @@ struct RollingBuffer {
 };
 
 // Static buffers for debug plots (FFB)
-static RollingBuffer plot_total(1000);
-static RollingBuffer plot_base(1000);
-static RollingBuffer plot_sop(1000);
-static RollingBuffer plot_understeer(1000);
-static RollingBuffer plot_oversteer(1000);
-static RollingBuffer plot_road(1000);
-static RollingBuffer plot_slide(1000);
-static RollingBuffer plot_lockup(1000);
-static RollingBuffer plot_spin(1000);
-static RollingBuffer plot_bottoming(1000);
-static RollingBuffer plot_clipping(1000);
+static RollingBuffer plot_total;
+static RollingBuffer plot_base;
+static RollingBuffer plot_sop;
+static RollingBuffer plot_understeer;
+static RollingBuffer plot_oversteer;
+static RollingBuffer plot_road;
+static RollingBuffer plot_slide;
+static RollingBuffer plot_lockup;
+static RollingBuffer plot_spin;
+static RollingBuffer plot_bottoming;
+static RollingBuffer plot_clipping;
 
 // Static buffers for debug plots (Telemetry)
-static RollingBuffer plot_input_steer(1000); // SteeringArmForce
-static RollingBuffer plot_input_accel(1000); // LocalAccel.x
-static RollingBuffer plot_input_load(1000); // TireLoad
-static RollingBuffer plot_input_grip(1000); // GripFract
-static RollingBuffer plot_input_slip_ratio(1000); // SlipRatio
-static RollingBuffer plot_input_slip_angle(1000); // SlipAngle
-static RollingBuffer plot_input_patch_vel(1000); // PatchVel
-static RollingBuffer plot_input_vert_deflection(1000); // Deflection
+static RollingBuffer plot_input_steer;
+static RollingBuffer plot_input_accel;
+static RollingBuffer plot_input_load;
+static RollingBuffer plot_input_grip;
+static RollingBuffer plot_input_slip_ratio;
+static RollingBuffer plot_input_slip_angle;
+static RollingBuffer plot_input_patch_vel;
+static RollingBuffer plot_input_vert_deflection;
 
 // State for Warnings
 static bool g_warn_load = false;
@@ -411,9 +417,8 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
     auto snapshots = engine.GetDebugBatch();
     
     // Update buffers with the latest snapshot (if available)
-    if (!snapshots.empty()) {
-        const FFBSnapshot& snap = snapshots.back();
-        
+    // Loop through ALL snapshots to avoid aliasing
+    for (const auto& snap : snapshots) {
         // FFB Components
         plot_total.Add(snap.total_output);
         plot_base.Add(snap.base_force);
