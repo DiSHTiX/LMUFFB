@@ -82,6 +82,7 @@ void test_sop_effect() {
     data.mSteeringArmForce = 0.0;
     engine.m_sop_effect = 0.5; 
     engine.m_gain = 1.0; // Ensure gain is 1.0
+    engine.m_sop_smoothing_factor = 1.0; // Disable smoothing for instant result
     
     // 0.5 G lateral (4.905 m/s2)
     data.mLocalAccel.x = 4.905;

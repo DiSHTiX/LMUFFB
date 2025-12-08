@@ -3,21 +3,34 @@
 
 #include <cmath>
 #include <algorithm>
+#include <vector>
+#include <mutex>
 #include "rF2Data.h"
 
-// Struct to hold debug values for visualization
-struct FFBOutputDebug {
-    float base_force = 0.0f;
-    float sop_force = 0.0f;
-    float understeer_drop = 0.0f; // Reduction amount
-    float oversteer_boost = 0.0f; // Boost + Rear Torque
-    float texture_road = 0.0f;
-    float texture_slide = 0.0f;
-    float texture_lockup = 0.0f;
-    float texture_spin = 0.0f;
-    float texture_bottoming = 0.0f;
-    float total_output = 0.0f;
-    float clipping = 0.0f; // 1.0 if clipping, 0.0 otherwise
+// 1. Define the Snapshot Struct (Unified FFB + Telemetry)
+struct FFBSnapshot {
+    // FFB Outputs
+    float base_force;
+    float sop_force;
+    float understeer_drop;
+    float oversteer_boost;
+    float texture_road;
+    float texture_slide;
+    float texture_lockup;
+    float texture_spin;
+    float texture_bottoming;
+    float total_output;
+    float clipping;
+
+    // Telemetry Inputs
+    float steer_force;
+    float accel_x;
+    float tire_load;
+    float grip_fract;
+    float slip_ratio;
+    float slip_angle;
+    float patch_vel;
+    float deflection;
 };
 
 // FFB Engine Class
@@ -66,16 +79,24 @@ public:
     // Smoothing State
     double m_sop_lat_g_smoothed = 0.0;
     
-    // Debug State
-    FFBOutputDebug m_last_debug;
-    rF2Telemetry m_last_telemetry; // Copy of latest telemetry for GUI
+    // Thread-Safe Buffer (Producer-Consumer)
+    std::vector<FFBSnapshot> m_debug_buffer;
+    std::mutex m_debug_mutex;
+    
+    // Helper to retrieve data (Consumer)
+    std::vector<FFBSnapshot> GetDebugBatch() {
+        std::vector<FFBSnapshot> batch;
+        {
+            std::lock_guard<std::mutex> lock(m_debug_mutex);
+            if (!m_debug_buffer.empty()) {
+                batch.swap(m_debug_buffer); // Fast swap
+            }
+        }
+        return batch;
+    }
 
     double calculate_force(const rF2Telemetry* data) {
         if (!data) return 0.0;
-        m_last_telemetry = *data; // Store for debug
-        
-        // Reset debug struct
-        m_last_debug = FFBOutputDebug();
         
         double dt = data->mDeltaTime;
         const double TWO_PI = 6.28318530718;
@@ -85,6 +106,13 @@ public:
         const rF2Wheel& fr = data->mWheels[1];
 
         double game_force = data->mSteeringArmForce;
+        
+        // Debug variables (initialized to 0)
+        double road_noise = 0.0;
+        double slide_noise = 0.0;
+        double lockup_rumble = 0.0;
+        double spin_rumble = 0.0;
+        double bottoming_crunch = 0.0;
 
         // --- PRE-CALCULATION: TIRE LOAD FACTOR ---
         // Calculate this once to use across multiple effects.
@@ -109,9 +137,6 @@ public:
         double grip_factor = 1.0 - ((1.0 - avg_grip) * m_understeer_effect);
         double output_force = game_force * grip_factor;
         
-        m_last_debug.base_force = (float)game_force;
-        m_last_debug.understeer_drop = (float)(game_force * (1.0 - grip_factor));
-
         // --- 2. Seat of Pants (SoP) / Oversteer ---
         // Lateral G-force
         double lat_g = data->mLocalAccel.x / 9.81;
@@ -156,10 +181,6 @@ public:
         double rear_torque = rear_lat_force * 0.05 * m_oversteer_boost; // 0.05 is arb scale
         sop_total += rear_torque;
         
-        // Log split components
-        m_last_debug.sop_force = (float)sop_base_force; // Pure Lat G
-        m_last_debug.oversteer_boost = (float)(sop_total - sop_base_force); // The extra boost + rear torque
-
         double total_force = output_force + sop_total;
         
         // --- 2b. Progressive Lockup (Dynamic) ---
@@ -190,9 +211,8 @@ public:
                 double amp = severity * m_lockup_gain * 800.0;
                 
                 // Use the integrated phase
-                double rumble = std::sin(m_lockup_phase) * amp;
-                m_last_debug.texture_lockup = (float)rumble;
-                total_force += rumble;
+                lockup_rumble = std::sin(m_lockup_phase) * amp;
+                total_force += lockup_rumble;
             }
         }
 
@@ -229,10 +249,9 @@ public:
 
                 // Amplitude
                 double amp = severity * m_spin_gain * 500.0;
-                double rumble = std::sin(m_spin_phase) * amp;
+                spin_rumble = std::sin(m_spin_phase) * amp;
                 
-                m_last_debug.texture_spin = (float)rumble;
-                total_force += rumble;
+                total_force += spin_rumble;
             }
         }
 
@@ -256,9 +275,8 @@ public:
                 double sawtooth = (m_slide_phase / TWO_PI) * 2.0 - 1.0;
 
                 // Amplitude: Scaled by PRE-CALCULATED global load_factor
-                double noise = sawtooth * m_slide_texture_gain * 300.0 * load_factor;
-                m_last_debug.texture_slide = (float)noise;
-                total_force += noise;
+                slide_noise = sawtooth * m_slide_texture_gain * 300.0 * load_factor;
+                total_force += slide_noise;
             }
         }
         
@@ -282,8 +300,6 @@ public:
             // Apply LOAD FACTOR: Bumps feel harder under compression
             road_noise *= load_factor;
             
-            m_last_debug.texture_road = (float)road_noise;
-
             total_force += road_noise;
         }
 
@@ -313,7 +329,6 @@ public:
                 // This creates a heavy shudder regardless of steering direction
                 double crunch = std::sin(m_bottoming_phase) * bump_magnitude;
                 
-                m_last_debug.texture_bottoming = (float)crunch;
                 total_force += crunch;
             }
         }
@@ -335,8 +350,37 @@ public:
             norm_force = sign * m_min_force;
         }
         
-        m_last_debug.total_output = (float)norm_force;
-        m_last_debug.clipping = (std::abs(norm_force) > 1.0) ? 1.0f : 0.0f;
+        // --- SNAPSHOT LOGIC ---
+        // Capture all internal states for visualization
+        {
+            std::lock_guard<std::mutex> lock(m_debug_mutex);
+            if (m_debug_buffer.size() < 100) {
+                FFBSnapshot snap;
+                snap.total_output = (float)norm_force;
+                snap.base_force = (float)game_force;
+                snap.sop_force = (float)sop_base_force;
+                snap.understeer_drop = (float)(game_force * (1.0 - grip_factor));
+                snap.oversteer_boost = (float)(sop_total - sop_base_force);
+                snap.texture_road = (float)road_noise;
+                snap.texture_slide = (float)slide_noise;
+                snap.texture_lockup = (float)lockup_rumble;
+                snap.texture_spin = (float)spin_rumble;
+                snap.texture_bottoming = (float)bottoming_crunch;
+                snap.clipping = (std::abs(norm_force) > 0.99f) ? 1.0f : 0.0f;
+                
+                // Telemetry inputs
+                snap.steer_force = (float)game_force;
+                snap.accel_x = (float)data->mLocalAccel.x;
+                snap.tire_load = (float)avg_load;
+                snap.grip_fract = (float)avg_grip;
+                snap.slip_ratio = (float)((fl.mSlipRatio + fr.mSlipRatio) / 2.0);
+                snap.slip_angle = (float)((std::abs(fl.mSlipAngle) + std::abs(fr.mSlipAngle)) / 2.0);
+                snap.patch_vel = (float)((std::abs(fl.mLateralPatchVel) + std::abs(fr.mLateralPatchVel)) / 2.0);
+                snap.deflection = (float)((fl.mVerticalTireDeflection + fr.mVerticalTireDeflection) / 2.0);
+                
+                m_debug_buffer.push_back(snap);
+            }
+        }
 
         // Clip
         return (std::max)(-1.0, (std::min)(1.0, norm_force));

@@ -402,39 +402,36 @@ bool GuiLayer::m_show_debug_window = false;
 void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
     ImGui::Begin("FFB Analysis", &m_show_debug_window);
     
-    // Update Buffers (Ideally this should be done in the FFB thread and passed via a queue,
-    // but sampling at 60Hz from the latest state is "good enough" for visual inspection)
-    // Note: This misses high-freq spikes between frames, but shows trends.
-    // For Phase 3 (Logging), we need proper buffering.
+    // Retrieve latest snapshots from the FFB thread
+    auto snapshots = engine.GetDebugBatch();
     
-    // --- Update Buffers ---
-    // FFB
-    plot_total.Add(engine.m_last_debug.total_output);
-    plot_base.Add(engine.m_last_debug.base_force);
-    plot_sop.Add(engine.m_last_debug.sop_force);
-    plot_understeer.Add(engine.m_last_debug.understeer_drop);
-    plot_oversteer.Add(engine.m_last_debug.oversteer_boost);
-    plot_road.Add(engine.m_last_debug.texture_road);
-    plot_slide.Add(engine.m_last_debug.texture_slide);
-    plot_lockup.Add(engine.m_last_debug.texture_lockup);
-    plot_spin.Add(engine.m_last_debug.texture_spin);
-    plot_bottoming.Add(engine.m_last_debug.texture_bottoming);
-    plot_clipping.Add(engine.m_last_debug.clipping);
+    // Update buffers with the latest snapshot (if available)
+    if (!snapshots.empty()) {
+        const FFBSnapshot& snap = snapshots.back();
+        
+        // FFB Components
+        plot_total.Add(snap.total_output);
+        plot_base.Add(snap.base_force);
+        plot_sop.Add(snap.sop_force);
+        plot_understeer.Add(snap.understeer_drop);
+        plot_oversteer.Add(snap.oversteer_boost);
+        plot_road.Add(snap.texture_road);
+        plot_slide.Add(snap.texture_slide);
+        plot_lockup.Add(snap.texture_lockup);
+        plot_spin.Add(snap.texture_spin);
+        plot_bottoming.Add(snap.texture_bottoming);
+        plot_clipping.Add(snap.clipping);
 
-    // Telemetry
-    plot_input_steer.Add((float)engine.m_last_telemetry.mSteeringArmForce);
-    plot_input_accel.Add((float)engine.m_last_telemetry.mLocalAccel.x);
-    // Use MAX of FL/FR or Avg? Usually max is interesting for load, avg for others.
-    // Let's use AVG for simplicity in single line.
-    const rF2Wheel& fl = engine.m_last_telemetry.mWheels[0];
-    const rF2Wheel& fr = engine.m_last_telemetry.mWheels[1];
-    
-    plot_input_load.Add((float)((fl.mTireLoad + fr.mTireLoad) / 2.0));
-    plot_input_grip.Add((float)((fl.mGripFract + fr.mGripFract) / 2.0));
-    plot_input_slip_ratio.Add((float)((fl.mSlipRatio + fr.mSlipRatio) / 2.0));
-    plot_input_slip_angle.Add((float)((std::abs(fl.mSlipAngle) + std::abs(fr.mSlipAngle)) / 2.0));
-    plot_input_patch_vel.Add((float)((std::abs(fl.mLateralPatchVel) + std::abs(fr.mLateralPatchVel)) / 2.0));
-    plot_input_vert_deflection.Add((float)((fl.mVerticalTireDeflection + fr.mVerticalTireDeflection) / 2.0));
+        // Telemetry Inputs
+        plot_input_steer.Add(snap.steer_force);
+        plot_input_accel.Add(snap.accel_x);
+        plot_input_load.Add(snap.tire_load);
+        plot_input_grip.Add(snap.grip_fract);
+        plot_input_slip_ratio.Add(snap.slip_ratio);
+        plot_input_slip_angle.Add(snap.slip_angle);
+        plot_input_patch_vel.Add(snap.patch_vel);
+        plot_input_vert_deflection.Add(snap.deflection);
+    }
 
     // --- Draw UI ---
     if (ImGui::CollapsingHeader("FFB Components (Stack)", ImGuiTreeNodeFlags_DefaultOpen)) {

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.18] - 2025-05-23
+### Added
+- **Decoupled Plotting**: Refactored the FFB Engine and GUI to use a Producer-Consumer pattern. This decouples the physics update rate (400Hz) from the GUI refresh rate (60Hz), allowing all physics samples to be captured and visualized without aliasing.
+- **Configurable Plot History**: Plots now show a rolling history defined by a code parameter (default 10s), ensuring consistent visualization regardless of frame rate.
+
 ## [0.3.16] - 2025-05-23
 ### Fixed
 - **vJoy Startup Check**: Fixed a logic bug where the vJoy DLL was used before verifying if the driver was enabled, potentially causing instability. Added explicit `DynamicVJoy::Get().Enabled()` check in the FFB loop.
