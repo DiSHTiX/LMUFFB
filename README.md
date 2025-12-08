@@ -4,6 +4,28 @@ A FFB app for LMU, similar to irFFB and Marvin’s iRacing App
 
 Experimental alpha version.
 
+## ⚠️ CRITICAL SAFETY WARNING ⚠️
+
+**BEFORE USING THIS APPLICATION, YOU MUST CONFIGURE YOUR STEERING WHEEL DEVICE DRIVER:**
+
+This is an **experimental early alpha version** of a force feedback application. The FFB formulas are still being refined and **may produce strong force spikes and oscillations** that could be dangerous or damage your equipment.
+
+**Required Safety Steps:**
+
+1. **Open your wheelbase/steering wheel device driver configurator** (e.g., Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
+2. **Set the Maximum Strength/Torque to a LOW value:**
+   - **For Direct Drive Wheelbases**: Set to **10% or lower** of maximum torque
+   - **For Belt/Gear-Driven Wheels**: Set to **20-30%** of maximum strength
+3. **Test gradually**: Start with even lower values and increase slowly while monitoring for unexpected behavior
+4. **Stay alert**: Be prepared to immediately disable FFB if you experience violent oscillations or unexpected forces
+
+**Why this is critical:**
+- The FFB algorithms are under active development and may generate unexpected force spikes
+- Unrefined formulas can cause dangerous oscillations, especially on high-torque direct drive systems
+- Your safety and equipment protection depend on having a hardware-level force limiter in place
+
+**Do not skip this step.** No software-level safety can replace proper hardware configuration.
+
 ![lmuFFB GUI](docs/screenshots/main_app.png)
 ![lmuFFB GUI2](docs/screenshots/ffb_analysis.png)
 

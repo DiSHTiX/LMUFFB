@@ -4,6 +4,47 @@ Version: 0.3.7
 
 See README.md for full documentation with images and links.
 
+
+===============================================================================
+!!!                    CRITICAL SAFETY WARNING                             !!!
+===============================================================================
+
+BEFORE USING THIS APPLICATION, YOU MUST CONFIGURE YOUR STEERING WHEEL DEVICE 
+DRIVER:
+
+This is an EXPERIMENTAL EARLY ALPHA VERSION of a force feedback application. 
+The FFB formulas are still being refined and MAY PRODUCE STRONG FORCE SPIKES 
+AND OSCILLATIONS that could be dangerous or damage your equipment.
+
+REQUIRED SAFETY STEPS:
+
+1. Open your wheelbase/steering wheel device driver configurator 
+   (e.g., Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
+
+2. Set the Maximum Strength/Torque to a LOW value:
+   - For Direct Drive Wheelbases: Set to 10% OR LOWER of maximum torque
+   - For Belt/Gear-Driven Wheels: Set to 20-30% of maximum strength
+
+3. Test gradually: Start with even lower values and increase slowly while 
+   monitoring for unexpected behavior
+
+4. Stay alert: Be prepared to immediately disable FFB if you experience 
+   violent oscillations or unexpected forces
+
+WHY THIS IS CRITICAL:
+- The FFB algorithms are under active development and may generate unexpected 
+  force spikes
+- Unrefined formulas can cause dangerous oscillations, especially on 
+  high-torque direct drive systems
+- Your safety and equipment protection depend on having a hardware-level 
+  force limiter in place
+
+DO NOT SKIP THIS STEP. No software-level safety can replace proper hardware 
+configuration.
+
+===============================================================================
+
+
 PREREQUISITES
 -------------
 1. vJoy Driver (Version 2.1.9.1 recommended)
