@@ -112,6 +112,7 @@ Your testing and feedback is greatly appreciated! 🙏
             *   **SOP (Seat of Pants):** Increase from 0.0 to 0.3 (you should feel lateral forces in corners).
             *   **Understeer Effect:** Ensure it's at 1.0 (default).
         
+        Method A vs Method B:
         *   *Pros:* Simplest setup. No vJoy required.
         *   *Cons:* If LMU "locks" the device (Exclusive Mode), LMUFFB might fail to send forces. If this happens, try Method B.
     *   **Method B (vJoy Bridge - Compatibility):** Bind to **vJoy Device (Axis Y)**.
