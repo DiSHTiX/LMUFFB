@@ -3008,6 +3008,194 @@ You can send them this:
 
 ```
 
+# File: docs\dev_docs\analisis_of_new_lmu_1.2_sm_interface.md
+```markdown
+# Question
+
+See the full code and documentation for my force feedback (FFB) app for Le Mans Ultimate (LMU). The app had the issue that LMU, until version 1.1 did not made available certain data through shared memory. Now version 1.2 has been released, with a new shared memory interface. I've put the two files of the interface in the codebase, here: src\lmu_sm_interface (src\lmu_sm_interface\InternalsPlugin.hpp and src\lmu_sm_interface\SharedMemoryInterface.hpp). One particular value that was needed before and was not available was the tire load data. But all other tire related date were missing, like grip fraction, patch acceleration, slip, etc.
+
+Your task is to tell me which new telemetry / shared memory are now available that we could use. Tell me which ones replace older values that we could not use. Tell me about new ones that were introduced. And suggest how the code needs to be changed to use the new interface, including design changes, if any. 
+Finally, do a summary assessment on if we can now calculate proper force feedback from our app using this interface.
+
+
+# Answer
+
+Based on the analysis of the new header files (`InternalsPlugin.hpp` and `SharedMemoryInterface.hpp`) provided in `src\lmu_sm_interface`, here is the assessment of the new LMU 1.2 Shared Memory Interface and how to adapt your application.
+
+### 1. Assessment: Can we now calculate proper FFB?
+
+**YES.**
+The new interface explicitly exposes the tire physics data that was previously missing or zeroed out in the legacy interface.
+
+*   **Tire Load (`mTireLoad`):** Now available directly in `TelemWheelV01`. This is critical for your "Slide Texture", "Lockup", and "Bottoming" effects.
+*   **Grip Fraction (`mGripFract`):** Available. This enables your "Understeer" effect to work dynamically rather than relying on the fallback.
+*   **Patch Velocity (`mLateralPatchVel`):** Available. This allows for the accurate, physics-based frequency generation for tire scrubbing sounds/feel.
+
+### 2. Telemetry Changes: Old vs. New
+
+The new interface uses structures that are very similar to the internal rFactor 2 plugin SDK, but wrapped in a new memory layout.
+
+| Data Point | Old (`rF2Data.h`) | New (`InternalsPlugin.hpp`) | Status |
+| :--- | :--- | :--- | :--- |
+| **Tire Load** | `mTireLoad` (Often 0.0) | `mTireLoad` | **Available** (Newtons) |
+| **Grip** | `mGripFract` (Often 0.0) | `mGripFract` | **Available** |
+| **Steering Force** | `mSteeringArmForce` | `mSteeringShaftTorque` | **Renamed** (See note below) |
+| **Slide Speed** | `mLateralPatchVel` | `mLateralPatchVel` | **Available** |
+| **Acceleration** | `mLocalAccel` | `mLocalAccel` | Same |
+| **Deflection** | `mVerticalTireDeflection` | `mVerticalTireDeflection` | Same |
+
+**Critical Note on Steering Force:**
+In `InternalsPlugin.hpp`, the variable is `mSteeringShaftTorque`. The comment explicitly states: *"torque around steering shaft (used to be mSteeringArmForce, but that is not necessarily accurate for feedback purposes)"*.
+*   **Action:** You should use `mSteeringShaftTorque` as your primary `game_force`. You may need to check the scale (it might be in Nm instead of raw arm force), so you might need to adjust your `m_gain` or normalization factor (currently 4000.0).
+
+### 3. Architectural Changes Required
+
+The way you access data has changed fundamentally.
+
+1.  **Memory Map Name:**
+    *   Old: `$rFactor2SMMP_Telemetry$`
+    *   New: `LMU_Data`
+2.  **Synchronization (Crucial):**
+    *   Old: Checked `mVersionUpdateBegin` vs `mVersionUpdateEnd`.
+    *   New: Uses a **Spinlock/Mutex** mechanism defined in `SharedMemoryLock`. You **must** lock, copy the data to a local buffer, and unlock.
+3.  **Player Indexing:**
+    *   Old: The map usually contained just the player or a fixed structure.
+    *   New: The map contains an array of 104 vehicles (`TelemInfoV01 telemInfo[104]`). You must read `playerVehicleIdx` to find the user's car.
+
+---
+
+### 4. Implementation Plan
+
+Here is how to modify your code.
+
+#### A. Update `FFBEngine.h`
+Change the input type from `rF2Telemetry` to the new `TelemInfoV01`.
+
+```cpp
+// FFBEngine.h
+#include "src/lmu_sm_interface/InternalsPlugin.hpp" // Include the new header
+
+class FFBEngine {
+public:
+    // ... existing members ...
+
+    // Change signature to use new struct
+    double calculate_force(const TelemInfoV01* data) {
+        if (!data) return 0.0;
+        
+        double dt = data->mDeltaTime;
+        
+        // Access wheels (Note: struct name is mWheel, not mWheels)
+        const TelemWheelV01& fl = data->mWheel[0];
+        const TelemWheelV01& fr = data->mWheel[1];
+
+        // Update Steering Force access
+        // Note: Check if this needs scaling compared to old ArmForce
+        double game_force = data->mSteeringShaftTorque; 
+
+        // ... Rest of logic remains mostly the same ...
+        // Ensure you use the new member names if they differ slightly
+        // e.g., mLocalAccel is still mLocalAccel.
+        
+        // ...
+    }
+};
+```
+
+#### B. Update `main.cpp`
+This requires the most work to implement the locking and indexing logic.
+
+```cpp
+// main.cpp
+#include "src/lmu_sm_interface/SharedMemoryInterface.hpp" // New Interface
+
+// Globals
+SharedMemoryLayout* g_pSharedMemLayout = nullptr;
+SharedMemoryObjectOut g_localData; // Local copy to avoid locking for too long
+std::optional<SharedMemoryLock> g_smLock;
+
+// ...
+
+int main(int argc, char* argv[]) {
+    // ... [Init GUI / DI code] ...
+
+    // 1. Setup Shared Memory (New LMU Name)
+    HANDLE hMapFile = OpenFileMappingA(FILE_MAP_READ, FALSE, LMU_SHARED_MEMORY_FILE);
+    
+    if (hMapFile && !g_pSharedMemLayout) {
+        g_pSharedMemLayout = (SharedMemoryLayout*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, sizeof(SharedMemoryLayout));
+    }
+
+    // 2. Initialize Lock
+    g_smLock = SharedMemoryLock::MakeSharedMemoryLock();
+    if (!g_smLock.has_value()) {
+        std::cerr << "Failed to init LMU Shared Memory Lock" << std::endl;
+    }
+
+    // ... [Start Threads] ...
+}
+
+void FFBThread() {
+    // ... [Setup] ...
+
+    while (g_running) {
+        if (g_ffb_active && g_pSharedMemLayout && g_smLock.has_value()) {
+            
+            // --- CRITICAL SECTION: READ DATA ---
+            bool data_valid = false;
+            
+            // 1. Lock
+            g_smLock->Lock();
+            
+            // 2. Copy to local storage (Fast copy)
+            // We use the helper function provided in the header
+            CopySharedMemoryObj(g_localData, g_pSharedMemLayout->data);
+            
+            // 3. Unlock
+            g_smLock->Unlock();
+            
+            // 4. Find Player
+            // The struct has a flag for this
+            if (g_localData.telemetry.playerHasVehicle) {
+                uint8_t idx = g_localData.telemetry.playerVehicleIdx;
+                if (idx < 104) {
+                    // Get pointer to specific car data
+                    TelemInfoV01* pPlayerTelemetry = &g_localData.telemetry.telemInfo[idx];
+                    
+                    // Calculate FFB
+                    double force = 0.0;
+                    {
+                        std::lock_guard<std::mutex> lock(g_engine_mutex);
+                        force = g_engine.calculate_force(pPlayerTelemetry);
+                    }
+                    
+                    // Send to DirectInput...
+                    DirectInputFFB::Get().UpdateForce(force);
+                    
+                    // vJoy logic...
+                }
+            }
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    // ...
+}
+```
+
+### 5. Summary of Changes Checklist
+
+1.  **Include Path:** Ensure `src/lmu_sm_interface` is in your include path.
+2.  **Struct Update:** Replace `rF2Data.h` usage with `InternalsPlugin.hpp`.
+3.  **Logic Update:** In `FFBEngine`, rename `mWheels` to `mWheel` and `mSteeringArmForce` to `mSteeringShaftTorque`.
+4.  **Main Loop:** Implement the `SharedMemoryLock` -> `Copy` -> `Find Player Index` pattern.
+5.  **Sanity Checks:** You can likely relax the "Missing Load" warnings, but keep the logic: `if (mTireLoad < 1.0) ...` just in case the user is in the menu or a loading state.
+
+### 6. Conclusion
+
+This update is exactly what was needed. By switching to the `LMU_Data` map and using the `SharedMemoryLock`, you will bypass the broken legacy plugin entirely. You will have access to **real-time Tire Load and Grip**, allowing your "Slide Texture" and "Understeer" effects to function based on actual physics rather than estimates or fallbacks.
+```
+
 # File: docs\dev_docs\damp_plugin_troubleshooting.md
 ```markdown
 Check that you have this:
@@ -3925,6 +4113,103 @@ In `DrawDebugWindow`, you provide min/max values for some plots but not others, 
 *   **Example:** `plot_clipping` is 0.0 to 1.1.
 *   **Issue:** `ImGui::PlotLines` does not draw a "zero line" in the middle. If the data is 0.0, it draws a line at the bottom (or middle depending on range).
 *   **Recommendation:** Ensure users know that a flat line in the *middle* is 0, but a flat line at the *bottom* might be -1 (or min range). Adding a tooltip or a value readout (e.g., `ImGui::Text("Value: %.2f", current_val)`) next to the graph helps immensely.
+```
+
+# File: docs\dev_docs\new_ffb_features_enabled_by_lmu_1.2.md
+```markdown
+Based on a detailed review of `src/lmu_sm_interface/InternalsPlugin.hpp`, there are several **new or previously inaccessible data points** that open the door for significant new FFB features.
+
+Here is a breakdown of the new possibilities, ranked by value to the driving experience.
+
+### 1. Hybrid System Haptics (The "Killer Feature" for LMU)
+**Data Source:** `mElectricBoostMotorTorque`, `mElectricBoostMotorState`, `mElectricBoostMotorRPM`
+**Context:** LMU focuses on Hypercars (LMDh/LMH) which rely heavily on hybrid deployment.
+**New Effect: "Hybrid Whine / Pulse"**
+*   **Concept:** Simulate the high-frequency vibration of the electric motor through the steering column when the hybrid system deploys or regenerates.
+*   **Logic:**
+    *   If `mElectricBoostMotorState == 2` (Propulsion): Inject a high-frequency, low-amplitude sine wave (e.g., 150Hz) scaled by `mElectricBoostMotorTorque`.
+    *   If `mElectricBoostMotorState == 3` (Regeneration): Inject a "gritty" texture (e.g., 80Hz sawtooth) to signal braking regen.
+*   **Why:** This gives the driver tactile confirmation of hybrid strategy without looking at the dash.
+
+### 2. Surface-Specific Textures (Terrain FX)
+**Data Source:** `mSurfaceType` (unsigned char), `mTerrainName` (char array)
+**Context:** Previously, we relied on suspension deflection for all road noise. Now we know *what* we are driving on.
+**New Effect: "Surface Rumble"**
+*   **Logic:** Use a `switch` statement on `mSurfaceType`:
+    *   **5 (Rumblestrip):** Boost the existing `Road Texture` gain by 2x.
+    *   **2 (Grass) / 3 (Dirt) / 4 (Gravel):** Inject a low-frequency "wobble" (5-10Hz) to simulate uneven ground and reduce the Master Gain (simulating low grip).
+    *   **1 (Wet):** Slightly reduce high-frequency "Slide Texture" friction to simulate hydroplaning risk.
+
+### 3. Aerodynamic Weighting
+**Data Source:** `mFrontDownforce`, `mRearDownforce`
+**Context:** Hypercars generate massive downforce.
+**New Effect: "Aero Stiffening"**
+*   **Concept:** Increase the "Min Force" or "Damping" sensation as downforce increases.
+*   **Logic:** `TotalGain = BaseGain * (1.0 + (mFrontDownforce / ReferenceDownforce) * AeroFactor)`.
+*   **Why:** Helps center the wheel at high speeds (Mulsanne Straight) preventing oscillation, while keeping it light in slow hairpins.
+
+### 4. Mechanical Damage Feedback
+**Data Source:** `mDentSeverity[8]`, `mDetached`, `mLastImpactMagnitude`
+**Context:** Endurance racing involves contact.
+**New Effect: "Damage Wobble"**
+*   **Concept:** If the front suspension/bodywork is damaged, the wheel should not rotate smoothly.
+*   **Logic:** If `mDentSeverity[0]` (Front Left) or `[1]` (Front Right) > 0:
+    *   Inject a sine wave linked to `mWheelRotation` (Wheel Speed).
+    *   This simulates a bent rim or unbalanced tire.
+
+### 5. Third Spring (Heave) Bottoming
+**Data Source:** `mFront3rdDeflection`, `mRear3rdDeflection`
+**Context:** Modern prototypes use a "Third Element" (Heave spring) to manage aerodynamic loads.
+**Enhancement to: "Bottoming Effect"**
+*   **Current Logic:** Uses `mTireLoad`.
+*   **New Logic:** Combine `mTireLoad` with `mFront3rdDeflection`.
+*   **Why:** You might hit the bump stops on the heave spring (aerodynamic bottoming) *before* the tires overload. This provides a distinct "thud" when the car scrapes the ground due to downforce, distinct from hitting a curb.
+
+### 6. Brake Temperature Fade
+**Data Source:** `mBrakeTemp`
+**Context:** Carbon brakes have a specific operating window.
+**New Effect: "Brake Judder / Fade"**
+*   **Logic:**
+    *   If `mBrakeTemp` > Optimal (e.g., 800°C): Introduce a low-frequency "Judder" (10Hz) during braking to simulate warped discs or overheating material.
+    *   Reduce the "Lockup" vibration amplitude (simulating the loss of bite).
+
+---
+
+### Summary of Recommended Code Changes
+
+To implement these, you would add the following to `FFBEngine.h`:
+
+1.  **New Settings:**
+    *   `bool m_hybrid_pulse_enabled`
+    *   `bool m_surface_fx_enabled`
+    *   `float m_aero_weight_gain`
+
+2.  **New Logic in `calculate_force`:**
+
+```cpp
+// Example Hybrid Logic
+if (m_hybrid_pulse_enabled && data->mElectricBoostMotorState == 2) {
+    // Map Torque to Amplitude
+    double hybrid_amp = (data->mElectricBoostMotorTorque / 200.0) * m_hybrid_gain;
+    // High frequency whine
+    total_force += std::sin(time * 150.0 * TWO_PI) * hybrid_amp;
+}
+
+// Example Surface Logic
+if (m_surface_fx_enabled) {
+    unsigned char surface = data->mWheel[0].mSurfaceType; // Check FL wheel
+    if (surface == 5) { // Rumble Strip
+        // Boost existing road texture
+        road_noise *= 2.5; 
+    } else if (surface == 2 || surface == 4) { // Grass/Gravel
+        // Add chaotic wobble
+        total_force += std::sin(time * 10.0 * TWO_PI) * 0.3;
+    }
+}
+```
+
+**Conclusion:**
+The LMU 1.2 interface is a goldmine. While fixing the basic Tire Load/Grip is the priority, adding **Hybrid Haptics** and **Surface FX** would make your app significantly more immersive than the standard game FFB.
 ```
 
 # File: docs\dev_docs\plan_guided_configurator.md
