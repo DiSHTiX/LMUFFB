@@ -72,7 +72,7 @@ Please help us improve lmuFFB:
    Warning above)
 2. Experiment with settings - Try different effect combinations and gains
 3. Share your results - Post screenshots of the "Troubleshooting Graphs" 
-   window to the LMU Forum Thread:
+   window and the main app window to the LMU Forum Thread:
    https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/
 4. Report issues - Let us know what works and what doesn't!
 
@@ -150,6 +150,7 @@ A. Configure Le Mans Ultimate (LMU)
         * SOP (Seat of Pants): Increase from 0.0 to 0.3 (feel lateral forces)
         * Understeer Effect: Ensure it's at 1.0 (default)
       
+      Method A vs Method B:
       Pros: Simplest setup. No vJoy required
       Cons: If wheel has no FFB, try Method B
       
@@ -157,17 +158,15 @@ A. Configure Le Mans Ultimate (LMU)
       - Bind to "vJoy Device (Axis Y)"
       - IMPORTANT: You MUST use "Joystick Gremlin" to map your wheel to vJoy Axis Y.
       - Why? Guarantees separation of FFB and Input.
-   
-   5. Force Feedback Settings:
-      - Type: Set to "None" (if available) or reduce FFB Strength to 0% / Off
-      - Note: LMU may not have a "None" option; reducing strength to 0 is 
-        the workaround.
+
+   5. In-Game Force Feedback settings in LMU:
+      - FFB Strength: reduce to **0%** (Off).
       - Effects: Set "Force Feedback Effects" to Off
       - Smoothing: Set to 0 (Raw) for fastest telemetry updates
       - Advanced: Set Collision Strength and Torque Sensitivity to 0%
       - Tweaks: Disable "Use Constant Steering Force Effect"
 
-B. Configure lmuFFB (The App)
+B. Configure lmuFFB
    1. Run LMUFFB.exe
    2. FFB Device: Select your Physical Wheel (e.g., "Simucube 2 Pro", "Fanatec DD1")
       - Do NOT select the vJoy device here
@@ -244,7 +243,7 @@ PREREQUISITES FOR RFACTOR 2 (v0.3.x only):
 
 2. Installation
    - Place the DLL in rFactor 2/Plugins/ directory
-   - Enable the plugin in rFactor 2's game settings
+   - Enable the plugin in rFactor 2's game settings: : edit [Game Folder]\UserData\playerCustomPluginVariables.JSON , set " Enabled" value to 1, and restart rF2
 
 3. Follow the same vJoy and wheel configuration steps as described above for LMU
 

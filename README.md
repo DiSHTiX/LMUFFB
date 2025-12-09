@@ -55,7 +55,7 @@ This is an **experimental release** with the new LMU 1.2 interface. The FFB form
 **Please help us improve lmuFFB:**
 1. **Test with caution** - Start with low wheel strength settings (see Safety Warning above)
 2. **Experiment with settings** - Try different effect combinations and gains
-3. **Share your results** - Post screenshots of the "Troubleshooting Graphs" window to the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
+3. **Share your results** - Post screenshots of the "Troubleshooting Graphs" window and the main app window to the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
 4. **Report issues** - Let us know what works and what doesn't!
 
 Your testing and feedback is greatly appreciated! 🙏
@@ -112,20 +112,20 @@ Your testing and feedback is greatly appreciated! 🙏
             *   **SOP (Seat of Pants):** Increase from 0.0 to 0.3 (you should feel lateral forces in corners).
             *   **Understeer Effect:** Ensure it's at 1.0 (default).
         
+        Method A vs Method B:
         *   *Pros:* Simplest setup. No vJoy required.
         *   *Cons:* If LMU "locks" the device (Exclusive Mode), LMUFFB might fail to send forces. If this happens, try Method B.
     *   **Method B (vJoy Bridge - Compatibility):** Bind to **vJoy Device (Axis Y)**.
         *   *Requirement:* You MUST use **Joystick Gremlin** (or similar) to map your Physical Wheel to vJoy Axis Y. The "vJoy Demo Feeder" is NOT sufficient for driving.
         *   *Why Axis Y?* LMUFFB uses Axis X for FFB monitoring (if enabled). Using Y prevents conflicts.
-5.  **Force Feedback**:
-    *   **Type**: Set to "None" (if available) or reduce **FFB Strength** to **0%** / **Off**.
-        *   *Note:* LMU may not have a "None" option; reducing strength to 0 is the workaround.
+5.  **In-Game Force Feedback settings in LMU**:
+    *   **FFB Strength**: reduce to **0%** (Off).
     *   **Effects**: Set "Force Feedback Effects" to **Off**.
     *   **Smoothing**: Set to **0** (Raw).
     *   **Advanced**: Set "Collision Strength" and "Steering Torque Sensitivity" to **0%**.
     *   **Tweaks**: Disable "Use Constant Steering Force Effect".
 
-**C. Configure lmuFFB (The App)**
+**C. Configure lmuFFB**
 1.  Run `LMUFFB.exe`.
 2.  **FFB Device**: In the dropdown, select your **Physical Wheel** (e.g., "Simucube 2 Pro", "Fanatec DD1").
     *   *Note:* Do NOT select the vJoy device here. You want lmuFFB to talk to your real wheel.
@@ -167,11 +167,10 @@ For feedback, questions, or support:
 *   [The Physics of Feel - Driver's Guide](docs/the_physics_of__feel_-_driver_guide.md) - **Comprehensive guide** explaining how lmuFFB translates telemetry into tactile sensations, with telemetry visualizations
 *   [FFB Effects & Customization Guide](docs/ffb_effects.md)
 *   [FFB Customization Guide (Legacy)](docs/ffb_customization.md)
-*   [GUI Framework Options](docs/gui_framework_options.md)
-*   [DirectInput Implementation Guide](docs/dev_docs/directinput_implementation.md)
 *   [Telemetry Data Reference](docs/dev_docs/telemetry_data_reference.md)
 *   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
 *   [Comparisons with Other Apps](docs/comparisons.md)
+*   [FFB Math Formulas](docs/dev_docs/FFB_formulas.md)
 
 
 
@@ -229,19 +228,14 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
 6.  Click **Build** in the bottom status bar.
 
 ### Option C: Command Line (Windows)
-1.  Open the **Developer Command Prompt for VS 2022**.
+1.  Open the Powershell.
 2.  Navigate to the repository root.
 3.  Run the following commands:
     ```cmd
-    mkdir build
-    cd build
-    cmake -G "NMake Makefiles" -DVJOY_SDK_DIR="C:/Path/To/vJoy/SDK" ..
-    nmake
+    'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake --build build --config Release --clean-first
     ```
-    *Alternatively, use `cmake --build .` instead of `nmake`.*
 
-
-## Building the Installer
+## Building the Installer (WIP, not yet supported)
 
 To create the `LMUFFB_Setup.exe`:
 
@@ -260,7 +254,7 @@ To create the `LMUFFB_Setup.exe`:
 
 1. **rF2 Shared Memory Plugin**: Download `rFactor2SharedMemoryMapPlugin64.dll` from [TheIronWolfModding's GitHub](https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin#download)
 2. **Installation**: Place the DLL in `rFactor 2/Plugins/` directory
-3. **Activation**: Enable the plugin in rFactor 2's game settings
+3. **Activation**: Enable the plugin in rFactor 2's game settings: edit [Game Folder]\UserData\playerCustomPluginVariables.JSON , set " Enabled" value to 1, and restart rF2  
 4. Follow the same vJoy and wheel configuration steps as described above for LMU
 
 For detailed rFactor 2 setup instructions, refer to the README included with v0.3.x releases.
