@@ -125,7 +125,7 @@ Your testing and feedback is greatly appreciated! 🙏
     *   **Advanced**: Set "Collision Strength" and "Steering Torque Sensitivity" to **0%**.
     *   **Tweaks**: Disable "Use Constant Steering Force Effect".
 
-**C. Configure lmuFFB (The App)**
+**C. Configure lmuFFB**
 1.  Run `LMUFFB.exe`.
 2.  **FFB Device**: In the dropdown, select your **Physical Wheel** (e.g., "Simucube 2 Pro", "Fanatec DD1").
     *   *Note:* Do NOT select the vJoy device here. You want lmuFFB to talk to your real wheel.
