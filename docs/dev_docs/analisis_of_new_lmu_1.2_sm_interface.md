@@ -1,3 +1,13 @@
+# Question
+
+See the full code and documentation for my force feedback (FFB) app for Le Mans Ultimate (LMU). The app had the issue that LMU, until version 1.1 did not made available certain data through shared memory. Now version 1.2 has been released, with a new shared memory interface. I've put the two files of the interface in the codebase, here: src\lmu_sm_interface (src\lmu_sm_interface\InternalsPlugin.hpp and src\lmu_sm_interface\SharedMemoryInterface.hpp). One particular value that was needed before and was not available was the tire load data. But all other tire related date were missing, like grip fraction, patch acceleration, slip, etc.
+
+Your task is to tell me which new telemetry / shared memory are now available that we could use. Tell me which ones replace older values that we could not use. Tell me about new ones that were introduced. And suggest how the code needs to be changed to use the new interface, including design changes, if any. 
+Finally, do a summary assessment on if we can now calculate proper force feedback from our app using this interface.
+
+
+# Answer
+
 Based on the analysis of the new header files (`InternalsPlugin.hpp` and `SharedMemoryInterface.hpp`) provided in `src\lmu_sm_interface`, here is the assessment of the new LMU 1.2 Shared Memory Interface and how to adapt your application.
 
 ### 1. Assessment: Can we now calculate proper FFB?
