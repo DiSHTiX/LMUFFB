@@ -408,7 +408,9 @@ public:
 
         // --- 6. Min Force (Deadzone Removal) ---
         // Boost small forces to overcome wheel friction
-        double max_force_ref = 4000.0; 
+        // NOTE: Changed from 4000.0 (Newtons for old mSteeringArmForce) to 20.0 (Nm for new mSteeringShaftTorque)
+        // Typical GT3/Hypercar max torque is 15-25 Nm. Adjust based on testing if needed.
+        double max_force_ref = 20.0; 
         double norm_force = total_force / max_force_ref;
         
         // Apply Master Gain

@@ -882,7 +882,9 @@ public:
 
         // --- 6. Min Force (Deadzone Removal) ---
         // Boost small forces to overcome wheel friction
-        double max_force_ref = 4000.0; 
+        // NOTE: Changed from 4000.0 (Newtons for old mSteeringArmForce) to 20.0 (Nm for new mSteeringShaftTorque)
+        // Typical GT3/Hypercar max torque is 15-25 Nm. Adjust based on testing if needed.
+        double max_force_ref = 20.0; 
         double norm_force = total_force / max_force_ref;
         
         // Apply Master Gain
@@ -8618,7 +8620,8 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         ImGui::PlotLines("##Total", plot_total.data.data(), (int)plot_total.data.size(), plot_total.offset, "Total", -1.0f, 1.0f, ImVec2(0, 60));
         
         ImGui::Columns(2, "FFBCols", false);
-        ImGui::Text("Base Force"); ImGui::PlotLines("##Base", plot_base.data.data(), (int)plot_base.data.size(), plot_base.offset, NULL, -4000.0f, 4000.0f, ImVec2(0, 40));
+        // NOTE: Changed from ±4000 (Newtons) to ±30 (Nm) for new mSteeringShaftTorque
+        ImGui::Text("Base Torque (Nm)"); ImGui::PlotLines("##Base", plot_base.data.data(), (int)plot_base.data.size(), plot_base.offset, NULL, -30.0f, 30.0f, ImVec2(0, 40));
         ImGui::NextColumn();
         ImGui::Text("SoP (Lat G)"); ImGui::PlotLines("##SoP", plot_sop.data.data(), (int)plot_sop.data.size(), plot_sop.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
         ImGui::NextColumn();
@@ -8642,7 +8645,8 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
 
     if (ImGui::CollapsingHeader("Telemetry Inspector (Raw)", ImGuiTreeNodeFlags_None)) {
         ImGui::Columns(2, "TelCols", false);
-        ImGui::Text("Steering Force"); ImGui::PlotLines("##StForce", plot_input_steer.data.data(), (int)plot_input_steer.data.size(), plot_input_steer.offset, NULL, -5000.0f, 5000.0f, ImVec2(0, 40));
+        // NOTE: Changed from ±5000 (Newtons for old mSteeringArmForce) to ±30 (Nm for new mSteeringShaftTorque)
+        ImGui::Text("Steering Torque (Nm)"); ImGui::PlotLines("##StForce", plot_input_steer.data.data(), (int)plot_input_steer.data.size(), plot_input_steer.offset, NULL, -30.0f, 30.0f, ImVec2(0, 40));
         ImGui::NextColumn();
         ImGui::Text("Local Accel X"); ImGui::PlotLines("##LatG", plot_input_accel.data.data(), (int)plot_input_accel.data.size(), plot_input_accel.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         ImGui::NextColumn();
