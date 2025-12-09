@@ -170,6 +170,7 @@ For feedback, questions, or support:
 *   [Telemetry Data Reference](docs/dev_docs/telemetry_data_reference.md)
 *   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
 *   [Comparisons with Other Apps](docs/comparisons.md)
+*   [FFB Math Formulas](docs/dev_docs/FFB_formulas.md)
 
 
 
