@@ -380,3 +380,215 @@ In InternalsPlugin.hpp:
     double mLateralGroundVel;      // lateral velocity at contact patch
     double mLongitudinalGroundVel; // longitudinal velocity at contact patch
     mStaticUndeflectedRadius
+
+    Here is the prioritized diagnosis and implementation plan based on your notes, the screenshots, and the codebase analysis.
+
+### Hypotheses on Root Causes
+
+1.  **The "Car Turns Left / Random Steering" Issue (Critical):**
+    *   **Hypothesis:** **Feedback Loop via vJoy.**
+    *   **Reasoning:** If the user has `Monitor FFB on vJoy` enabled (or if it was enabled previously and vJoy axis is stuck), the App writes the *Calculated Force* to vJoy Axis X. If the user *also* bound the Game's Steering Input to vJoy Axis X, the FFB signal effectively "steers" the car.
+    *   **Evidence:** "Moves the wheel around seemingly at random... unable to steer." If the FFB calculates a left force, it moves vJoy X left. The game sees vJoy X left, steers left. Physics generates more aligning torque. FFB increases. Infinite loop.
+
+2.  **The "Binary" / Square Wave Telemetry:**
+    *   **Hypothesis:** **Sanity Check Artifacts.**
+    *   **Reasoning:** In `FFBEngine.h`, you have logic: `if (avg_load < 1.0 ... ) avg_load = 4000.0;`.
+    *   **Evidence:** The screenshots show `Avg Tire Load` jumping exactly between 0 and a high flat value. This confirms the *raw* data from the game is **0.0**, and what you see on the graph is your own fallback logic toggling on/off based on whether the car is moving (`mLocalVel.z > 1.0`).
+    *   **Conclusion:** Despite using the new LMU 1.2 interface, the app is reading empty data for the specific car/session the user is running.
+TODO: in the plots show the raw value from the game, not our fallback values.
+
+3.  **The "Random" FFB Feel:**
+    *   **Hypothesis:** **Noise Amplification.**
+    *   **Reasoning:** Since Tire Load is toggling between 0 and 4000 instantly, any effect multiplied by `load_factor` (Slide, Road, Lockup) is being switched on/off violently 400 times a second. This creates a "random" or "noisy" sensation.
+
+---
+
+### Part 1: Prioritized Diagnostic Steps (Try these first)
+
+1.  **Verify Input Binding (Stop the Feedback Loop):**
+    *   **Action:** Ask the user to ensure **"Monitor FFB on vJoy"** is **UNCHECKED** in the App.
+    *   **Action:** In Game Controls, ensure Steering is bound to their **Physical Wheel**, NOT vJoy (unless they are using Joystick Gremlin on Axis Y).
+    *   **Test:** Does the "constant left turn" stop?
+
+2.  **Inspect Raw Data (Bypass Sanity Checks):**
+    *   **Action:** We need to see if the game is outputting *anything* other than zero. The current graphs hide this because of the fallback logic.
+    *   **Code Change:** Add a "Raw" debug line (see Implementation below).
+
+3.  **Test Different Car Classes:**
+    *   **Action:** Ask the user to try a GTE car vs. a Hypercar. LMU 1.2 might populate telemetry differently for different physics models.
+
+4.  **Verify Shared Memory Lock:**
+    *   **Action:** Check the console output. Does it say "Shared Memory Lock Initialized"? If the lock isn't working, we might be reading a zeroed-out buffer.
+
+---
+
+### Part 2: Prioritized Implementation List
+
+#### 1. CSV Telemetry Logger (High Priority)
+We need to record the raw data to analyze it offline. Screenshots are insufficient for 400Hz data.
+
+*   **What:** A class that writes `timestamp, raw_load, raw_grip, raw_steer, final_ffb` to a `.csv` file.
+*   **Why:** To definitively prove if the game is outputting 0.0 or just very low values.
+
+#### 2. "Always On Top" Window Option
+*   **What:** Add a toggle to keep the GUI visible over the game (borderless).
+*   **Why:** Requested by you/user for easier tuning while driving.
+
+#### 3. Raw vs. Corrected Visualization
+*   **What:** In `FFBEngine`, store `raw_tire_load` separately from `avg_load` (which gets the 4000N fallback).
+*   **Why:** The current graphs show the fallback value, making it look like "binary" data. We need to see the real input.
+
+#### 4. Safety: Disable vJoy Output by Default
+*   **What:** Hardcode `Config::m_output_ffb_to_vjoy = false` and ensure it resets to false on startup unless explicitly saved.
+*   **Why:** To prevent the "Car turns left" feedback loop.
+
+---
+
+### Part 3: Proposed Code Changes
+
+#### A. Implement "Always On Top" (GuiLayer.cpp)
+
+Modify `GuiLayer::Init` and `GuiLayer::Render`.
+
+```cpp
+// src/GuiLayer.h
+static bool m_always_on_top; // Add this static member
+
+// src/GuiLayer.cpp
+bool GuiLayer::m_always_on_top = false;
+
+// Inside DrawTuningWindow (add checkbox)
+if (ImGui::Checkbox("Always On Top", &m_always_on_top)) {
+    SetWindowPos((HWND)g_hwnd, m_always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST, 
+                 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+}
+```
+
+#### B. Implement CSV Logger (New Class)
+
+Create `src/TelemetryLogger.h`:
+
+```cpp
+#ifndef TELEMETRYLOGGER_H
+#define TELEMETRYLOGGER_H
+
+#include <fstream>
+#include <string>
+#include <chrono>
+#include <iomanip>
+
+class TelemetryLogger {
+    std::ofstream m_file;
+    bool m_recording = false;
+    long m_start_time = 0;
+
+public:
+    static TelemetryLogger& Get() {
+        static TelemetryLogger instance;
+        return instance;
+    }
+
+    void Start() {
+        if (m_recording) return;
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << "lmuffb_log_" << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S") << ".csv";
+        
+        m_file.open(ss.str());
+        // Header
+        m_file << "Time,RawSteer,RawLoadFL,RawLoadFR,RawGripFL,RawGripFR,CalcFFB\n";
+        m_recording = true;
+        m_start_time = GetTickCount();
+    }
+
+    void Stop() {
+        if (m_recording) {
+            m_file.close();
+            m_recording = false;
+        }
+    }
+
+    void Log(float rawSteer, float loadFL, float loadFR, float gripFL, float gripFR, float outputFFB) {
+        if (!m_recording) return;
+        float time = (GetTickCount() - m_start_time) / 1000.0f;
+        m_file << time << "," << rawSteer << "," << loadFL << "," << loadFR 
+               << "," << gripFL << "," << gripFR << "," << outputFFB << "\n";
+    }
+    
+    bool IsRecording() { return m_recording; }
+};
+#endif
+```
+
+**Integration in `main.cpp` (FFBThread):**
+
+```cpp
+// Inside the loop, after calculating force:
+if (TelemetryLogger::Get().IsRecording()) {
+    TelemetryLogger::Get().Log(
+        pPlayerTelemetry->mSteeringShaftTorque,
+        pPlayerTelemetry->mWheel[0].mTireLoad,
+        pPlayerTelemetry->mWheel[1].mTireLoad,
+        pPlayerTelemetry->mWheel[0].mGripFract,
+        pPlayerTelemetry->mWheel[1].mGripFract,
+        (float)force
+    );
+}
+```
+
+**Integration in `GuiLayer.cpp`:**
+Add a "Start/Stop Logging" button in the Debug Window.
+
+#### C. Fix "Binary" Visualization (FFBEngine.h)
+
+We need to capture the *raw* values in the snapshot before we apply the fallback logic.
+
+```cpp
+// FFBEngine.h
+
+struct FFBSnapshot {
+    // ... existing fields ...
+    float raw_tire_load; // NEW
+    float raw_grip;      // NEW
+};
+
+// Inside calculate_force:
+double raw_avg_load = (fl.mTireLoad + fr.mTireLoad) / 2.0;
+double raw_avg_grip = (fl.mGripFract + fr.mGripFract) / 2.0;
+
+// ... existing sanity check logic ...
+double avg_load = raw_avg_load;
+if (avg_load < 1.0 && ...) { avg_load = 4000.0; } // Fallback
+
+// ... inside Snapshot creation ...
+snap.raw_tire_load = (float)raw_avg_load; // Store RAW
+snap.raw_grip = (float)raw_avg_grip;      // Store RAW
+snap.tire_load = (float)avg_load;         // Store CORRECTED
+```
+
+**Update `GuiLayer.cpp`:**
+Add a new plot line for `Raw Load` (maybe in a different color) on top of the `Avg Tire Load` graph to show the difference.
+
+#### D. Refine FFB Formula (Prevent Randomness)
+
+If the data is indeed missing (0.0), the fallback logic toggles between 0 and 4000 based on `mLocalVel.z`. If velocity is noisy near 1.0 m/s, this toggles rapidly.
+
+**Change in `FFBEngine.h`:**
+Add hysteresis or a blend to the fallback.
+
+```cpp
+// Instead of hard switch:
+if (avg_load < 1.0) {
+    // If missing, ramp up to 4000 based on speed smoothly
+    double speed_factor = (std::min)(1.0, std::abs(data->mLocalVel.z) / 5.0); // Ramp over 0-5 m/s
+    avg_load = 4000.0 * speed_factor;
+}
+```
+This prevents the "square wave" on/off switching at low speeds, making the fallback smoother.
+
+### Summary of Next Steps
+
+1.  **Immediate:** Instruct user to uncheck "Monitor FFB on vJoy" and verify game bindings (Fixes steering loop).
+2.  **Code:** Implement `TelemetryLogger` and the `Raw` vs `Corrected` data split in `FFBEngine`.
+3.  **Test:** Run the logger. If `RawLoad` is truly 0.0 in the CSV, then the LMU 1.2 Shared Memory interface is still not providing data for that car, or we need to check `mExpansion` bytes or other fields in the struct.
