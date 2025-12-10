@@ -344,6 +344,13 @@ Feed the screenshots and issue description to LLM, and see which solutions or ex
 
 print the stats for all the channels to make sure we are using them correctly, at correct scales, and that we are getting real car data (for tire load and grip fract).
 
+TEST TODO: The "Zero Gain" Test (Verify Noise):
+Action: Set Master Gain to 0.0 in LMUFFB.
+Action: Drive. Does the wheel still move randomly?
+Result: If yes, the game is still sending FFB (Double FFB). If no, the random movement comes from LMUFFB calculations.
+
+Consider if we could implement via code a check on whether the uses has active previous shared memory plugins (the one for rF2 and the new one for LMU). Both are not necessary with LMU 1.2. Consider if their presence might interfere with the values we are reading from the official LMU 1.2 shared memory interface.
+
 Consider how we could use additional channels (eg. longitudinal patch velocity / acceleration, rear tires grip, lock up detection, wheelspin detection, etc.)
 
 inprove the customizable sliders in the Gui to allow more options: isolating better each component of the formula, with enable / disable option (disable put a neutral value like 1 in the formulas) for
