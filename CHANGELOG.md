@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2] - 2025-12-08
+### Added
+- **Configuration Presets**: Added a new "Load Preset" dropdown in the GUI with built-in presets (Default, SoP Only, Understeer Only, Textures Only) and support for user-defined presets in `config.ini`.
+- **Robust Device Acquisition**: DirectInput now attempts Exclusive Mode first, falling back to Non-Exclusive mode if access is denied (fixing potential "Device Busy" errors).
+- **Game State Logic**: FFB is now automatically muted when the game is in a Menu state (not driving), preventing unwanted wheel movement.
+- **Connection Diagnostics**: Added a red "Game Not Connected" status and "Retry Connection" button to the GUI if shared memory is unavailable.
+
 ## [0.4.1] - 2025-12-08
 ### Added
 - **Unbind Device**: Added a button in the GUI to release the DirectInput device without closing the app.

@@ -99,31 +99,45 @@ bool DirectInputFFB::SelectDevice(const GUID& guid) {
     // Cleanup old using new method
     ReleaseDevice();
 
+    std::cout << "[DI] Attempting to create device..." << std::endl;
     if (FAILED(m_pDI->CreateDevice(guid, &m_pDevice, NULL))) {
         std::cerr << "[DI] Failed to create device." << std::endl;
         return false;
     }
 
+    std::cout << "[DI] Setting Data Format..." << std::endl;
     if (FAILED(m_pDevice->SetDataFormat(&c_dfDIJoystick))) {
         std::cerr << "[DI] Failed to set data format." << std::endl;
         return false;
     }
 
-    // Exclusive/Background is typically required for FFB
-    if (FAILED(m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND))) {
-        std::cerr << "[DI] Failed to set cooperative level." << std::endl;
+    // Attempt 1: Exclusive/Background (Best for FFB)
+    std::cout << "[DI] Attempting to set Cooperative Level (Exclusive | Background)..." << std::endl;
+    HRESULT hr = m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    
+    // Fallback: Non-Exclusive
+    if (FAILED(hr)) {
+         std::cerr << "[DI] Exclusive mode failed (Error: " << std::hex << hr << std::dec << "). Retrying in Non-Exclusive mode..." << std::endl;
+         hr = m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
+    }
+    
+    if (FAILED(hr)) {
+        std::cerr << "[DI] Failed to set cooperative level (Non-Exclusive failed too)." << std::endl;
         return false;
     }
 
+    std::cout << "[DI] Acquiring device..." << std::endl;
     if (FAILED(m_pDevice->Acquire())) {
         std::cerr << "[DI] Failed to acquire device." << std::endl;
         // Don't return false yet, might just need focus/retry
+    } else {
+        std::cout << "[DI] Device Acquired." << std::endl;
     }
 
     // Create Effect
     if (CreateEffect()) {
        m_active = true;
-        std::cout << "[DI] SUCCESS: Physical Device acquired and FFB Effect created." << std::endl;
+        std::cout << "[DI] SUCCESS: Physical Device fully initialized and FFB Effect created." << std::endl;
  
         return true;
     }
@@ -176,6 +190,10 @@ bool DirectInputFFB::CreateEffect() {
 void DirectInputFFB::UpdateForce(double normalizedForce) {
     if (!m_active) return;
 
+    // Sanity Check: If 0.0, stop effect to prevent residual hum
+    // Actually DirectInput 0 means center/off for Constant Force.
+    if (std::abs(normalizedForce) < 0.00001) normalizedForce = 0.0;
+
     // Safety Check: Saturation
     if (std::abs(normalizedForce) > 0.99) {
         static int clip_log = 0;
@@ -198,20 +216,28 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
     if (m_pEffect) {
         DICONSTANTFORCE cf;
         cf.lMagnitude = magnitude;
+        
         DIEFFECT eff;
         ZeroMemory(&eff, sizeof(eff));
         eff.dwSize = sizeof(DIEFFECT);
+        // We use DIEP_TYPESPECIFICPARAMS because we are only updating the Magnitude (Specific to ConstantForce).
+        // This is more efficient than updating the entire envelope or direction.
         eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
         eff.lpvTypeSpecificParams = &cf;
         
-        // Only update parameters. 
+        // Update parameters only (magnitude changes).
         // DO NOT pass DIEP_START here as it restarts the envelope and can cause clicks/latency.
-        // Using DIEP_START in SetParameters effectively restarts the effect.
+        // The effect is started once in CreateEffect() and runs continuously.
+        // If device is lost, the re-acquisition logic below will restart it properly.
         HRESULT hr = m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+        
         if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) {
             // Try to re-acquire once
             HRESULT hrAcq = m_pDevice->Acquire();
             if (SUCCEEDED(hrAcq)) {
+                // If we re-acquired, we might need to restart effect, or maybe just set params.
+                // Safest to SetParams and assume continuous play, but CreateEffect handles Start(1,0).
+                // If logic suggests effect stopped, we can explicitly start if needed, but avoid DIEP_START loop.
                 m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
             } else if (hrAcq == DIERR_OTHERAPPHASPRIO) {
                 static int log_limit = 0;

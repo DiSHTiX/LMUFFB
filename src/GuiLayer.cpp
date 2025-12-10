@@ -1,6 +1,7 @@
 #include "GuiLayer.h"
 #include "Config.h"
 #include "DirectInputFFB.h"
+#include "GameConnector.h"
 #include <iostream>
 #include <vector>
 #include <mutex>
@@ -147,6 +148,19 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     std::string title = std::string("LMUFFB v") + LMUFFB_VERSION + " - FFB Configuration";
     ImGui::Begin(title.c_str());
 
+    // --- CONNECTION STATUS ---
+    bool connected = GameConnector::Get().IsConnected();
+    if (connected) {
+        ImGui::TextColored(ImVec4(0,1,0,1), "Status: Connected to Le Mans Ultimate");
+    } else {
+        ImGui::TextColored(ImVec4(1,0,0,1), "Status: Game Not Connected");
+        ImGui::SameLine();
+        if (ImGui::Button("Retry Connection")) {
+            GameConnector::Get().TryConnect();
+        }
+    }
+    ImGui::Separator();
+
     ImGui::Text("Core Settings");
     
     // Device Selection
@@ -180,6 +194,27 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         DirectInputFFB::Get().ReleaseDevice();
         selected_device_idx = -1;
     }
+
+    ImGui::Separator();
+
+    // --- PRESETS ---
+    static int selected_preset = 0;
+    if (Config::presets.empty()) {
+        Config::LoadPresets();
+    }
+    
+    if (ImGui::BeginCombo("Load Preset", Config::presets[selected_preset].name.c_str())) {
+        for (int i = 0; i < Config::presets.size(); i++) {
+            bool is_selected = (selected_preset == i);
+            if (ImGui::Selectable(Config::presets[i].name.c_str(), is_selected)) {
+                selected_preset = i;
+                Config::ApplyPreset(i, engine);
+            }
+            if (is_selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Quickly load predefined settings for testing or driving.");
 
     ImGui::Separator();
     

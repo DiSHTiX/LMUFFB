@@ -10,7 +10,7 @@
 #include "src/Config.h"
 #include "src/DirectInputFFB.h"
 #include "src/DynamicVJoy.h"
-#include "src/lmu_sm_interface/SharedMemoryInterface.hpp"
+#include "src/GameConnector.h"
 #include <optional>
 
 // Constants
@@ -23,10 +23,7 @@ const int VJOY_DEVICE_ID = 1;
 std::atomic<bool> g_running(true);
 std::atomic<bool> g_ffb_active(true);
 
-// New Shared Memory Globals
-SharedMemoryLayout* g_pSharedMemLayout = nullptr;
-SharedMemoryObjectOut g_localData; // Local copy to avoid locking for too long
-std::optional<SharedMemoryLock> g_smLock;
+SharedMemoryObjectOut g_localData; // Local copy of shared memory
 
 FFBEngine g_engine;
 std::mutex g_engine_mutex; // Protects settings access if GUI changes them
@@ -64,23 +61,26 @@ void FFBThread() {
     std::cout << "[FFB] Loop Started." << std::endl;
 
     while (g_running) {
-        if (g_ffb_active && g_pSharedMemLayout && g_smLock.has_value()) {
+        if (g_ffb_active && GameConnector::Get().IsConnected()) {
             
             // --- CRITICAL SECTION: READ DATA ---
-            
-            // 1. Lock
-            g_smLock->Lock();
-            
-            // 2. Copy to local storage (Fast copy)
-            CopySharedMemoryObj(g_localData, g_pSharedMemLayout->data);
-            
-            // 3. Unlock
-            g_smLock->Unlock();
+            GameConnector::Get().CopyTelemetry(g_localData);
             
             double force = 0.0;
             
-            // 4. Find Player and Calculate Force
-            if (g_localData.telemetry.playerHasVehicle) {
+            // Check if player is in an active driving session (not in menu/replay)
+            bool in_realtime = GameConnector::Get().IsInRealtime();
+            static bool was_in_menu = true;
+            
+            if (was_in_menu && in_realtime) {
+                std::cout << "[Game] User entered driving session." << std::endl;
+            } else if (!was_in_menu && !in_realtime) {
+                std::cout << "[Game] User exited to menu." << std::endl;
+            }
+            was_in_menu = !in_realtime;
+            
+            // Only calculate FFB if actually driving
+            if (in_realtime && g_localData.telemetry.playerHasVehicle) {
                 uint8_t idx = g_localData.telemetry.playerVehicleIdx;
                 if (idx < 104) {
                     // Get pointer to specific car data
@@ -93,6 +93,7 @@ void FFBThread() {
                     }
                 }
             }
+            // else: force remains 0.0 (muted in menus)
 
             // --- DYNAMIC vJoy LOGIC (State Machine) ---
             if (vJoyDllLoaded && DynamicVJoy::Get().Enabled()) { 
@@ -165,36 +166,15 @@ int main(int argc, char* argv[]) {
         DirectInputFFB::Get().Initialize(NULL);
     }
 
-    // 1. Setup Shared Memory (New LMU Name)
-    HANDLE hMapFile = OpenFileMappingA(FILE_MAP_READ, FALSE, LMU_SHARED_MEMORY_FILE);
-    
-    if (hMapFile == NULL) {
-        std::cerr << "Could not open file mapping object. Ensure game is running." << std::endl;
-        if (!headless) {
-             // Show non-blocking error or just a popup but DON'T exit
-             MessageBoxA(NULL, "Could not open file mapping object (" LMU_SHARED_MEMORY_FILE ").\n\nApp will remain open. Start Le Mans Ultimate and restart this app.", "LMUFFB Warning", MB_ICONWARNING | MB_OK);
-        } else {
-             return 1; // Headless has no UI to wait, so exit
-        }
-    } else {
-        g_pSharedMemLayout = (SharedMemoryLayout*)MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, sizeof(SharedMemoryLayout));
-        if (g_pSharedMemLayout == NULL) {
-            std::cerr << "Could not map view of file." << std::endl;
-            CloseHandle(hMapFile);
-            hMapFile = NULL;
-        } else {
-            std::cout << "Connected to Shared Memory." << std::endl;
-        }
+    // 1. Setup Shared Memory
+    // Check for conflicts
+    if (GameConnector::Get().CheckLegacyConflict()) {
+        if (!headless) MessageBoxA(NULL, "Legacy rFactor 2 Shared Memory Plugin detected.\nThis may conflict with LMU. Please remove 'rFactor2SharedMemoryMapPlugin64.dll' if issues occur.", "Warning", MB_ICONWARNING | MB_OK);
     }
 
-    // 2. Initialize Lock
-    if (hMapFile) {
-        g_smLock = SharedMemoryLock::MakeSharedMemoryLock();
-        if (!g_smLock.has_value()) {
-            std::cerr << "Failed to init LMU Shared Memory Lock" << std::endl;
-        } else {
-            std::cout << "Shared Memory Lock Initialized." << std::endl;
-        }
+    if (!GameConnector::Get().TryConnect()) {
+        std::cout << "Game not running or Shared Memory not ready. Waiting..." << std::endl;
+        // Don't exit, just continue to GUI. FFB Loop will wait.
     }
 
     // 3. Start FFB Thread
@@ -224,8 +204,7 @@ int main(int argc, char* argv[]) {
     
     DirectInputFFB::Get().Shutdown();
     
-    if (g_pSharedMemLayout) UnmapViewOfFile(g_pSharedMemLayout);
-    if (hMapFile) CloseHandle(hMapFile);
+    // GameConnector cleans itself up
     
     return 0;
 }

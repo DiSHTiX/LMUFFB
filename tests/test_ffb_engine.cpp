@@ -5,6 +5,7 @@
 #include <cstring>
 #include "../FFBEngine.h"
 #include "../src/lmu_sm_interface/InternalsPlugin.hpp"
+#include "../src/Config.h" // Added for Preset testing
 
 // --- Simple Test Framework ---
 int g_tests_passed = 0;
@@ -770,6 +771,8 @@ int main() {
     test_sanity_checks();
     void test_hysteresis_logic(); // Forward declaration
     test_hysteresis_logic();
+    void test_presets(); // Forward declaration
+    test_presets();
 
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -846,5 +849,49 @@ void test_hysteresis_logic() {
     if (engine.m_missing_load_frames < 25) {
         std::cout << "[PASS] Hysteresis counter decrementing on recovery." << std::endl;
         g_tests_passed++;
+    }
+}
+
+void test_presets() {
+    std::cout << "\nTest: Configuration Presets" << std::endl;
+    
+    // Setup
+    Config::LoadPresets();
+    FFBEngine engine;
+    
+    // Initial State (Default is 0.5)
+    engine.m_gain = 0.5f;
+    engine.m_sop_effect = 0.5f;
+    engine.m_understeer_effect = 0.5f;
+    
+    // Find "Test: SoP Only" preset
+    int sop_idx = -1;
+    for (int i=0; i<Config::presets.size(); i++) {
+        if (Config::presets[i].name == "Test: SoP Only") {
+            sop_idx = i;
+            break;
+        }
+    }
+    
+    if (sop_idx == -1) {
+        std::cout << "[FAIL] Could not find 'Test: SoP Only' preset." << std::endl;
+        g_tests_failed++;
+        return;
+    }
+    
+    // Apply Preset
+    Config::ApplyPreset(sop_idx, engine);
+    
+    // Verify
+    bool gain_ok = (engine.m_gain == 1.0f);
+    bool sop_ok = (engine.m_sop_effect == 1.0f);
+    bool under_ok = (engine.m_understeer_effect == 0.0f);
+    
+    if (gain_ok && sop_ok && under_ok) {
+        std::cout << "[PASS] Preset applied correctly (Gain=" << engine.m_gain << ", SoP=" << engine.m_sop_effect << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Preset mismatch. Gain: " << engine.m_gain << " SoP: " << engine.m_sop_effect << std::endl;
+        g_tests_failed++;
     }
 }

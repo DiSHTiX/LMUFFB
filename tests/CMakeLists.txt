@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 include_directories(..)
 
 # Test Executable
-add_executable(run_tests test_ffb_engine.cpp)
+add_executable(run_tests test_ffb_engine.cpp ../src/Config.cpp)
 
 # Enable testing
 enable_testing()
