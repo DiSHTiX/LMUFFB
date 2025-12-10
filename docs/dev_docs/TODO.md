@@ -599,3 +599,234 @@ This prevents the "square wave" on/off switching at low speeds, making the fallb
 1.  **Immediate:** Instruct user to uncheck "Monitor FFB on vJoy" and verify game bindings (Fixes steering loop).
 2.  **Code:** Implement `TelemetryLogger` and the `Raw` vs `Corrected` data split in `FFBEngine`.
 3.  **Test:** Run the logger. If `RawLoad` is truly 0.0 in the CSV, then the LMU 1.2 Shared Memory interface is still not providing data for that car, or we need to check `mExpansion` bytes or other fields in the struct.
+
+# Answer 2
+Here is the prioritized diagnosis and implementation plan based on the user report, screenshots, and codebase analysis.
+
+### 1. Diagnosis: Prioritized Things to Try Next
+
+Ask the user (or yourself during testing) to perform these specific steps to isolate the "Random/Left Turn" issue.
+
+1.  **The "Zero Gain" Test (Crucial)**
+    *   **Action:** Set **Master Gain** to `0.0` in LMUFFB. Drive.
+    *   **Observation:**
+        *   *If wheel still pulls left/jerks:* The force is coming from the **Game** (Double FFB) or a hardware centering spring. LMUFFB is innocent.
+        *   *If wheel goes limp:* The bad force is definitely coming from LMUFFB calculations.
+
+2.  **The "Raw Input" Check**
+    *   **Action:** In LMUFFB, look at the **Telemetry Inspector** graph for **Steering Torque (Nm)** while the car is stationary or moving slowly straight.
+    *   **Observation:**
+        *   Is it hovering near 0?
+        *   Is it stuck at a high value (e.g., -20 Nm)? If so, the *game* is reporting a constant torque, which LMUFFB is simply amplifying.
+
+3.  **The "Effect Isolation" Test**
+    *   **Action:** Set **Master Gain** to `1.0`. Set **SoP**, **Understeer**, **Oversteer**, and **All Textures** to `0.0` or `Disabled`.
+    *   **Result:** This passes the raw `mSteeringShaftTorque` through. Does it still jerk?
+    *   *Hypothesis:* If this feels okay, the "Randomness" comes from the **SoP** or **Texture** calculations reacting to the "Missing" (Zero) tire data.
+
+4.  **Verify Input Binding**
+    *   **Action:** Ensure the user hasn't accidentally bound the **Accelerator** or **Clutch** axis to the **Steering** axis in the game. A "constant left turn" often happens when a pedal (0 to 100%) is mapped to steering (-100% to +100%), resulting in a permanent 50% turn or similar offset.
+
+---
+
+### 2. Hypotheses on Root Causes
+
+1.  **The "Fallback" Oscillation (Most Likely for "Random" feel)**
+    *   **Issue:** The screenshots show `Avg Tire Load` and `Avg Grip Fract` are **MISSING** (Red text).
+    *   **Mechanism:** Your code has a sanity check: `if (load < 1.0) load = 4000.0;`.
+    *   **The Bug:** If the telemetry flickers between `0.0` (Missing) and `0.0001` (Noise), the code rapidly toggles between **0N** and **4000N** of load.
+    *   **Result:** This acts like a square-wave generator, turning effects on and off 400 times a second. This feels like "random jerking" or "binary" vibration.
+
+2.  **Steering Torque Unit Mismatch**
+    *   **Issue:** LMU 1.2 changed `mSteeringArmForce` to `mSteeringShaftTorque`.
+    *   **Hypothesis:** The old value was in Newtons (approx +/- 4000). The new value is in Nm (approx +/- 20).
+    *   **Code:** You updated the graph scale to +/- 30, but did you update the **Normalization** in `FFBEngine.h`?
+    *   *Check:* `double max_force_ref = 20.0;` (In your provided `FFBEngine.h`). This looks correct, *but* if the game outputs 25Nm and you clamp at 20, you clip. If the game outputs raw steering rack force (Newtons) in that field by mistake, you are multiplying it by huge numbers.
+
+3.  **Axis Conflict (The "Left Turn")**
+    *   If `Config::m_output_ffb_to_vjoy` is enabled, and the user mapped Game Steering to vJoy Axis X, the FFB signal (which might be negative/left) is being fed back into the steering input.
+
+---
+
+### 3. Implementation Plan (Prioritized)
+
+#### A. Implement "Unbind Device" Button (UX Fix)
+Users are confused about whether the device is active.
+
+#### B. Implement Console Stats Logging (Debugging)
+We need to see the raw numbers to confirm if they are 0, NaN, or just noisy.
+
+#### C. Fix "Missing Data" Handling
+Instead of hard-toggling defaults every frame, implement a "State Latch". If data is missing for > 1 second, switch to fallback and *stay* there until valid data returns for > 1 second.
+
+#### D. Safety: Force Disable vJoy Output
+Hardcode `m_output_ffb_to_vjoy = false` in the constructor or `Load` to ensure it doesn't accidentally turn on for users.
+
+---
+
+### 4. Proposed Code Changes
+
+#### Step 1: Add "Unbind Device" to `DirectInputFFB`
+
+**File:** `src/DirectInputFFB.h`
+```cpp
+// Add to public:
+void ReleaseDevice();
+```
+
+**File:** `src/DirectInputFFB.cpp`
+```cpp
+void DirectInputFFB::ReleaseDevice() {
+#ifdef _WIN32
+    if (m_pEffect) {
+        m_pEffect->Stop();
+        m_pEffect->Unload();
+        m_pEffect->Release();
+        m_pEffect = nullptr;
+    }
+    if (m_pDevice) {
+        m_pDevice->Unacquire();
+        m_pDevice->Release();
+        m_pDevice = nullptr;
+    }
+    m_active = false;
+    m_deviceName = "None";
+    std::cout << "[DI] Device released by user." << std::endl;
+#endif
+}
+```
+
+**File:** `src/GuiLayer.cpp` (Inside `DrawTuningWindow`)
+```cpp
+    // ... inside the Device Selection combo block ...
+    if (ImGui::Button("Rescan Devices")) {
+        devices = DirectInputFFB::Get().EnumerateDevices();
+        selected_device_idx = -1;
+    }
+    
+    // NEW BUTTON HERE
+    ImGui::SameLine();
+    if (ImGui::Button("Unbind Device")) {
+        DirectInputFFB::Get().ReleaseDevice();
+        selected_device_idx = -1;
+    }
+    // ...
+```
+
+#### Step 2: Implement Non-Blocking Stats Logging
+
+We will add a simple struct to accumulate stats and print them once per second.
+
+**File:** `FFBEngine.h`
+
+Add this struct inside the class or globally:
+```cpp
+struct ChannelStats {
+    double min = 1e9;
+    double max = -1e9;
+    double sum = 0.0;
+    long count = 0;
+    
+    void Update(double val) {
+        if (val < min) min = val;
+        if (val > max) max = val;
+        sum += val;
+        count++;
+    }
+    
+    void Reset() {
+        min = 1e9; max = -1e9; sum = 0.0; count = 0;
+    }
+    
+    double Avg() { return count > 0 ? sum / count : 0.0; }
+};
+```
+
+Add these members to `FFBEngine` class:
+```cpp
+    // Logging State
+    ChannelStats s_torque;
+    ChannelStats s_load;
+    ChannelStats s_grip;
+    ChannelStats s_lat_g;
+    
+    std::chrono::steady_clock::time_point last_log_time = std::chrono::steady_clock::now();
+```
+
+Update `calculate_force` in `FFBEngine.h`:
+
+```cpp
+    double calculate_force(const TelemInfoV01* data) {
+        // ... existing setup ...
+        
+        // 1. Capture Raw Values
+        double raw_torque = data->mSteeringShaftTorque;
+        double raw_load = (data->mWheel[0].mTireLoad + data->mWheel[1].mTireLoad) / 2.0;
+        double raw_grip = (data->mWheel[0].mGripFract + data->mWheel[1].mGripFract) / 2.0;
+        double raw_lat_g = data->mLocalAccel.x;
+
+        // 2. Update Stats
+        s_torque.Update(raw_torque);
+        s_load.Update(raw_load);
+        s_grip.Update(raw_grip);
+        s_lat_g.Update(raw_lat_g);
+
+        // 3. Periodic Print (Non-blocking check)
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count() >= 1) {
+            std::cout << "--- TELEMETRY STATS (1s) ---" << std::endl;
+            std::cout << "Torque (Nm): Avg=" << s_torque.Avg() << " Min=" << s_torque.min << " Max=" << s_torque.max << std::endl;
+            std::cout << "Load (N):    Avg=" << s_load.Avg()   << " Min=" << s_load.min   << " Max=" << s_load.max << std::endl;
+            std::cout << "Grip (0-1):  Avg=" << s_grip.Avg()   << " Min=" << s_grip.min   << " Max=" << s_grip.max << std::endl;
+            std::cout << "Lat G:       Avg=" << s_lat_g.Avg()  << " Min=" << s_lat_g.min  << " Max=" << s_lat_g.max << std::endl;
+            
+            // Reset
+            s_torque.Reset(); s_load.Reset(); s_grip.Reset(); s_lat_g.Reset();
+            last_log_time = now;
+        }
+
+        // ... continue with existing calculation logic ...
+```
+
+#### Step 3: Improve "Missing Data" Logic (Hysteresis)
+
+Modify the sanity check in `FFBEngine.h` to stop flickering.
+
+```cpp
+    // Add member variable
+    int m_missing_load_frames = 0;
+
+    // Inside calculate_force
+    double avg_load = (fl.mTireLoad + fr.mTireLoad) / 2.0;
+
+    // Hysteresis: Only switch to fallback if missing for > 20 frames (50ms)
+    // Only switch back to real data if present for > 20 frames
+    if (avg_load < 1.0 && std::abs(data->mLocalVel.z) > 1.0) {
+        m_missing_load_frames++;
+    } else {
+        m_missing_load_frames = std::max(0, m_missing_load_frames - 1);
+    }
+
+    // Use fallback if we have been missing data for a while
+    if (m_missing_load_frames > 20) {
+        avg_load = 4000.0; 
+        if (!m_warned_load) {
+             std::cout << "[WARNING] Tire Load missing. Using fallback." << std::endl;
+             m_warned_load = true;
+        }
+    }
+```
+
+### 5. Additional Debugging for "Left Turn"
+
+In `DirectInputFFB.cpp`, inside `UpdateForce`, add a print if the force is consistently saturated.
+
+```cpp
+    // Inside UpdateForce
+    if (std::abs(normalizedForce) > 0.99) {
+        static int clip_log = 0;
+        if (clip_log++ % 400 == 0) {
+            std::cout << "[DI] WARNING: Output saturated at " << normalizedForce << ". Possible feedback loop or scaling issue." << std::endl;
+        }
+    }
+```
