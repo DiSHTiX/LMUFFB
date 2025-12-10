@@ -72,3 +72,31 @@ To avoid "aliasing" (square-wave look) in the GUI graphs:
 
 ### v0.3.14: Dynamic vJoy
 *   Implemented a state machine in `main.cpp` to dynamically acquire/release vJoy at runtime based on GUI checkboxes, without needing a restart.
+
+## 5. Documentation Maintenance
+
+### Documentation Scanning Process
+When making changes to the codebase, you **must** follow this documentation update process:
+
+1.  **Scan All Documentation**: Use `find_by_name` with pattern `*.md` to discover all markdown files in the project.
+2.  **Identify Relevant Files**: Review file names and paths to determine which documents might be affected by your changes.
+3.  **Read Before Updating**: Always read the current content of documentation files before updating them to understand context and maintain consistency.
+4.  **Update Comprehensively**: Don't stop at the first document - your changes may affect multiple files across different directories.
+
+### Documentation Categories
+*   **User Documentation** (`docs/`): End-user guides, feature descriptions, troubleshooting
+*   **Developer Documentation** (`docs/dev_docs/`): Technical specs, formulas, architecture, investigations
+*   **Root Documentation**: `README.md`, `CHANGELOG.md`, `AGENTS.md`, `AGENTS_MEMORY.md`
+
+### Common Documentation Update Patterns
+*   **New FFB Effect**: Update `docs/ffb_effects.md`, `docs/the_physics_of__feel_-_driver_guide.md`, `docs/dev_docs/FFB_formulas.md`, and `README.md`
+*   **LMU 1.2 Changes**: Update `docs/dev_docs/new_ffb_features_enabled_by_lmu_1.2.md` and `README.md`
+*   **Architecture Changes**: Update `docs/architecture.md` and potentially `AGENTS.md` if it affects development workflow
+*   **Bug Fixes**: Update `CHANGELOG.md` and consider updating `docs/dev_docs/TODO.md`
+
+### Documentation Anti-Patterns
+*   ❌ **Don't** assume only one document needs updating
+*   ❌ **Don't** skip reading existing documentation before editing
+*   ❌ **Don't** forget to update user-facing docs when adding features
+*   ❌ **Don't** leave outdated information in documentation after making changes
+

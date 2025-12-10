@@ -31,10 +31,28 @@ This document provides the Standard Operating Procedures (SOP), context, and con
     *   *Constraint*: Do not submit code if `run_tests` fails.
 
 ### 4. 📚 Documentation Updates
-*   **Requirement**: Update relevant Markdown files to reflect your changes.
-    *   If you changed math/physics -> Update `docs/dev_docs/FFB_formulas.md`.
-    *   If you added telemetry usage -> Update `docs/dev_docs/telemetry_data_reference.md`.
-    *   If you changed the GUI -> Update `README.md` (text descriptions).
+*   **Requirement**: You **must** scan and update ALL relevant documentation to reflect your changes.
+*   **Process**:
+    1.  **Scan Documentation**: Use `find_by_name` to list all `.md` files in the project.
+    2.  **Read Relevant Docs**: Review the documentation files that are likely affected by your changes.
+    3.  **Determine Relevance**: Identify which documents need updates based on your changes.
+    4.  **Update Documents**: Modify all relevant documentation to maintain consistency.
+*   **Common Documentation Targets**:
+    *   **Math/Physics Changes** → Update `docs/dev_docs/FFB_formulas.md`
+    *   **New FFB Effects** → Update `docs/ffb_effects.md` AND `docs/the_physics_of__feel_-_driver_guide.md`
+    *   **Telemetry Usage** → Update `docs/dev_docs/telemetry_data_reference.md`
+    *   **GUI Changes** → Update `README.md` (text descriptions)
+    *   **Architecture Changes** → Update `docs/architecture.md`
+    *   **New Features** → Update `README.md`, `docs/introduction.md`, and relevant feature docs
+    *   **Bug Fixes** → Consider updating `docs/dev_docs/TODO.md` to mark items as complete
+    *   **LMU 1.2 Features** → Update `docs/dev_docs/new_ffb_features_enabled_by_lmu_1.2.md`
+    *   **Configuration Changes** → Update `docs/ffb_customization.md`
+*   **Documentation Directories**:
+    *   `docs/` - User-facing documentation
+    *   `docs/dev_docs/` - Developer and technical documentation
+    *   `docs/bug_reports/` - Bug reports and troubleshooting
+    *   Root `.md` files - `README.md`, `CHANGELOG.md`, `AGENTS.md`, `AGENTS_MEMORY.md`
+*   **Critical**: Do NOT assume only one document needs updating. Your changes may affect multiple documents.
 
 ### 5. 📦 Versioning & Changelog
 *   **Update Version**: Increment the number in the `VERSION` file (root directory).
@@ -50,9 +68,10 @@ This document provides the Standard Operating Procedures (SOP), context, and con
 *   **Do Not Push**: You do not have write access to the repository.
 *   **Save Files**: Ensure all modified files (including `AGENTS_MEMORY.md`) are saved. The user will download your work as a ZIP.
 *   **MANDATORY CHECKLIST**:
+    *   [ ] **Documentation Scanned**: Did you scan all `.md` files and identify relevant docs?
+    *   [ ] **Documentation Updated**: Did you update ALL relevant documentation (not just one file)?
     *   [ ] **Version Bumped**: Did you increment the number in `VERSION`?
     *   [ ] **Changelog Updated**: Did you add a section in `CHANGELOG.md`?
-    *   [ ] **Documentation Updated**: Did you update technical docs or README?
     *   [ ] **Tests Passed**: Did you verify with `run_tests`?
 
 ---
