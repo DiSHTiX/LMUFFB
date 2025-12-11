@@ -907,4 +907,5 @@ Test brake loockup effect.
 Consider both "canned" effects and dynamic, physically determined ones.
 Consider which effects are not possible without grip and load (currently missing) and if they can be temporarily replaced with "canned" effects, or approximations, or other workarounds / temporary replacements.
 
-
+reintroduce support for rF2, so we can test full effects with grip and load there.
+keep support for both apps, reuse code. Add conversion of scales etc. when using rF2, because default support should be LMU, and we don't want to mess the code for LMU.
