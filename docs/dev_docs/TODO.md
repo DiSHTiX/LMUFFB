@@ -849,6 +849,7 @@ In the stats printed in the console about the telemetry values: it is not clear 
 
 Please also investigate this issue and give me an additional section with a plan to fix it:
 It seems that master gain should be at 0.5 (instead of 1) to reproduce the same FFB intensity as with original signal . That is, in order for Base torque to be the same as "Total output" when all other influencing factors are neutralized. This might indicate that some coefficient or scale is incorrect (eg. it is double what it should be).
+
 ===
 
 ensure we have proper and stable values for the missing data (grip and load)
