@@ -897,3 +897,7 @@ TEST: ? if alt tab goes to opp lock of wheel limiter
 
 direct method seems ok
 consider removing vjoy and gremlin. Disable warnings. Confirm they are not needed, then remove, from instructions and code.
+
+Reorganize the GUI customizations. Have one section per effect and comonent of the FFB formuls. For instance, add one section for Self Aligning Torque.
+Each section for that component / effect should have a main setting / slider, and additional things like smoothing, caps, coefficients, etc.
+Group all the SoP settings into one section.
