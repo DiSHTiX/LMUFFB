@@ -899,8 +899,8 @@ void test_presets() {
     // Apply Preset
     Config::ApplyPreset(sop_idx, engine);
     
-    // Verify
-    bool gain_ok = (engine.m_gain == 1.0f);
+    // Verify (Updated for v0.4.3: gain changed from 1.0 to 0.5 in presets)
+    bool gain_ok = (engine.m_gain == 0.5f);
     bool sop_ok = (engine.m_sop_effect == 1.0f);
     bool under_ok = (engine.m_understeer_effect == 0.0f);
     
@@ -908,7 +908,7 @@ void test_presets() {
         std::cout << "[PASS] Preset applied correctly (Gain=" << engine.m_gain << ", SoP=" << engine.m_sop_effect << ")" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Preset mismatch. Gain: " << engine.m_gain << " SoP: " << engine.m_sop_effect << std::endl;
+        std::cout << "[FAIL] Preset mismatch. Gain: " << engine.m_gain << " SoP: " << engine.m_sop_effect << " Understeer: " << engine.m_understeer_effect << std::endl;
         g_tests_failed++;
     }
 }
