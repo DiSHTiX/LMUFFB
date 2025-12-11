@@ -876,9 +876,23 @@ Grip (0-1):  Avg=0 Min=0 Max=0
 Lat G:       Avg=-1.17966e-06 Min=-1.17966e-06 Max=-1.17966e-06
 
 ## Troubleshooting 17
-
+Implement workaounds_and_improvements_ffb
 See docs/dev_docs/workaounds_and_improvements_ffb_v0.4.4+.md
 
+
+investigate which ffb effects can be implemented with current data
+eg. info about patch velocity and forces, info on wheel rim and ..rotation, etc.
+we also have values for slip..
+
+## Troubleshooting 18
+
+
+add preset: all effects disabled
+makes it easier to then go and enable one single effect
+
+Reorganize the GUI customizations. Have one section per effect and comonent of the FFB formuls. For instance, add one section for Self Aligning Torque.
+Each section for that component / effect should have a main setting / slider, and additional things like smoothing, caps, coefficients, etc.
+Group all the SoP settings into one section.
 
 TODO: there is no logging to files of the telemetry stats
 create a logs folder from the program, and save a file there. Save as soon as the driver starts driving and speed above minimum. After speed below that, close a session
@@ -886,13 +900,25 @@ and resume it in the same file when speed increases again. One file per executio
 See if in the shared memtmory we have more precise info on when driver in menu, in session but in session menus, and when driving; in case, use those to organize the logs.
 Logs should include the values we record from game. And possibly others like car speed, wheel position, throttle, brake pedal, etc.
 
+Test brake loockup effect. 
+Consider both "canned" effects and dynamic, physically determined ones.
+Consider which effects are not possible without grip and load (currently missing) and if they can be temporarily replaced with "canned" effects, or approximations, or other workarounds / temporary replacements.
+
+reintroduce support for rF2, so we can test full effects with grip and load there.
+keep support for both apps, reuse code. Add conversion of scales etc. when using rF2, because default support should be LMU, and we don't want to mess the code for LMU.
+Do a plan of what needs to be changed to support rF2.
+
+
+for rF2, could have a separate executable, to avoid cluttering the GUi for LMU
+
+can we introduce an equalizer?
+like in the moza software?
+eg. in order to increase intensity of lower frequency effects, that are related to grip.
+
+
 open bug in forum for grip and load values always 0
 
-investigate which ffb effects can be implemented with current data
-eg. info about patch velocity and forces, info on wheel rim and ..rotation, etc.
-we also have values for slip..
-
-move invert ffb checkbos near the top of gui window (now is at bottom).
+move invert ffb checkbox near the top of gui window (now is at bottom).
 
 when FFB is inverted, also invert the plots for base force and steering arm torque (so that they look identical to the total torque when additional effects are disabled). Consider if also the other plots need inverting.
 
@@ -903,23 +929,3 @@ TEST: ? if alt tab goes to opp lock of wheel limiter
 direct method seems ok
 consider removing vjoy and gremlin. Disable warnings. Confirm they are not needed, then remove, from instructions and code.
 
-Reorganize the GUI customizations. Have one section per effect and comonent of the FFB formuls. For instance, add one section for Self Aligning Torque.
-Each section for that component / effect should have a main setting / slider, and additional things like smoothing, caps, coefficients, etc.
-Group all the SoP settings into one section.
-
-Test brake loockup effect. 
-Consider both "canned" effects and dynamic, physically determined ones.
-Consider which effects are not possible without grip and load (currently missing) and if they can be temporarily replaced with "canned" effects, or approximations, or other workarounds / temporary replacements.
-
-reintroduce support for rF2, so we can test full effects with grip and load there.
-keep support for both apps, reuse code. Add conversion of scales etc. when using rF2, because default support should be LMU, and we don't want to mess the code for LMU.
-Do a plan of what needs to be changed to support rF2.
-
-add preset: all effects disabled
-makes it easier to then go and enable one single effect
-
-for rF2, could have a separate executable, to avoid cluttering the GUi for LMU
-
-can we introduce an equalizer?
-like in the moza software?
-eg. in order to increase intensity of lower frequency effects, that are related to grip.
