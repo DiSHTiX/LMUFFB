@@ -23,6 +23,20 @@ Please initialize this session by following the **Standard Task Workflow** defin
 4.  
 Once you have reviewed these documents, please proceed with the following task:
 
+**Task: (...)**
+
+
+**Context:**
+(...)
+
+**Implementation Requirements:**
+(...)
+
+**Deliverables:**
+(...)
+
+
+
 ===
 
 Here is the prompt to instruct the AI coding agent.
@@ -99,15 +113,6 @@ Refer to **`docs/dev_docs/workaounds_and_improvements_ffb_v0.4.4+.md`** for the 
 ===
 
 
-**Context:**
-(...)
-
-**Implementation Requirements:**
-(...)
-
-**Deliverables:**
-(...)
-
 **Constraints:**
 (...)
 
@@ -137,3 +142,31 @@ Read document docs\dev_docs\FFB App Issues And Debugging v0.4.2.md and implement
 **Constraints:**
 (...)
 
+
+
+=====
+
+
+Clone this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below.
+
+Please initialize this session by following the **Standard Task Workflow** defined in `AGENTS.md`.
+
+1.  **Sync**: Run `git fetch && git reset --hard origin/main` (or pull) to ensure you see the latest files.
+2.  **Load Memory**: Read `AGENTS_MEMORY.md` to review build workarounds and architectural insights.
+3.  **Load Rules**: Read `AGENTS.md` to confirm constraints.
+
+Once you have reviewed these documents, please proceed with the following task:
+
+**Task: (...)**
+
+**Context:**
+(...)
+
+**Reference Documents:**
+(...)
+
+**Implementation Requirements:**
+(...)
+
+**Deliverables:**
+(...)
