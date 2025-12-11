@@ -220,6 +220,9 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     
     ImGui::SliderFloat("Master Gain", &engine.m_gain, 0.0f, 2.0f, "%.2f");
     ImGui::SliderFloat("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f");
+    // New Max Torque Ref Slider (v0.4.4)
+    ImGui::SliderFloat("Max Torque Ref (Nm)", &engine.m_max_torque_ref, 10.0f, 100.0f, "%.1f Nm");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The torque value that equals 100%% FFB output.\nIncrease this if FFB is too strong at Gain 1.0.\nTypical values: 20-40 Nm.");
 
     if (ImGui::TreeNode("Advanced Tuning")) {
         ImGui::SliderFloat("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f (1=Raw)");
@@ -264,6 +267,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Separator();
     ImGui::Text("Output");
     
+    // Invert Force (v0.4.4)
+    ImGui::Checkbox("Invert FFB Signal", &engine.m_invert_force); 
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Check this if the wheel pulls away from center instead of aligning.");
+
     // vJoy Monitoring (Safety critical)
     if (ImGui::Checkbox("Monitor FFB on vJoy (Axis X)", &Config::m_output_ffb_to_vjoy)) {
         // Warn user if enabling

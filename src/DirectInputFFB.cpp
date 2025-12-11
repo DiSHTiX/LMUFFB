@@ -115,10 +115,13 @@ bool DirectInputFFB::SelectDevice(const GUID& guid) {
     std::cout << "[DI] Attempting to set Cooperative Level (Exclusive | Background)..." << std::endl;
     HRESULT hr = m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
     
+    std::string mode_str = "EXCLUSIVE | BACKGROUND"; // Default assumption
+
     // Fallback: Non-Exclusive
     if (FAILED(hr)) {
          std::cerr << "[DI] Exclusive mode failed (Error: " << std::hex << hr << std::dec << "). Retrying in Non-Exclusive mode..." << std::endl;
          hr = m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
+         mode_str = "NON-EXCLUSIVE | BACKGROUND";
     }
     
     if (FAILED(hr)) {
@@ -131,7 +134,7 @@ bool DirectInputFFB::SelectDevice(const GUID& guid) {
         std::cerr << "[DI] Failed to acquire device." << std::endl;
         // Don't return false yet, might just need focus/retry
     } else {
-        std::cout << "[DI] Device Acquired." << std::endl;
+        std::cout << "[DI] Device Acquired in " << mode_str << " mode." << std::endl;
     }
 
     // Create Effect

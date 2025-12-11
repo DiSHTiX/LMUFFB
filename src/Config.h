@@ -22,6 +22,9 @@ struct Preset {
     float slide_gain;
     bool road_enabled;
     float road_gain;
+    // New Params (v0.4.4)
+    bool invert_force;
+    float max_torque_ref;
     
     // Apply this preset to an engine instance
     void Apply(FFBEngine& engine) const {
@@ -40,6 +43,8 @@ struct Preset {
         engine.m_slide_texture_gain = slide_gain;
         engine.m_road_texture_enabled = road_enabled;
         engine.m_road_texture_gain = road_gain;
+        engine.m_invert_force = invert_force;
+        engine.m_max_torque_ref = max_torque_ref;
     }
 };
 

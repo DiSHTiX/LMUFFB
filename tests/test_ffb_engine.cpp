@@ -61,6 +61,7 @@ void test_grip_modulation() {
     
     // Set Gain to 1.0 for testing logic (default is now 0.5)
     engine.m_gain = 1.0; 
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
 
     // NOTE: Max torque reference changed to 20.0 Nm.
     data.mSteeringShaftTorque = 10.0; // Half of max ~20.0
@@ -93,6 +94,7 @@ void test_sop_effect() {
     engine.m_sop_effect = 0.5; 
     engine.m_gain = 1.0; // Ensure gain is 1.0
     engine.m_sop_smoothing_factor = 1.0; // Disable smoothing for instant result
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
     
     // 0.5 G lateral (4.905 m/s2)
     data.mLocalAccel.x = 4.905;
@@ -147,6 +149,7 @@ void test_min_force() {
     // Input 0.05 Nm. 0.05 / 20.0 = 0.0025.
     data.mSteeringShaftTorque = 0.05; 
     engine.m_min_force = 0.10; // 10% min force
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
 
     double force = engine.calculate_force(&data);
     // 0.0025 is > 0.0001 (deadzone check) but < 0.10.
@@ -270,6 +273,7 @@ void test_dynamic_tuning() {
     
     // Explicitly set gain 1.0 for this baseline
     engine.m_gain = 1.0;
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
 
     double force_initial = engine.calculate_force(&data);
     // Should pass through 10.0 (normalized: 0.5)
@@ -367,6 +371,7 @@ void test_oversteer_boost() {
     engine.m_sop_scale = 10.0; 
     // Disable smoothing to verify math instantly (v0.4.2 fix)
     engine.m_sop_smoothing_factor = 1.0; 
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
     
     // Scenario: Front has grip, rear is sliding
     data.mWheel[0].mGripFract = 1.0; // FL
@@ -568,6 +573,7 @@ void test_load_factor_edge_cases() {
     data.mWheel[0].mLateralPatchVel = 5.0;
     data.mWheel[1].mLateralPatchVel = 5.0;
     data.mDeltaTime = 0.01;
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
     
     // Case 1: Zero load (airborne)
     data.mWheel[0].mTireLoad = 0.0;
@@ -612,6 +618,7 @@ void test_spin_torque_drop_interaction() {
     engine.m_sop_effect = 1.0;
     engine.m_gain = 1.0;
     engine.m_sop_scale = 10.0;
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
     
     // High SoP force
     data.mLocalAccel.x = 9.81; // 1G lateral
@@ -687,6 +694,7 @@ void test_sanity_checks() {
     data.mWheel[0].mLateralPatchVel = 5.0; 
     data.mWheel[1].mLateralPatchVel = 5.0;
     data.mDeltaTime = 0.01;
+    engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
 
     // Run enough frames to trigger hysteresis (>20)
     for(int i=0; i<30; i++) {
@@ -899,7 +907,8 @@ void test_presets() {
     // Apply Preset
     Config::ApplyPreset(sop_idx, engine);
     
-    // Verify (Updated for v0.4.3: gain changed from 1.0 to 0.5 in presets)
+    // Verify
+    // Update expectation: Test: SoP Only now uses 0.5f Gain in Config.cpp
     bool gain_ok = (engine.m_gain == 0.5f);
     bool sop_ok = (engine.m_sop_effect == 1.0f);
     bool under_ok = (engine.m_understeer_effect == 0.0f);
@@ -908,7 +917,7 @@ void test_presets() {
         std::cout << "[PASS] Preset applied correctly (Gain=" << engine.m_gain << ", SoP=" << engine.m_sop_effect << ")" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Preset mismatch. Gain: " << engine.m_gain << " SoP: " << engine.m_sop_effect << " Understeer: " << engine.m_understeer_effect << std::endl;
+        std::cout << "[FAIL] Preset mismatch. Gain: " << engine.m_gain << " SoP: " << engine.m_sop_effect << std::endl;
         g_tests_failed++;
     }
 }
@@ -961,19 +970,27 @@ void test_channel_stats() {
     stats.Update(20.0);
     stats.Update(30.0);
     
-    ASSERT_NEAR(stats.min, 10.0, 0.001);
-    ASSERT_NEAR(stats.max, 30.0, 0.001);
+    // Verify Session Min/Max
+    ASSERT_NEAR(stats.session_min, 10.0, 0.001);
+    ASSERT_NEAR(stats.session_max, 30.0, 0.001);
+    
+    // Verify Interval Avg (Compatibility helper)
     ASSERT_NEAR(stats.Avg(), 20.0, 0.001);
     
-    // Test Reset
-    stats.Reset();
-    if (stats.count == 0) {
-        std::cout << "[PASS] Stats Reset count." << std::endl;
+    // Test Interval Reset (Session min/max should persist)
+    stats.ResetInterval();
+    if (stats.interval_count == 0) {
+        std::cout << "[PASS] Interval Stats Reset." << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Stats Reset failed." << std::endl;
+        std::cout << "[FAIL] Interval Reset failed." << std::endl;
         g_tests_failed++;
     }
+    
+    // Min/Max should still be valid
+    ASSERT_NEAR(stats.session_min, 10.0, 0.001);
+    ASSERT_NEAR(stats.session_max, 30.0, 0.001);
+    
     ASSERT_NEAR(stats.Avg(), 0.0, 0.001); // Handle divide by zero check
 }
 

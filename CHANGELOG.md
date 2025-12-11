@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.4] - 2025-12-11
+### Added
+- **Invert FFB Option**: Added checkbox in GUI to invert force direction for wheels that require it (e.g., Thrustmaster T300). Fixes "backwards" or "inverted" FFB feel where wheel pushes away from center instead of pulling toward it.
+- **Configurable Max Torque Reference**: Exposed `max_torque_ref` parameter in GUI (Advanced Tuning section) to allow fine-tuning of force normalization. Default: 20Nm. Users with high-torque DD wheels can increase this for better dynamic range.
+- **Session-Level Statistics**: Enhanced `ChannelStats` to track both session-wide min/max (persistent across entire driving session) and interval-level averages (1-second windows). Enables better telemetry diagnostics.
+
+### Changed
+- **Preset System**: All built-in and user presets now include `invert_force` (bool) and `max_torque_ref` (float) fields. Existing `config.ini` files will auto-upgrade on save.
+- **DirectInput Logging**: Improved console output clarity when acquiring FFB device, now explicitly states Exclusive vs. Non-Exclusive mode success.
+
+### Fixed
+- **Test Suite Stability**: All unit tests now explicitly set `max_torque_ref = 20.0f` to prevent dependency on default values, ensuring consistent test results across configuration changes.
+- **Build System**: Added `winmm.lib` to linker dependencies to fix `timeBeginPeriod` unresolved external symbol error in CMake builds.
+
 ## [0.4.3] - 2025-12-11
 ### Added
 - **Test Coverage**: Added unit tests for Smoothing Step Response and Configuration Persistence, bringing coverage of critical physics logic to >85%.

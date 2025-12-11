@@ -11,23 +11,49 @@
 
 // Stats helper
 struct ChannelStats {
-    double min = 1e9;
-    double max = -1e9;
-    double sum = 0.0;
-    long count = 0;
+    // Session-wide stats (Persistent)
+    double session_min = 1e9;
+    double session_max = -1e9;
+    
+    // Interval stats (Reset every second)
+    double interval_sum = 0.0;
+    long interval_count = 0;
+    
+    // Latched values for display/consumption by other threads (Interval)
+    double l_avg = 0.0;
+    // Latched values for display/consumption by other threads (Session)
+    double l_min = 0.0;
+    double l_max = 0.0;
     
     void Update(double val) {
-        if (val < min) min = val;
-        if (val > max) max = val;
-        sum += val;
-        count++;
+        // Update Session Min/Max
+        if (val < session_min) session_min = val;
+        if (val > session_max) session_max = val;
+        
+        // Update Interval Accumulator
+        interval_sum += val;
+        interval_count++;
     }
     
-    void Reset() {
-        min = 1e9; max = -1e9; sum = 0.0; count = 0;
+    // Called every interval (e.g. 1s) to latch data and reset interval counters
+    void ResetInterval() {
+        if (interval_count > 0) {
+            l_avg = interval_sum / interval_count;
+        } else {
+            l_avg = 0.0;
+        }
+        // Latch current session min/max for display
+        l_min = session_min;
+        l_max = session_max;
+        
+        // Reset interval data
+        interval_sum = 0.0; 
+        interval_count = 0;
     }
     
-    double Avg() { return count > 0 ? sum / count : 0.0; }
+    // Compatibility helper
+    double Avg() { return interval_count > 0 ? interval_sum / interval_count : 0.0; }
+    void Reset() { ResetInterval(); }
 };
 
 // 1. Define the Snapshot Struct (Unified FFB + Telemetry)
@@ -74,6 +100,10 @@ public:
     float m_sop_smoothing_factor = 0.05f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default Default 0.05 for responsive feel. (0.1 ~5Hz.)
     float m_max_load_factor = 1.5f;      // Cap for load scaling (Default 1.5x)
     float m_sop_scale = 5.0f;            // SoP base scaling factor (Default 5.0 for Nm)
+    
+    // v0.4.4 Features
+    float m_max_torque_ref = 40.0f;      // Reference torque for 100% output (Default 40.0 Nm)
+    bool m_invert_force = false;         // Invert final output signal
 
     // New Effects (v0.2)
     float m_oversteer_boost = 0.0f; // 0.0 - 1.0 (Rear grip loss boost)
@@ -187,7 +217,11 @@ public:
         
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count() >= 1) {
-            s_torque.Reset(); s_load.Reset(); s_grip.Reset(); s_lat_g.Reset();
+            // Latch stats for external reading
+            s_torque.ResetInterval(); 
+            s_load.ResetInterval(); 
+            s_grip.ResetInterval(); 
+            s_lat_g.ResetInterval();
             last_log_time = now;
         }
 
@@ -468,11 +502,14 @@ public:
             }
         }
 
-        // --- 6. Min Force (Deadzone Removal) ---
+        // --- 6. Min Force & Output Scaling ---
         // Boost small forces to overcome wheel friction
-        // NOTE: Changed from 4000.0 (Newtons for old mSteeringArmForce) to 20.0 (Nm for new mSteeringShaftTorque)
-        // Typical GT3/Hypercar max torque is 15-25 Nm. Adjust based on testing if needed.
-        double max_force_ref = 20.0; 
+        // Use the configurable reference instead of hardcoded 20.0 (v0.4.4 Fix)
+        double max_force_ref = (double)m_max_torque_ref; 
+        
+        // Safety: Prevent divide by zero
+        if (max_force_ref < 1.0) max_force_ref = 1.0;
+
         double norm_force = total_force / max_force_ref;
         
         // Apply Master Gain
@@ -480,11 +517,15 @@ public:
         
         // Apply Min Force
         // If force is non-zero but smaller than min_force, boost it.
-        // Also handle the zero case if necessary, but typically we want a minimal signal if *any* force exists.
         if (std::abs(norm_force) > 0.0001 && std::abs(norm_force) < m_min_force) {
             // Sign check
             double sign = (norm_force > 0.0) ? 1.0 : -1.0;
             norm_force = sign * m_min_force;
+        }
+        
+        // APPLY INVERSION HERE (Before clipping)
+        if (m_invert_force) {
+            norm_force *= -1.0;
         }
         
         // --- SNAPSHOT LOGIC ---

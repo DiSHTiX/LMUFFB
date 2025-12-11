@@ -15,27 +15,32 @@ void Config::LoadPresets() {
     // Built-in Presets
     presets.push_back({ "Default", 
         0.5f, 1.0f, 0.15f, 5.0f, 0.05f, 0.0f, 0.0f, // gain, under, sop, scale, smooth, min, over
-        false, 0.5f, false, 0.5f, true, 0.5f, false, 0.5f // lockup, spin, slide, road
+        false, 0.5f, false, 0.5f, true, 0.5f, false, 0.5f, // lockup, spin, slide, road
+        false, 40.0f // invert, max_torque_ref (Default 40Nm for 1.0 Gain)
     });
     
     presets.push_back({ "Test: Game Base FFB Only", 
         0.5f, 0.0f, 0.0f, 5.0f, 0.0f, 0.0f, 0.0f,
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f 
+        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
+        false, 40.0f
     });
 
     presets.push_back({ "Test: SoP Only", 
         0.5f, 0.0f, 1.0f, 5.0f, 0.0f, 0.0f, 0.0f,
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f 
+        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
+        false, 40.0f
     });
 
     presets.push_back({ "Test: Understeer Only", 
         0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f 
+        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
+        false, 40.0f
     });
 
     presets.push_back({ "Test: Textures Only", 
         0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        true, 1.0f, false, 1.0f, true, 1.0f, true, 1.0f 
+        true, 1.0f, false, 1.0f, true, 1.0f, true, 1.0f,
+        false, 40.0f
     });
 
     // Parse User Presets from config.ini [Presets] section
@@ -105,6 +110,8 @@ void Config::LoadPresets() {
                         else if (key == "slide_gain") current_preset.slide_gain = std::stof(value);
                         else if (key == "road_enabled") current_preset.road_enabled = std::stoi(value);
                         else if (key == "road_gain") current_preset.road_gain = std::stof(value);
+                        else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
+                        else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
                     } catch (...) {}
                 }
             }
@@ -147,6 +154,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "slide_gain=" << engine.m_slide_texture_gain << "\n";
         file << "road_enabled=" << engine.m_road_texture_enabled << "\n";
         file << "road_gain=" << engine.m_road_texture_gain << "\n";
+        file << "invert_force=" << engine.m_invert_force << "\n";
+        file << "max_torque_ref=" << engine.m_max_torque_ref << "\n";
         file.close();
         std::cout << "[Config] Saved to " << filename << std::endl;
     } else {
@@ -194,6 +203,8 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
                     else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);
                     else if (key == "road_gain") engine.m_road_texture_gain = std::stof(value);
+                    else if (key == "invert_force") engine.m_invert_force = std::stoi(value);
+                    else if (key == "max_torque_ref") engine.m_max_torque_ref = std::stof(value);
                 } catch (...) {
                     std::cerr << "[Config] Error parsing line: " << line << std::endl;
                 }
