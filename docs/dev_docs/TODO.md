@@ -851,8 +851,22 @@ Please also investigate this issue and give me an additional section with a plan
 It seems that master gain should be at 0.5 (instead of 1) to reproduce the same FFB intensity as with original signal . That is, in order for Base torque to be the same as "Total output" when all other influencing factors are neutralized. This might indicate that some coefficient or scale is incorrect (eg. it is double what it should be).
 ===
 
-
+## Troubleshooting 17
 TODO: there is no logging to files of the telemetry stats
+
+open bug in forum for grip and load values always 0
+
+investigate which ffb effects can be implemented with current data
+eg. info about patch velocity and forces, info on wheel rim and ..rotation, etc.
+we also have values for slip..
+
+ensure we have proper and stable values for the missing data (grip and load)
+
+do the logging totals (on console or on file) when car is moving, that is speed above a certain min speed
+and stop loggin when it returns below that
+accumulate the values, for min, max, .., only when car is moving
+
+
 
 The "always on top" feature of the window (if present) is not customizable as on/off in the GUI. Please add this option. And implement the feature if not already present.
 
