@@ -876,6 +876,10 @@ Grip (0-1):  Avg=0 Min=0 Max=0
 Lat G:       Avg=-1.17966e-06 Min=-1.17966e-06 Max=-1.17966e-06
 
 ## Troubleshooting 17
+
+See docs/dev_docs/workaounds_and_improvements_ffb_v0.4.4+.md
+
+
 TODO: there is no logging to files of the telemetry stats
 create a logs folder from the program, and save a file there. Save as soon as the driver starts driving and speed above minimum. After speed below that, close a session
 and resume it in the same file when speed increases again. One file per execution of the program.
