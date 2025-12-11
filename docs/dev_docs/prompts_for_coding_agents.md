@@ -10,6 +10,19 @@ Perform the following task:
 **Task: verify issues and implement fixes**
 
 Carefully read the document "docs\dev_docs\grip_calculation_analysis_v0.4.5.md", verify all issues described and, if confirmed, implement the recommended fixes.
+
+===
+
+Clone this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below.
+
+Please initialize this session by following the **Standard Task Workflow** defined in `AGENTS.md`.
+
+1.  **Sync**: Run `git fetch && git reset --hard origin/main` (or pull) to ensure you see the latest files.
+2.  **Load Memory**: Read `AGENTS_MEMORY.md` to review build workarounds and architectural insights.
+3.  **Load Rules**: Read `AGENTS.md` to confirm constraints.
+4.  
+Once you have reviewed these documents, please proceed with the following task:
+
 ===
 
 Here is the prompt to instruct the AI coding agent.
