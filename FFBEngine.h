@@ -142,6 +142,14 @@ public:
     double m_slide_phase = 0.0;
     double m_bottoming_phase = 0.0;
     
+    // Internal state for Bottoming (Method B)
+    double m_prev_susp_force[2] = {0.0, 0.0}; // FL, FR
+
+    // New Settings (v0.4.5)
+    bool m_use_manual_slip = false;
+    int m_bottoming_method = 0; // 0=Scraping (Default), 1=Suspension Spike
+    float m_scrub_drag_gain = 0.0f; // New Effect: Drag resistance
+
     // Smoothing State
     double m_sop_lat_g_smoothed = 0.0;
     
@@ -170,6 +178,31 @@ public:
             }
         }
         return batch;
+    }
+
+    // Helper: Approximate Load (v0.4.5)
+    double approximate_load(const TelemWheelV01& w) {
+        // Base: Suspension Force + Est. Unsprung Mass (300N)
+        // Note: mSuspForce captures weight transfer and aero
+        return w.mSuspForce + 300.0;
+    }
+
+    // Helper: Calculate Manual Slip Ratio (v0.4.5)
+    double calculate_manual_slip_ratio(const TelemWheelV01& w, double car_speed_ms) {
+        // Radius in meters (stored as cm unsigned char)
+        double radius_m = (double)w.mStaticUndeflectedRadius / 100.0;
+        if (radius_m < 0.1) radius_m = 0.33; // Fallback if 0 or invalid
+        
+        double wheel_vel = w.mRotation * radius_m;
+        
+        // Avoid div-by-zero at standstill
+        double denom = std::abs(car_speed_ms);
+        if (denom < 1.0) denom = 1.0;
+        
+        // Ratio = (V_wheel - V_car) / V_car
+        // Lockup: V_wheel < V_car -> Ratio < 0
+        // Spin: V_wheel > V_car -> Ratio > 0
+        return (wheel_vel - car_speed_ms) / denom;
     }
 
     double calculate_force(const TelemInfoV01* data) {
@@ -246,10 +279,14 @@ public:
         }
 
         // Only trigger fallback if missing for > 20 frames (approx 50ms at 400Hz)
+        // v0.4.5: Use calculated physics load instead of static 4000N
         if (m_missing_load_frames > 20) {
-            avg_load = 4000.0; // Default load
+            double calc_load_fl = approximate_load(fl);
+            double calc_load_fr = approximate_load(fr);
+            avg_load = (calc_load_fl + calc_load_fr) / 2.0;
+            
             if (!m_warned_load) {
-                std::cout << "[WARNING] Missing Tire Load data (persistent). Defaulting to 4000N." << std::endl;
+                std::cout << "[WARNING] Missing Tire Load. Using Approx (SuspForce + 300N)." << std::endl;
                 m_warned_load = true;
             }
             frame_warn_load = true;
@@ -262,24 +299,73 @@ public:
         load_factor = (std::min)((double)m_max_load_factor, (std::max)(0.0, load_factor));
 
         // --- 1. Understeer Effect (Grip Modulation) ---
-        // Grip Fraction (Average of front tires)
-        double grip_l = fl.mGripFract;
-        double grip_r = fr.mGripFract;
+        // FRONT WHEEL GRIP CALCULATION (v0.4.5)
+        // 
+        // This section calculates grip for the front wheels and applies it to modulate
+        // the steering force. It has TWO possible calculation paths:
+        //
+        // PATH A: Use telemetry data directly (normal operation)
+        // PATH B: Approximate grip from slip angle (fallback when telemetry is missing)
+        //
+        // KNOWN ISSUES (see docs/dev_docs/grip_calculation_analysis_v0.4.5.md):
+        // - No variable tracks which path was taken
+        // - Original telemetry value is lost after approximation (line 325)
+        // - Cannot distinguish if avg_grip=0.2 is from telemetry or floor value
+        // - Rear wheels (lines 368-370) have NO fallback mechanism (inconsistent)
+        
+        // PATH A: Read grip from telemetry (normal operation)
+        double grip_l = fl.mGripFract;  // Front left grip fraction [0.0-1.0]
+        double grip_r = fr.mGripFract;  // Front right grip fraction [0.0-1.0]
         double avg_grip = (grip_l + grip_r) / 2.0;
         
-        // SANITY CHECK: If grip is 0.0 but we have load, it's suspicious.
+        // v0.4.5: Helper to calculate slip angle for grip approximation
+        // Slip angle = arctan(lateral_velocity / longitudinal_velocity)
+        // Used in PATH B when telemetry is missing
+        auto get_slip_angle = [&](const TelemWheelV01& w) {
+            double v_long = std::abs(w.mLongitudinalGroundVel);
+            double min_speed = 0.5;  // Prevent division by zero at standstill
+            if (v_long < min_speed) v_long = min_speed;
+            return std::atan2(std::abs(w.mLateralPatchVel), v_long);
+        };
+
+        // PATH B: SANITY CHECK - Detect missing telemetry and use approximation
+        // Condition: Grip is essentially zero BUT car has significant load
+        // This indicates telemetry failure, not actual zero grip
         if (avg_grip < 0.0001 && avg_load > 100.0) {
-            avg_grip = 1.0; // Default to full grip
+            // Calculate slip angles for both front wheels
+            double slip_fl = get_slip_angle(fl);
+            double slip_fr = get_slip_angle(fr);
+            double avg_slip = (slip_fl + slip_fr) / 2.0;
+            
+            // APPROXIMATION FORMULA:
+            // Physics basis: Tires have peak grip at ~0.15 rad (8.5°) slip angle
+            // Beyond peak, grip degrades linearly with slip angle
+            // Formula: grip = 1.0 - (excess_slip * falloff_factor)
+            // Floor: Minimum 0.2 (20% grip) to prevent unrealistic zero grip
+            double excess = (std::max)(0.0, avg_slip - 0.15);  // Slip beyond peak
+            avg_grip = 1.0 - (excess * 2.0);  // Falloff factor 2.0
+            avg_grip = (std::max)(0.2, avg_grip);  // Floor at 0.2 (20% minimum grip)
+            
+            // WARNING: Original telemetry value is LOST here (data loss issue)
+            // Cannot later determine if avg_grip=0.2 is from:
+            // - Actual telemetry reporting 0.2
+            // - Approximation formula result
+            // - Floor value being applied
+            
+            // Set warning flags
             if (!m_warned_grip) {
-                std::cout << "[WARNING] Missing Grip data. Defaulting to 1.0." << std::endl;
-                m_warned_grip = true;
+                std::cout << "[WARNING] Missing Grip. Using Approx based on Slip Angle." << std::endl;
+                m_warned_grip = true;  // One-time console warning
             }
-            frame_warn_grip = true;
+            frame_warn_grip = true;  // Per-frame flag for snapshot
         }
 
-        // Clamp grip 0-1 for safety
+        // Final safety clamp (applies to both paths)
         avg_grip = (std::max)(0.0, (std::min)(1.0, avg_grip));
         
+        // Apply grip to steering force
+        // grip_factor: 1.0 = full force, 0.0 = no force (full understeer)
+        // m_understeer_effect: 0.0 = disabled, 1.0 = full effect
         double grip_factor = 1.0 - ((1.0 - avg_grip) * m_understeer_effect);
         double output_force = game_force * grip_factor;
         
@@ -309,12 +395,26 @@ public:
         double sop_base_force = m_sop_lat_g_smoothed * m_sop_effect * (double)m_sop_scale;
         double sop_total = sop_base_force;
         
+        // REAR WHEEL GRIP CALCULATION (v0.4.5)
+        // 
+        // CRITICAL ISSUE: This section reads rear grip directly from telemetry
+        // with NO fallback mechanism (unlike front wheels above).
+        //
+        // PROBLEM SCENARIOS (see docs/dev_docs/grip_calculation_analysis_v0.4.5.md):
+        // 1. If rear telemetry fails (mGripFract = 0.0), value is used directly
+        // 2. grip_delta comparison becomes invalid (front approximated, rear raw)
+        // 3. Can trigger FALSE oversteer boost when rear telemetry is missing
+        //
+        // RECOMMENDATION: Apply same approximation logic as front wheels
+        
         // Oversteer Boost: If Rear Grip < Front Grip (car is rotating), boost SoP
-        double grip_rl = data->mWheel[2].mGripFract; // mWheel
-        double grip_rr = data->mWheel[3].mGripFract; // mWheel
+        double grip_rl = data->mWheel[2].mGripFract; // Rear left - RAW telemetry, NO FALLBACK
+        double grip_rr = data->mWheel[3].mGripFract; // Rear right - RAW telemetry, NO FALLBACK
         double avg_rear_grip = (grip_rl + grip_rr) / 2.0;
         
         // Delta between front and rear grip
+        // NOTE: If rear telemetry is missing (0.0) but front is approximated (0.2),
+        // this will incorrectly show grip_delta = 0.2, triggering oversteer boost
         double grip_delta = avg_grip - avg_rear_grip;
         if (grip_delta > 0.0) {
             sop_total *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
@@ -340,19 +440,17 @@ public:
         double min_speed = 0.5; // Avoid div-by-zero
         
         auto get_slip_ratio = [&](const TelemWheelV01& w) {
+            // v0.4.5: Option to use manual calculation
+            if (m_use_manual_slip) {
+                return calculate_manual_slip_ratio(w, data->mLocalVel.z);
+            }
+            // Default Game Data
             double v_long = std::abs(w.mLongitudinalGroundVel);
             if (v_long < min_speed) v_long = min_speed;
-            // PatchVel is (WheelVel - GroundVel). Ratio is Patch/Ground.
-            // Note: mLongitudinalPatchVel signs might differ from rF2 legacy.
-            // Assuming negative is slip (braking)
             return w.mLongitudinalPatchVel / v_long;
         };
         
-        auto get_slip_angle = [&](const TelemWheelV01& w) {
-            double v_long = std::abs(w.mLongitudinalGroundVel);
-            if (v_long < min_speed) v_long = min_speed;
-            return std::atan2(std::abs(w.mLateralPatchVel), v_long);
-        };
+        // get_slip_angle was moved up for grip approximation reuse
 
         // --- 2b. Progressive Lockup (Dynamic) ---
         // Ensure phase updates even if force is small, but gated by enabled
@@ -451,6 +549,17 @@ public:
         
         // --- 4. Road Texture (High Pass Filter) ---
         if (m_road_texture_enabled) {
+            // Scrub Drag (v0.4.5)
+            // Add resistance when sliding laterally (Dragging rubber)
+            if (m_scrub_drag_gain > 0.0) {
+                double avg_lat_vel = (fl.mLateralPatchVel + fr.mLateralPatchVel) / 2.0;
+                if (std::abs(avg_lat_vel) > 0.5) {
+                    double drag_dir = (avg_lat_vel > 0.0) ? -1.0 : 1.0;
+                    double drag_force = drag_dir * m_scrub_drag_gain * 2.0; // Scaled
+                    total_force += drag_force;
+                }
+            }
+
             // Use change in suspension deflection
             double vert_l = fl.mVerticalTireDeflection;
             double vert_r = fr.mVerticalTireDeflection;
@@ -474,18 +583,48 @@ public:
 
         // --- 5. Suspension Bottoming (High Load Impulse) ---
         if (m_bottoming_enabled) {
-            // Detect sudden high load spikes which indicate bottoming out
-            // Using Tire Load as proxy for suspension travel limit (bump stop)
-            double max_load = (std::max)(fl.mTireLoad, fr.mTireLoad);
-            
-            // Threshold: 8000N is a heavy hit for a race car corner/bump
-            const double BOTTOM_THRESHOLD = 8000.0;
-            
-            if (max_load > BOTTOM_THRESHOLD) {
-                double excess = max_load - BOTTOM_THRESHOLD;
+            bool triggered = false;
+            double intensity = 0.0;
+
+            if (m_bottoming_method == 0) {
+                // Method A: Scraping (Ride Height)
+                // Threshold: 2mm (0.002m)
+                double min_rh = (std::min)(fl.mRideHeight, fr.mRideHeight);
+                if (min_rh < 0.002 && min_rh > -1.0) { // Check valid range
+                    triggered = true;
+                    // Closer to 0 = stronger. Map 0.002->0.0 to 0.0->1.0 intensity
+                    intensity = (0.002 - min_rh) / 0.002;
+                }
+            } else {
+                // Method B: Suspension Force Spike (Derivative)
+                double susp_l = fl.mSuspForce;
+                double susp_r = fr.mSuspForce;
+                double dForceL = (susp_l - m_prev_susp_force[0]) / dt;
+                double dForceR = (susp_r - m_prev_susp_force[1]) / dt;
+                m_prev_susp_force[0] = susp_l;
+                m_prev_susp_force[1] = susp_r;
                 
+                double max_dForce = (std::max)(dForceL, dForceR);
+                // Threshold: 100,000 N/s
+                if (max_dForce > 100000.0) {
+                    triggered = true;
+                    intensity = (max_dForce - 100000.0) / 200000.0; // Scale
+                }
+            }
+            
+            // Legacy/Fallback check: High Load
+            if (!triggered) {
+                double max_load = (std::max)(fl.mTireLoad, fr.mTireLoad);
+                if (max_load > 8000.0) {
+                    triggered = true;
+                    double excess = max_load - 8000.0;
+                    intensity = std::sqrt(excess) * 0.05; // Tuned
+                }
+            }
+
+            if (triggered) {
                 // Non-linear response (Square root softens the initial onset)
-                double bump_magnitude = std::sqrt(excess) * m_bottoming_gain * 0.0025; // Scaled (was 0.5)
+                double bump_magnitude = intensity * m_bottoming_gain * 0.05 * 20.0; // Scaled for Nm
                 
                 // FIX: Use a 50Hz "Crunch" oscillation instead of directional DC offset
                 double freq = 50.0; 

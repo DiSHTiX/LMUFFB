@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.5] - 2025-12-11
+### Added
+- **Manual Slip Calculation**: Added option to calculate slip ratio from wheel rotation speed vs. car speed instead of relying on game telemetry. Useful when game slip data is broken or unavailable. Accessible via "Use Manual Slip Calc" checkbox in GUI.
+- **Bottoming Detection Methods**: Added two bottoming detection methods selectable via GUI combo box:
+  - Method A (Scraping): Triggers when ride height < 2mm
+  - Method B (Suspension Spike): Triggers on rapid suspension force changes
+- **Scrub Drag Effect**: Added resistance force when sliding sideways (tire dragging). Configurable via "Scrub Drag Gain" slider (0.0-1.0).
+- **Comprehensive Documentation**: Created detailed technical analysis document (`docs/dev_docs/grip_calculation_analysis_v0.4.5.md`) documenting grip calculation logic, fallback mechanisms, known issues, and recommendations for future improvements.
+- **Regression Test**: Added `test_preset_initialization()` to verify all built-in presets properly initialize v0.4.5 fields, preventing uninitialized memory bugs.
+
+### Changed
+- **Preset System**: All built-in and user presets now include three new v0.4.5 fields: `use_manual_slip` (bool), `bottoming_method` (int), and `scrub_drag_gain` (float).
+- **Code Documentation**: Added extensive inline comments to `FFBEngine.h` and `tests/test_ffb_engine.cpp` explaining grip calculation paths, approximation formulas, and test limitations.
+
+### Fixed
+- **Test Expectation**: Corrected `test_sanity_checks()` grip approximation test to expect `0.1` instead of `0.5`. The grip fallback mechanism applies a floor of `0.2` (20% minimum grip), not full correction to `1.0`.
+- **Critical Bug - Preset Initialization**: Fixed uninitialized memory bug where all 5 built-in presets were missing initialization for v0.4.5 fields (`use_manual_slip`, `bottoming_method`, `scrub_drag_gain`). This caused undefined behavior when users selected any built-in preset. All presets now properly initialize these fields with safe defaults (false, 0, 0.0f).
+
+### Documentation
+- **Grip Calculation Analysis**: Documented two calculation paths (telemetry vs. slip angle approximation), identified inconsistencies between front and rear wheel handling, and provided recommendations for future improvements.
+- **Known Issues**: Documented that rear wheels lack fallback mechanism (unlike front wheels), potentially causing false oversteer detection when rear telemetry is missing. See analysis document for details.
+
 ## [0.4.4] - 2025-12-11
 ### Added
 - **Invert FFB Option**: Added checkbox in GUI to invert force direction for wheels that require it (e.g., Thrustmaster T300). Fixes "backwards" or "inverted" FFB feel where wheel pushes away from center instead of pulling toward it.
