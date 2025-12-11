@@ -18,18 +18,23 @@ void Config::LoadPresets() {
         false, 0.5f, false, 0.5f, true, 0.5f, false, 0.5f // lockup, spin, slide, road
     });
     
+    presets.push_back({ "Test: Game Base FFB Only", 
+        0.5f, 0.0f, 0.0f, 5.0f, 0.0f, 0.0f, 0.0f,
+        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f 
+    });
+
     presets.push_back({ "Test: SoP Only", 
-        1.0f, 0.0f, 1.0f, 5.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, 0.0f, 1.0f, 5.0f, 0.0f, 0.0f, 0.0f,
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f 
     });
 
     presets.push_back({ "Test: Understeer Only", 
-        1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f 
     });
 
     presets.push_back({ "Test: Textures Only", 
-        1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
         true, 1.0f, false, 1.0f, true, 1.0f, true, 1.0f 
     });
 
