@@ -12,3 +12,6 @@ Possibilities for the future of LMU (and possibly rF2):
 * As S397 (as a feature request in the LMU forum) to implement specific formulas to integrate into the FFB. This is because the final goal is to be able to feel certain information through the wheel. In this way, license agreements would be respected, because the raw individual data values are not shared, but the final computation of the FFB might take also those into account.
 TODO: after our experimentation, in the feature request, present specific math formulas that could be beneficial to have in the FFB. This is also to show that these would not be "canned effects", but dynamic effects that would affect the amplitude and frequencies of the FFB based on real car forces.
 It would also make a strong argument for the feasibility of this approach for extending FFB.
+
+Does the Formula Pro have such data? It is not licensed, so...
+Unless the agreements with Goodyear and Bridgestone prevent this.
