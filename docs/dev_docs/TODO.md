@@ -851,42 +851,21 @@ Please also investigate this issue and give me an additional section with a plan
 It seems that master gain should be at 0.5 (instead of 1) to reproduce the same FFB intensity as with original signal . That is, in order for Base torque to be the same as "Total output" when all other influencing factors are neutralized. This might indicate that some coefficient or scale is incorrect (eg. it is double what it should be).
 ===
 
-## Troubleshooting 17
-TODO: there is no logging to files of the telemetry stats
-
-open bug in forum for grip and load values always 0
-
-investigate which ffb effects can be implemented with current data
-eg. info about patch velocity and forces, info on wheel rim and ..rotation, etc.
-we also have values for slip..
-
 ensure we have proper and stable values for the missing data (grip and load)
 
 do the logging totals (on console or on file) when car is moving, that is speed above a certain min speed
 and stop loggin when it returns below that
 accumulate the values, for min, max, .., only when car is moving
 
-
-
 The "always on top" feature of the window (if present) is not customizable as on/off in the GUI. Please add this option. And implement the feature if not already present.
-
+TODO: always on top option not there in the Gui
 
 TODO: before starting LMU, disable rf2 plugin if present, from json file.
 This might be an issue.
 
 
-TODO: always on top option not there in the Gui
-
 
 TODO: it seems the ffb is inverted from our app. Add checkbox to invert ffb
-
-app not respond to driver setting max force 20 %
-
-if alt tab goes to opp lock of wheel limiter
-
-direct method seems ok
-
-
 
 
 --- TELEMETRY STATS (1s) ---
@@ -894,3 +873,27 @@ Torque (Nm): Avg=0.609297 Min=0.609297 Max=0.609297
 Load (N):    Avg=0 Min=0 Max=0
 Grip (0-1):  Avg=0 Min=0 Max=0
 Lat G:       Avg=-1.17966e-06 Min=-1.17966e-06 Max=-1.17966e-06
+
+## Troubleshooting 17
+TODO: there is no logging to files of the telemetry stats
+create a logs folder from the program, and save a file there. Save as soon as the driver starts driving and speed above minimum. After speed below that, close a session
+and resume it in the same file when speed increases again. One file per execution of the program.
+See if in the shared memtmory we have more precise info on when driver in menu, in session but in session menus, and when driving; in case, use those to organize the logs.
+Logs should include the values we record from game. And possibly others like car speed, wheel position, throttle, brake pedal, etc.
+
+open bug in forum for grip and load values always 0
+
+investigate which ffb effects can be implemented with current data
+eg. info about patch velocity and forces, info on wheel rim and ..rotation, etc.
+we also have values for slip..
+
+move invert ffb checkbos near the top of gui window (now is at bottom).
+
+when FFB is inverted, also invert the plots for base force and steering arm torque (so that they look identical to the total torque when additional effects are disabled). Consider if also the other plots need inverting.
+
+TEST: ? app not respond to driver setting max force 20 %
+
+TEST: ? if alt tab goes to opp lock of wheel limiter
+
+direct method seems ok
+consider removing vjoy and gremlin. Disable warnings. Confirm they are not needed, then remove, from instructions and code.
