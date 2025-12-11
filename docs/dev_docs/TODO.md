@@ -901,3 +901,9 @@ consider removing vjoy and gremlin. Disable warnings. Confirm they are not neede
 Reorganize the GUI customizations. Have one section per effect and comonent of the FFB formuls. For instance, add one section for Self Aligning Torque.
 Each section for that component / effect should have a main setting / slider, and additional things like smoothing, caps, coefficients, etc.
 Group all the SoP settings into one section.
+
+Test brake loockup effect. 
+Consider both "canned" effects and dynamic, physically determined ones.
+Consider which effects are not possible without grip and load (currently missing) and if they can be temporarily replaced with "canned" effects, or approximations, or other workarounds / temporary replacements.
+
+
