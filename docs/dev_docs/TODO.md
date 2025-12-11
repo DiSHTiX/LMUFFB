@@ -909,3 +909,4 @@ Consider which effects are not possible without grip and load (currently missing
 
 reintroduce support for rF2, so we can test full effects with grip and load there.
 keep support for both apps, reuse code. Add conversion of scales etc. when using rF2, because default support should be LMU, and we don't want to mess the code for LMU.
+Do a plan of what needs to be changed to support rF2.
