@@ -148,3 +148,120 @@ Yes, we can accurately calculate dynamic lockup and slip effects without relying
 
 **Conclusion:**
 Yes, calculating these manually is **more robust** than relying on the game's `mSlipRatio`, especially if the game's tire data is partially zeroed. It guarantees the FFB matches the visual wheel rotation.
+
+
+# Question 1
+
+It seems for some formulas you proposed you actually need some additional "tunable" parameters, that vary car by car. Eg, for alternative "bottoming" effect: "If deflection > 0.10m (tunable), trigger effect."  
+Can we get this from the given InternalsPlugin.hpp file?
+
+# Answer 1
+
+Based on a strict review of `src/lmu_sm_interface/InternalsPlugin.hpp`, the short answer is **No**.
+
+The shared memory interface provides **real-time telemetry** (current state), but it does **not** provide **static vehicle parameters** or setup data (like maximum suspension travel, spring rates, or bump stop locations).
+
+However, we can use **universal physics relationships** present in the data to detect these events without needing to know the specific car's limits.
+
+### 1. The Problem: Missing Static Limits
+To implement `if (deflection > MaxTravel)`, we need `MaxTravel`.
+*   **`InternalsPlugin.hpp`** contains `mSuspensionDeflection` (Current Value).
+*   It does **not** contain `mMaxSuspensionDeflection` or `mBumpStopLocation`.
+
+### 2. The Solution: Universal "Bottoming" Logic
+
+Instead of checking "Have we hit the limit?", we can check "Has the car hit the ground?" or "Has the suspension force spiked?"
+
+#### A. Chassis Bottoming (Scraping) - *Recommended*
+This is the most reliable method because the "limit" is always the ground, which is universally at **0.0 meters**.
+
+*   **Data Source:** `mRideHeight` (in `TelemWheelV01` or `TelemInfoV01`).
+*   **Logic:** If the ride height drops near zero, the chassis is scraping the asphalt.
+*   **Universal Formula:**
+    ```cpp
+    // Threshold: 2mm (0.002m). Works for any car.
+    if (wheel.mRideHeight < 0.002) {
+        // Trigger "Scrape" vibration
+    }
+    ```
+
+#### B. Suspension Bottoming (Bump Stops) - *Force Inference*
+When a suspension hits a bump stop, the spring rate effectively becomes infinite, causing a sudden, non-linear spike in **Suspension Force**.
+
+*   **Data Source:** `mSuspForce` (Newtons).
+*   **Logic:** Detect a sudden spike in force that doesn't correlate linearly with a small change in deflection.
+*   **Universal Formula:**
+    ```cpp
+    // Calculate derivative (rate of change) of Force
+    double dForce = (wheel.mSuspForce - prev_susp_force) / dt;
+    
+    // Threshold: 100,000 N/s (Tune this once globally, works for most race cars)
+    if (dForce > 100000.0) {
+        // Trigger "Thud" impulse
+    }
+    ```
+
+### 3. Bonus: Tire Radius is Available
+Regarding your previous question about calculating slip manually:
+`InternalsPlugin.hpp` **does** provide the tire radius, so you don't need to guess it or calibrate it.
+
+*   **Field:** `mStaticUndeflectedRadius` inside `TelemWheelV01`.
+*   **Type:** `unsigned char` (Integer).
+*   **Unit:** **Centimeters** (cm).
+
+**Correction for Manual Slip Calculation:**
+```cpp
+// Convert cm to meters
+double radius_m = (double)wheel.mStaticUndeflectedRadius / 100.0;
+
+// Calculate Wheel Surface Speed
+double v_wheel = wheel.mRotation * radius_m;
+```
+
+### Summary
+*   **Can we get `MaxDeflection`?** **No.**
+*   **Can we implement Bottoming without it?** **Yes**, by using `mRideHeight` (limit is 0.0) or `mSuspForce` (limit is a spike).
+*   **Can we get Tire Radius?** **Yes**, `mStaticUndeflectedRadius` is available directly.
+
+# Note on char as int
+
+unsigned char mStaticUndeflectedRadius; // tire radius in centimeters
+
+In C++, `unsigned char` **is a numerical value**. It is simply the smallest type of integer available.
+
+### 1. What `unsigned char` actually means
+In C++ terms:
+*   **`int`**: Usually 4 bytes (Range: -2 billion to +2 billion).
+*   **`unsigned char`**: Exactly **1 byte** (8 bits).
+    *   **Range:** **0 to 255**.
+
+### 2. Why use it for Tire Radius?
+The developers of the rFactor engine (ISI) used it to save memory in the data structure.
+*   **The Unit:** The comment says **"centimeters"**.
+*   **The Physics:** A typical race car tire has a diameter of ~68cm, meaning a **radius of ~34cm**.
+*   **The Fit:** The value `34` fits easily inside the `0-255` range of an `unsigned char`.
+
+If they used a `double` (8 bytes), it would take up 8x more memory for a value that never needs to be larger than 100 (unless you are driving a Monster Truck with tires larger than 2.5 meters).
+
+### 3. The Limitation (Precision)
+The downside is **precision**. Because it is an integer in centimeters, it cannot represent decimals.
+*   Real Radius: **34.8 cm**
+*   Stored Value: **34** (It gets truncated).
+
+For Force Feedback calculations (like estimating slip speed), this ~2% error margin is acceptable.
+
+### 4. How to use it in your code
+You must **cast** it to a floating-point number and convert it to **meters** before using it in physics formulas.
+
+```cpp
+// 1. Get the value (e.g., 34)
+unsigned char raw_radius_cm = wheel.mStaticUndeflectedRadius;
+
+// 2. Convert to Meters (float/double)
+// We cast to (double) first to ensure floating point division
+double radius_m = (double)raw_radius_cm / 100.0; 
+
+// Result: 0.34 meters
+```
+
+**Summary:** Treat `unsigned char` as a "Tiny Integer" (0-255). It is used here for memory efficiency.
