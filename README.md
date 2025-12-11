@@ -16,12 +16,13 @@ Experimental alpha version.
 
 This is an **experimental early alpha version** of a force feedback application. The FFB formulas are still being refined and **may produce strong force spikes and oscillations** that could be dangerous or damage your equipment.
 
-**Required Safety Steps:**
+**Required Safety Steps (DO THIS FIRST):**
 
-1. **Open your wheelbase/steering wheel device driver configurator** (e.g., Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
-2. **Set the Maximum Strength/Torque to a LOW value:**
+1. **BEFORE running LMU and lmuFFB**, open your wheelbase/steering wheel device driver configurator (e.g., Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
+2. **Reduce the Maximum FFB Strength/Torque to a LOW value:**
    - **For Direct Drive Wheelbases**: Set to **10% or lower** of maximum torque
    - **For Belt/Gear-Driven Wheels**: Set to **20-30%** of maximum strength
+   - **This is your primary safety mechanism** - do not skip this step!
 3. **Test gradually**: Start with even lower values and increase slowly while monitoring for unexpected behavior
 4. **Stay alert**: Be prepared to immediately disable FFB if you experience violent oscillations or unexpected forces
 
@@ -70,6 +71,13 @@ Your testing and feedback is greatly appreciated! 🙏
     *   *Tip:* **Disable all vJoy FFB Effects** in the "Configure vJoy" tool, except "Constant Force" (though lmuFFB drives your wheel directly, this prevents vJoy from trying to interfere if you use legacy mode).
 
 ### 2. Step-by-Step Setup
+
+**⚠️ STEP 0: Reduce Wheel Strength FIRST (CRITICAL)**
+1.  **BEFORE doing anything else**, open your wheel device driver (Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
+2.  **Reduce Maximum FFB Strength/Torque**:
+    *   Direct Drive Wheels: Set to **10% or lower**
+    *   Belt/Gear Wheels: Set to **20-30%**
+3.  **Save the settings** and keep the driver software open for adjustments
 
 **A. Configure vJoy**
 1.  Open **Configure vJoy**.
@@ -140,6 +148,14 @@ Your testing and feedback is greatly appreciated! 🙏
     -   If the wheel oscillates on straights, reduce **SOP Effect** to 0.0 and increase smoothing.
 -   **No Steering (Car won't turn)**:
     -   If you used **Method B (vJoy)**, you need **Joystick Gremlin** running to bridge your wheel to vJoy. The "vJoy Demo Feeder" is for testing only.
+-   **Inverted FFB (Force pushes away from center)**:
+    -   If the FFB feels "backwards" or "inverted" while driving (wheel pushes away from center instead of pulling toward it), check the **"Invert FFB"** checkbox in the lmuFFB GUI.
+    -   This reverses the force direction to match your wheel's expected behavior.
+-   **FFB Too Strong / Dangerous Forces**:
+    -   **IMMEDIATELY** reduce the maximum FFB strength in your wheel device driver (Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.).
+    -   Set to **10% or lower** for direct drive wheels, **20-30%** for belt/gear wheels.
+    -   Do this **before** running LMU and lmuFFB again.
+    -   Then adjust the "Gain" slider in lmuFFB to fine-tune.
 -   **No FFB**: 
     -   Ensure the "FFB Device" in lmuFFB is your real wheel.
     -   Check if the Shared Memory is working (Does "Connected to Shared Memory" appear in the console?).

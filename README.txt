@@ -15,14 +15,16 @@ This is an EXPERIMENTAL EARLY ALPHA VERSION of a force feedback application.
 The FFB formulas are still being refined and MAY PRODUCE STRONG FORCE SPIKES 
 AND OSCILLATIONS that could be dangerous or damage your equipment.
 
-REQUIRED SAFETY STEPS:
+REQUIRED SAFETY STEPS (DO THIS FIRST):
 
-1. Open your wheelbase/steering wheel device driver configurator 
-   (e.g., Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
+1. BEFORE running LMU and lmuFFB, open your wheelbase/steering wheel device 
+   driver configurator (e.g., Simucube TrueDrive, Fanatec Control Panel, 
+   Moza Pit House, etc.)
 
-2. Set the Maximum Strength/Torque to a LOW value:
+2. Reduce the Maximum FFB Strength/Torque to a LOW value:
    - For Direct Drive Wheelbases: Set to 10% OR LOWER of maximum torque
    - For Belt/Gear-Driven Wheels: Set to 20-30% of maximum strength
+   - THIS IS YOUR PRIMARY SAFETY MECHANISM - do not skip this step!
 
 3. Test gradually: Start with even lower values and increase slowly while 
    monitoring for unexpected behavior
@@ -110,6 +112,17 @@ PREREQUISITES (LMU 1.2+)
 STEP-BY-STEP SETUP
 ------------------
 
+!!! STEP 0: Reduce Wheel Strength FIRST (CRITICAL) !!!
+
+1. BEFORE doing anything else, open your wheel device driver 
+   (Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
+
+2. Reduce Maximum FFB Strength/Torque:
+   - Direct Drive Wheels: Set to 10% or lower
+   - Belt/Gear Wheels: Set to 20-30%
+
+3. Save the settings and keep the driver software open for adjustments
+
 A. Configure Le Mans Ultimate (LMU)
    1. Start LMU
    2. Go to Settings > Graphics:
@@ -190,6 +203,19 @@ No Steering (Car won't turn):
   - If using Method B (vJoy), you need Joystick Gremlin running
   - Ensure it maps your wheel to vJoy Axis Y
   - The "vJoy Demo Feeder" is for testing only, not driving
+
+Inverted FFB (Force pushes away from center):
+  - If the FFB feels "backwards" or "inverted" while driving (wheel pushes 
+    away from center instead of pulling toward it), check the "Invert FFB" 
+    checkbox in the lmuFFB GUI
+  - This reverses the force direction to match your wheel's expected behavior
+
+FFB Too Strong / Dangerous Forces:
+  - IMMEDIATELY reduce the maximum FFB strength in your wheel device driver 
+    (Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
+  - Set to 10% or lower for direct drive wheels, 20-30% for belt/gear wheels
+  - Do this BEFORE running LMU and lmuFFB again
+  - Then adjust the "Gain" slider in lmuFFB to fine-tune
 
 No FFB:
   - Ensure "FFB Device" in lmuFFB is your real wheel
