@@ -892,9 +892,32 @@ Implement all mitigations to stability risks as discussed and recommended in  do
 
 The troubleshooting graphs are not updated. They do not show the new values used from shared memory, and the new components we calculate.
 
-Test the new formulas and plots with LMU (and later rf2)
+## Troubleshooting 20
+look at the updated math formulas
+see which cmponents are affected by new grip and load calc
+add present for no effects
+add preset only for understeer, only for oversteer, only for self aligning torque
+note that SoP might be incorrect (always zero)
+currently I am unable to feel oversteer effect
+try to isolate that
+also understeer one could be better.. need to understand how it supposed to work in terms of feel, an "tune in" to that signal to adjust driving
+but currently it does not seem very dynamic..
 
-add a toggle in the gui to select which grip formula to use. If the new approximated one is too inaccurate or ununstable, we want to be able to stick with the other and the fallback mechanisms / values that disable some of the effects (but at least the overall FFB is stable).
+later would be test on lockup feel (early detection)
+and slip from acceleration
+
+about sliding: is it the same as ..oversteer?
+distinct effect of sliding at the limit, holding a car at the limit, with a bit of slide?
+how should that feel on the wheel?
+
+then there is that issue that I was having of delayed spikes in the wheel:
+I would have a spin or significant slide on the wheels, and a 1-2 seconds, or maybe more, after it was done I would get a spike in the wheel, with the wheel moving a few degrees and then stopping and ffb becoming very strong..
+as if the tires are overheated and any further use causes this phenomenon..
+but just a few seconds after a spin, and once, then no more
+
+other update: the console still does not say if the wheel was acquired exclusively or not
+it say "exclusive | .." as if the request to acquire specifies both. We need to edit this.
+
 
 add preset: all effects disabled
 makes it easier to then go and enable one single effect
@@ -902,6 +925,11 @@ makes it easier to then go and enable one single effect
 Reorganize the GUI customizations. Have one section per effect and comonent of the FFB formuls. For instance, add one section for Self Aligning Torque.
 Each section for that component / effect should have a main setting / slider, and additional things like smoothing, caps, coefficients, etc.
 Group all the SoP settings into one section.
+
+Test the new formulas and plots with LMU (and later rf2)
+
+add a toggle in the gui to select which grip formula to use. If the new approximated one is too inaccurate or ununstable, we want to be able to stick with the other and the fallback mechanisms / values that disable some of the effects (but at least the overall FFB is stable).
+
 
 TODO: there is no logging to files of the telemetry stats
 create a logs folder from the program, and save a file there. Save as soon as the driver starts driving and speed above minimum. After speed below that, close a session
