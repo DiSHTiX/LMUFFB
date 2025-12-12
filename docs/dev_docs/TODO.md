@@ -930,6 +930,9 @@ We could also have additional plots in which we show the plot for the base value
 avg deflection: is it for all 4 tires?
 
 we don't have a plot for driver stering input (steering wheel angle)
+we should combine throttle and brake input plots into a single plot, like in common plot, use red and green colors.
+consider if other plots might benefit merging, showing multiple values on a single plot
+use different colors in the title test to show which color is assigned to
 
 ### Other 
 look at the updated math formulas
