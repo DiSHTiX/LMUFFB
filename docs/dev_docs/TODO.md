@@ -929,6 +929,7 @@ We could also have additional plots in which we show the plot for the base value
 
 avg deflection: is it for all 4 tires?
 
+we don't have a plot for driver stering input (steering wheel angle)
 
 ### Other 
 look at the updated math formulas
