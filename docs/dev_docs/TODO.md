@@ -897,6 +897,10 @@ The troubleshooting graphs are not updated. They do not show the new values used
 ### More on plots and math formulas
 notes on FFB math formulas and plot visualization
 
+docs/dev_docs/prompt - Implement Numerical Readouts for Troubleshooting Graphs (Diagnostics).md
+
+docs/dev_docs/Plots with Modular Independent Windows .md
+
 in formulas, also update the name of variables specifying when they refer to front types only (eg  Grip_avg is only for fronts)
 
 **slip angle LPF**, smoothed with exp.moving avg: visualize this in a plot
@@ -950,6 +954,15 @@ try to isolate that
 also understeer one could be better.. need to understand how it supposed to work in terms of feel, an "tune in" to that signal to adjust driving
 but currently it does not seem very dynamic..
 
+TODO: there is no logging to files of the telemetry stats
+See: docs/dev_docs/design proposal for a High-Performance Asynchronous Telemetry Logger.md
+See: docs/dev_docs/log analysis tool design.md
+create a logs folder from the program, and save a file there. Save as soon as the driver starts driving and speed above minimum. After speed below that, close a session
+and resume it in the same file when speed increases again. One file per execution of the program.
+See if in the shared memtmory we have more precise info on when driver in menu, in session but in session menus, and when driving; in case, use those to organize the logs.
+Logs should include the values we record from game. And possibly others like car speed, wheel position, throttle, brake pedal, etc.
+
+
 later would be test on lockup feel (early detection)
 and slip from acceleration
 
@@ -978,11 +991,8 @@ Test the new formulas and plots with LMU (and later rf2)
 add a toggle in the gui to select which grip formula to use. If the new approximated one is too inaccurate or ununstable, we want to be able to stick with the other and the fallback mechanisms / values that disable some of the effects (but at least the overall FFB is stable).
 
 
-TODO: there is no logging to files of the telemetry stats
-create a logs folder from the program, and save a file there. Save as soon as the driver starts driving and speed above minimum. After speed below that, close a session
-and resume it in the same file when speed increases again. One file per execution of the program.
-See if in the shared memtmory we have more precise info on when driver in menu, in session but in session menus, and when driving; in case, use those to organize the logs.
-Logs should include the values we record from game. And possibly others like car speed, wheel position, throttle, brake pedal, etc.
+
+
 
 Test brake loockup effect. 
 Consider both "canned" effects and dynamic, physically determined ones.
