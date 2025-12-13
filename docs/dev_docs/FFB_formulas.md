@@ -1,4 +1,4 @@
-# FFB Mathematical Formulas (v0.4.6+)
+# FFB Mathematical Formulas (v0.4.10+)
 
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
@@ -53,9 +53,9 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
     *   $\alpha$: User setting `m_sop_smoothing_factor`.
 
 2.  **Base SoP**:
-    $$ F_{sop\_base} = G_{smooth} \times K_{sop} \times 5.0 $$
+    $$ F_{sop\_base} = G_{smooth} \times K_{sop} \times 20.0 $$
     
-    **Note**: Scaling changed from 1000.0 to 5.0 in v0.4.1 to match Nm units.
+    **Note**: Scaling changed from 5.0 to 20.0 in v0.4.10 to provide stronger baseline Nm output.
 
 3.  **Oversteer Boost**:
     If Front Grip > Rear Grip:
@@ -63,10 +63,19 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
     where $\text{Grip}_{delta} = \text{Front\_Grip}_{avg} - \text{Rear\_Grip}_{avg}$
     *   **Fallback (v0.4.6+):** Rear grip now uses the same **Slip Angle approximation** fallback as Front grip if telemetry is missing, preventing false oversteer detection.
 
-4.  **Rear Aligning Torque**:
-    $$ T_{rear} = \frac{\text{LatForce}_{RL} + \text{LatForce}_{RR}}{2} \times 0.00025 \times K_{oversteer} $$
+4.  **Rear Aligning Torque (v0.4.10 Workaround)**:
+    Since LMU 1.2 reports 0.0 for rear `mLateralForce`, we calculate it manually.
     
-    **Note**: Scaling changed from 0.05 to 0.00025 in v0.4.1 (Force N → Torque Nm).
+    **Step 1: Approximate Rear Load**
+    $$ F_{z\_rear} = \text{SuspForce} + 300.0 $$
+    (300N represents approximate unsprung mass).
+    
+    **Step 2: Calculate Lateral Force**
+    $$ F_{lat\_calc} = \text{SlipAngle}_{rear} \times F_{z\_rear} \times 15.0 $$
+    *   **Safety Clamp:** Clamped to +/- 6000.0 N.
+    
+    **Step 3: Calculate Torque**
+    $$ T_{rear} = F_{lat\_calc} \times 0.00025 \times K_{oversteer} $$
 
 $$ F_{sop} = F_{sop\_boosted} + T_{rear} $$
 
@@ -150,6 +159,6 @@ $$ F_{final} = \text{sign}(F_{norm}) \times K_{min\_force} $$
 **Hardcoded Constants (v0.4.1+):**
 *   **20.0**: Reference Max Torque (Nm) for normalization (was 4000.0 N in old API)
 *   **4000.0**: Reference Tire Load (N) for Load Factor (unchanged, loads still in Newtons)
-*   **5.0**: SoP Scaling factor (was 1000.0 before Nm conversion)
+*   **20.0**: SoP Scaling factor (was 5.0 in v0.4.x)
 *   **25.0**: Road Texture stiffness (was 5000.0 before Nm conversion)
 *   **8000.0**: Bottoming threshold (N, unchanged)

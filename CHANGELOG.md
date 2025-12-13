@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.10] - 2025-12-13
+### Added
+- **Rear Physics Workaround**: Implemented a calculation fallback for Rear Aligning Torque to address the LMU 1.2 API issue where `mLateralForce` reports 0.0 for rear tires.
+    - **Logic**: Approximates rear load from suspension force (+300N) and calculates lateral force using `RearSlipAngle * CalculatedLoad * Stiffness(15.0)`.
+    - **Visualization**: Added `Calc Rear Lat Force` to the Telemetry Inspector graph (Header C) to visualize the workaround output.
+    - **Safety**: Clamped the calculated rear lateral force to ±6000N to prevent physics explosions.
+- **GUI Improvements**:
+    - **Multi-line Plots**: Updated Header B "Calc Load" graph to show both Front (Cyan) and Rear (Magenta) calculated loads simultaneously.
+    - **Slider Fix**: Corrected `SoP Scale` slider range to `0.0 - 200.0` (was 100-5000), allowing proper tuning for the new Nm-based math.
+    - **Plot Scaling**: Updated all FFB Component plots to use a **±20.0 Nm** scale (instead of ±1000N) to match the engine's output units, fixing "flat line" graphs.
+
+### Changed
+- **Defaults**: Increased default `SoP Scale` from 5.0 to **20.0** to provide a perceptible baseline force given the new Nm scaling.
+- **Documentation**: Updated `FFB_formulas.md` to document the new Rear Force Workaround logic and updated scaling constants.
+
 ## [0.4.9] - 2025-12-11
 ### Added
 - **Finalized Troubleshooting Graphs**: Updated the internal FFB Engine and GUI to expose deeper physics data for debugging.

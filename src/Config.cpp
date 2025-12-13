@@ -14,7 +14,7 @@ void Config::LoadPresets() {
     
     // Built-in Presets
     presets.push_back({ "Default", 
-        0.5f, 1.0f, 0.15f, 5.0f, 0.05f, 0.0f, 0.0f, // gain, under, sop, scale, smooth, min, over
+        0.5f, 1.0f, 0.15f, 20.0f, 0.05f, 0.0f, 0.0f, // gain, under, sop, scale, smooth, min, over
         false, 0.5f, false, 0.5f, true, 0.5f, false, 0.5f, // lockup, spin, slide, road
         false, 40.0f, // invert, max_torque_ref (Default 40Nm for 1.0 Gain)
         false, 0, 0.0f // use_manual_slip, bottoming_method, scrub_drag_gain (v0.4.5)

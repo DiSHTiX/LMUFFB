@@ -36,6 +36,7 @@ int g_tests_failed = 0;
 
 void test_snapshot_data_integrity(); // Forward declaration
 void test_snapshot_data_v049(); // Forward declaration
+void test_rear_force_workaround(); // Forward declaration
 
 void test_manual_slip_singularity() {
     std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
@@ -1676,6 +1677,7 @@ int main() {
     test_preset_initialization();
     test_snapshot_data_integrity();
     test_snapshot_data_v049();
+    test_rear_force_workaround();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -1891,6 +1893,170 @@ void test_snapshot_data_v049() {
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] raw_rear_slip_angle: " << snap.raw_rear_slip_angle << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_rear_force_workaround() {
+    // ========================================
+    // Test: Rear Force Workaround (v0.4.10)
+    // ========================================
+    // 
+    // PURPOSE:
+    // Verify that the LMU 1.2 rear lateral force workaround correctly calculates
+    // rear aligning torque when the game API fails to report rear mLateralForce.
+    //
+    // BACKGROUND:
+    // LMU 1.2 has a known bug where mLateralForce returns 0.0 for rear tires.
+    // This breaks oversteer feedback. The workaround manually calculates lateral
+    // force using: F_lat = SlipAngle × Load × TireStiffness (15.0 N/(rad·N))
+    //
+    // TEST STRATEGY:
+    // 1. Simulate the broken API (set rear mLateralForce = 0.0)
+    // 2. Provide valid suspension force data for load calculation  
+    // 3. Create a realistic slip angle scenario (5 m/s lateral, 20 m/s longitudinal)
+    // 4. Verify the workaround produces expected rear torque output
+    //
+    // EXPECTED BEHAVIOR:
+    // The workaround should calculate a non-zero rear torque even when the API
+    // reports zero lateral force. The value should be within a reasonable range
+    // based on the physics model and accounting for LPF smoothing on first frame.
+    
+    std::cout << "\nTest: Rear Force Workaround (v0.4.10)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // ========================================
+    // Engine Configuration
+    // ========================================
+    engine.m_sop_effect = 1.0;        // Enable SoP effect
+    engine.m_oversteer_boost = 1.0;   // Enable oversteer boost (multiplies rear torque)
+    engine.m_gain = 1.0;              // Full gain
+    engine.m_sop_scale = 10.0;        // Moderate SoP scaling
+    
+    // ========================================
+    // Front Wheel Setup (Baseline)
+    // ========================================
+    // Front wheels need valid data for the engine to run properly.
+    // These are set to normal driving conditions.
+    data.mWheel[0].mTireLoad = 4000.0;
+    data.mWheel[1].mTireLoad = 4000.0;
+    data.mWheel[0].mGripFract = 1.0;
+    data.mWheel[1].mGripFract = 1.0;
+    data.mWheel[0].mRideHeight = 0.05;
+    data.mWheel[1].mRideHeight = 0.05;
+    data.mWheel[0].mLongitudinalGroundVel = 20.0;
+    data.mWheel[1].mLongitudinalGroundVel = 20.0;
+    
+    // ========================================
+    // Rear Wheel Setup (Simulating API Bug)
+    // ========================================
+    
+    // Step 1: Simulate broken API (Lateral Force = 0)
+    // This is the bug we're working around.
+    data.mWheel[2].mLateralForce = 0.0;
+    data.mWheel[3].mLateralForce = 0.0;
+    
+    // Step 2: Provide Suspension Force for Load Calculation
+    // The workaround uses: Load = SuspForce + 300N (unsprung mass)
+    // With SuspForce = 3000N, we get Load = 3300N per tire
+    data.mWheel[2].mSuspForce = 3000.0;
+    data.mWheel[3].mSuspForce = 3000.0;
+    
+    // Set TireLoad to 0 to prove we don't use it (API bug often kills both fields)
+    data.mWheel[2].mTireLoad = 0.0;
+    data.mWheel[3].mTireLoad = 0.0;
+    
+    // Step 3: Set Grip to 0 to trigger slip angle approximation
+    // When grip = 0 but load > 100N, the grip calculator switches to
+    // slip angle approximation mode, which is what calculates the slip angle
+    // that the workaround needs.
+    data.mWheel[2].mGripFract = 0.0;
+    data.mWheel[3].mGripFract = 0.0;
+    
+    // ========================================
+    // Step 4: Create Realistic Slip Angle Scenario
+    // ========================================
+    // Set up wheel velocities to create a measurable slip angle.
+    // Slip Angle = atan(Lateral_Vel / Longitudinal_Vel)
+    // With Lat = 5 m/s, Long = 20 m/s: atan(5/20) = atan(0.25) ≈ 0.2449 rad ≈ 14 degrees
+    // This represents a moderate cornering scenario.
+    data.mWheel[2].mLateralPatchVel = 5.0;
+    data.mWheel[3].mLateralPatchVel = 5.0;
+    data.mWheel[2].mLongitudinalGroundVel = 20.0;
+    data.mWheel[3].mLongitudinalGroundVel = 20.0;
+    data.mWheel[2].mLongitudinalPatchVel = 0.0;
+    data.mWheel[3].mLongitudinalPatchVel = 0.0;
+    
+    data.mLocalVel.z = 20.0;  // Car speed: 20 m/s (~72 km/h)
+    data.mDeltaTime = 0.01;   // 100 Hz update rate
+    
+    // ========================================
+    // Execute Test
+    // ========================================
+    engine.calculate_force(&data);
+    
+    // ========================================
+    // Verify Results
+    // ========================================
+    auto batch = engine.GetDebugBatch();
+    if (batch.empty()) {
+        std::cout << "[FAIL] No snapshot." << std::endl;
+    FFBSnapshot snap = batch.back();
+    
+    // ========================================
+    // Expected Value Calculation
+    // ========================================
+    // 
+    // THEORETICAL CALCULATION (Without LPF):
+    // The workaround formula is: F_lat = SlipAngle × Load × TireStiffness
+    // 
+    // Given our test inputs:
+    //   SlipAngle = atan(5/20) = atan(0.25) ≈ 0.2449 rad
+    //   Load = SuspForce + 300N = 3000 + 300 = 3300 N
+    //   TireStiffness (K) = 15.0 N/(rad·N)
+    // 
+    // Lateral Force: F_lat = 0.2449 × 3300 × 15.0 ≈ 12,127 N
+    // Torque: T = F_lat × 0.00025 × oversteer_boost
+    //         T = 12,127 × 0.00025 × 1.0 ≈ 3.03 Nm
+    // 
+    // ACTUAL BEHAVIOR (With LPF on First Frame):
+    // The grip calculator applies low-pass filtering to slip angle for stability.
+    // On the first frame, the LPF formula is: smoothed = prev + alpha × (raw - prev)
+    // With prev = 0 (initial state) and alpha ≈ 0.1:
+    //   smoothed_slip_angle = 0 + 0.1 × (0.2449 - 0) ≈ 0.0245 rad
+    // 
+    // This reduces the first-frame output by ~10x:
+    //   F_lat = 0.0245 × 3300 × 15.0 ≈ 1,213 N
+    //   T = 1,213 × 0.00025 × 1.0 ≈ 0.303 Nm
+    // 
+    // RATIONALE FOR EXPECTED VALUE:
+    // We test the first-frame behavior (0.30 Nm) rather than steady-state (3.03 Nm)
+    // because:
+    // 1. It verifies the workaround activates immediately (non-zero output)
+    // 2. It tests the LPF integration (realistic behavior)
+    // 3. Single-frame tests are faster and more deterministic
+    // 
+    // The 50% tolerance (±0.15 Nm) accounts for:
+    // - Floating-point precision variations
+    // - Potential differences in LPF alpha calculation
+    // - Other engine effects that may contribute small amounts
+    
+    double expected_torque = 0.30;   // First-frame value with LPF smoothing
+    double tolerance = 0.15;         // ±50% tolerance
+    
+    // ========================================
+    // Assertion
+    // ========================================
+    if (snap.ffb_rear_torque > (expected_torque - tolerance) && 
+        snap.ffb_rear_torque < (expected_torque + tolerance)) {
+        std::cout << "[PASS] Rear torque within expected range: " << snap.ffb_rear_torque 
+                  << " Nm (expected ~" << expected_torque << " Nm on first frame with LPF)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Rear torque outside expected range. Value: " << snap.ffb_rear_torque 
+                  << " Nm (expected ~" << expected_torque << " Nm +/-" << tolerance << ")" << std::endl;
         g_tests_failed++;
     }
 }

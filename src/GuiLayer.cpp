@@ -226,7 +226,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
     if (ImGui::TreeNode("Advanced Tuning")) {
         ImGui::SliderFloat("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f (1=Raw)");
-        ImGui::SliderFloat("SoP Scale", &engine.m_sop_scale, 100.0f, 5000.0f, "%.0f");
+        ImGui::SliderFloat("SoP Scale", &engine.m_sop_scale, 0.0f, 200.0f, "%.1f");
         ImGui::SliderFloat("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.1fx");
         ImGui::TreePop();
     }
@@ -460,6 +460,7 @@ static RollingBuffer plot_clipping;
 
 // --- Header B: Internal Physics ---
 static RollingBuffer plot_calc_front_load;
+static RollingBuffer plot_calc_rear_load; // New v0.4.10
 static RollingBuffer plot_calc_front_grip;
 static RollingBuffer plot_calc_rear_grip; // New v0.4.7
 static RollingBuffer plot_calc_slip_ratio;
@@ -477,7 +478,12 @@ static RollingBuffer plot_raw_rear_grip; // New v0.4.7
 static RollingBuffer plot_raw_front_slip_ratio; // New v0.4.7
 static RollingBuffer plot_raw_susp_force;  
 static RollingBuffer plot_raw_ride_height; 
-static RollingBuffer plot_raw_rear_lat_force; // New v0.4.7
+// NOTE: This buffer was renamed from plot_raw_rear_lat_force to plot_calc_rear_lat_force
+// in v0.4.10 to accurately reflect that it contains CALCULATED data (from the workaround),
+// not RAW telemetry from the game API. The LMU 1.2 API reports 0.0 for rear mLateralForce,
+// so we calculate it manually using: SlipAngle × Load × TireStiffness.
+// See FFBEngine.h "Rear Aligning Torque Integration" for calculation details.
+static RollingBuffer plot_calc_rear_lat_force; // New v0.4.10 - Calculated workaround value
 static RollingBuffer plot_raw_car_speed;   
 static RollingBuffer plot_raw_throttle;    
 static RollingBuffer plot_raw_brake;       
@@ -522,6 +528,7 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
 
         // --- Header B: Internal Physics ---
         plot_calc_front_load.Add(snap.calc_front_load);
+        plot_calc_rear_load.Add(snap.calc_rear_load); // New v0.4.10
         plot_calc_front_grip.Add(snap.calc_front_grip);
         plot_calc_rear_grip.Add(snap.calc_rear_grip);
         plot_calc_slip_ratio.Add(snap.calc_front_slip_ratio);
@@ -539,7 +546,7 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         plot_raw_front_slip_ratio.Add(snap.raw_front_slip_ratio);
         plot_raw_susp_force.Add(snap.raw_front_susp_force);
         plot_raw_ride_height.Add(snap.raw_front_ride_height);
-        plot_raw_rear_lat_force.Add(snap.raw_rear_lat_force);
+        plot_calc_rear_lat_force.Add(snap.calc_rear_lat_force);
         plot_raw_car_speed.Add(snap.raw_car_speed);
         plot_raw_throttle.Add(snap.raw_input_throttle);
         plot_raw_brake.Add(snap.raw_input_brake);
@@ -579,43 +586,43 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Steering Rack Force derived from Game Physics");
         ImGui::NextColumn();
         
-        ImGui::Text("SoP (Base Chassis G)"); ImGui::PlotLines("##SoP", plot_sop.data.data(), (int)plot_sop.data.size(), plot_sop.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
+        ImGui::Text("SoP (Base Chassis G)"); ImGui::PlotLines("##SoP", plot_sop.data.data(), (int)plot_sop.data.size(), plot_sop.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Force from Lateral G-Force (Seat of Pants)");
         ImGui::NextColumn();
         
-        ImGui::Text("Oversteer Boost"); ImGui::PlotLines("##Over", plot_oversteer.data.data(), (int)plot_oversteer.data.size(), plot_oversteer.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Oversteer Boost"); ImGui::PlotLines("##Over", plot_oversteer.data.data(), (int)plot_oversteer.data.size(), plot_oversteer.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Added force from Rear Grip loss");
         ImGui::NextColumn();
         
-        ImGui::Text("Rear Align Torque"); ImGui::PlotLines("##RearT", plot_rear_torque.data.data(), (int)plot_rear_torque.data.size(), plot_rear_torque.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Rear Align Torque"); ImGui::PlotLines("##RearT", plot_rear_torque.data.data(), (int)plot_rear_torque.data.size(), plot_rear_torque.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Force from Rear Lateral Force");
         ImGui::NextColumn();
         
-        ImGui::Text("Scrub Drag Force"); ImGui::PlotLines("##Drag", plot_scrub_drag.data.data(), (int)plot_scrub_drag.data.size(), plot_scrub_drag.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Scrub Drag Force"); ImGui::PlotLines("##Drag", plot_scrub_drag.data.data(), (int)plot_scrub_drag.data.size(), plot_scrub_drag.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Resistance force from sideways tire dragging");
         ImGui::NextColumn();
         
-        ImGui::Text("Understeer Cut"); ImGui::PlotLines("##Under", plot_understeer.data.data(), (int)plot_understeer.data.size(), plot_understeer.offset, NULL, -2000.0f, 2000.0f, ImVec2(0, 40));
+        ImGui::Text("Understeer Cut"); ImGui::PlotLines("##Under", plot_understeer.data.data(), (int)plot_understeer.data.size(), plot_understeer.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reduction in force due to front grip loss");
         ImGui::NextColumn();
         
-        ImGui::Text("Road Texture"); ImGui::PlotLines("##Road", plot_road.data.data(), (int)plot_road.data.size(), plot_road.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
+        ImGui::Text("Road Texture"); ImGui::PlotLines("##Road", plot_road.data.data(), (int)plot_road.data.size(), plot_road.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Vibration from Suspension Velocity");
         ImGui::NextColumn();
         
-        ImGui::Text("Slide Texture"); ImGui::PlotLines("##Slide", plot_slide.data.data(), (int)plot_slide.data.size(), plot_slide.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Slide Texture"); ImGui::PlotLines("##Slide", plot_slide.data.data(), (int)plot_slide.data.size(), plot_slide.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Vibration from Lateral Scrubbing");
         ImGui::NextColumn();
         
-        ImGui::Text("Lockup Vib"); ImGui::PlotLines("##Lock", plot_lockup.data.data(), (int)plot_lockup.data.size(), plot_lockup.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Lockup Vib"); ImGui::PlotLines("##Lock", plot_lockup.data.data(), (int)plot_lockup.data.size(), plot_lockup.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Vibration from Wheel Lockup");
         ImGui::NextColumn();
         
-        ImGui::Text("Spin Vib"); ImGui::PlotLines("##Spin", plot_spin.data.data(), (int)plot_spin.data.size(), plot_spin.offset, NULL, -500.0f, 500.0f, ImVec2(0, 40));
+        ImGui::Text("Spin Vib"); ImGui::PlotLines("##Spin", plot_spin.data.data(), (int)plot_spin.data.size(), plot_spin.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Vibration from Wheel Spin");
         ImGui::NextColumn();
         
-        ImGui::Text("Bottoming"); ImGui::PlotLines("##Bot", plot_bottoming.data.data(), (int)plot_bottoming.data.size(), plot_bottoming.offset, NULL, -1000.0f, 1000.0f, ImVec2(0, 40));
+        ImGui::Text("Bottoming"); ImGui::PlotLines("##Bot", plot_bottoming.data.data(), (int)plot_bottoming.data.size(), plot_bottoming.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Vibration from Suspension Bottoming");
         ImGui::NextColumn();
         
@@ -628,9 +635,22 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
     if (ImGui::CollapsingHeader("B. Internal Physics (Brain)", ImGuiTreeNodeFlags_None)) {
         ImGui::Columns(3, "PhysCols", false);
         
-        ImGui::Text("Calc Front Load (N)");
-        ImGui::PlotLines("##CalcLoad", plot_calc_front_load.data.data(), (int)plot_calc_front_load.data.size(), plot_calc_front_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Load used for physics math (approximated if missing)");
+        ImGui::Text("Calc Load (Front/Rear)");
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
+        ImGui::PlotLines("##CLoadF", plot_calc_front_load.data.data(), (int)plot_calc_front_load.data.size(), plot_calc_front_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor();
+
+        // Reset Cursor to draw on top
+        ImVec2 pos_load = ImGui::GetItemRectMin();
+        ImGui::SetCursorScreenPos(pos_load);
+
+        // Draw Rear (Magenta) - Transparent Background
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0)); 
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
+        ImGui::PlotLines("##CLoadR", plot_calc_rear_load.data.data(), (int)plot_calc_rear_load.data.size(), plot_calc_rear_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor(2);
+
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cyan: Front, Magenta: Rear");
         ImGui::NextColumn();
         
         ImGui::Text("Calc Front Grip");
@@ -735,9 +755,9 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Ride Height");
         ImGui::NextColumn();
         
-        ImGui::Text("Avg Rear Lat Force"); 
-        ImGui::PlotLines("##RLF", plot_raw_rear_lat_force.data.data(), (int)plot_raw_rear_lat_force.data.size(), plot_raw_rear_lat_force.offset, NULL, -5000.0f, 5000.0f, ImVec2(0, 40));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Rear Lateral Force");
+        ImGui::Text("Calc Rear Lat Force"); 
+        ImGui::PlotLines("##RLF", plot_calc_rear_lat_force.data.data(), (int)plot_calc_rear_lat_force.data.size(), plot_calc_rear_lat_force.offset, NULL, -5000.0f, 5000.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Calculated Rear Lateral Force (Workaround)");
         ImGui::NextColumn();
         
         ImGui::Text("Car Speed (m/s)"); 

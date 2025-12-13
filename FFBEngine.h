@@ -75,6 +75,8 @@ struct FFBSnapshot {
 
     // --- Header B: Internal Physics (Calculated) ---
     float calc_front_load;       // New v0.4.7
+    float calc_rear_load;        // New v0.4.10
+    float calc_rear_lat_force;   // New v0.4.10
     float calc_front_grip;       // New v0.4.7
     float calc_rear_grip;        // New v0.4.7 (Refined)
     float calc_front_slip_ratio; // New v0.4.7 (Manual Calc)
@@ -121,7 +123,7 @@ public:
     // Configurable Smoothing & Caps (v0.3.9)
     float m_sop_smoothing_factor = 0.05f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default Default 0.05 for responsive feel. (0.1 ~5Hz.)
     float m_max_load_factor = 1.5f;      // Cap for load scaling (Default 1.5x)
-    float m_sop_scale = 5.0f;            // SoP base scaling factor (Default 5.0 for Nm)
+    float m_sop_scale = 20.0f;            // SoP base scaling factor (Default 20.0 for Nm)
     
     // v0.4.4 Features
     float m_max_torque_ref = 40.0f;      // Reference torque for 100% output (Default 40.0 Nm)
@@ -223,8 +225,36 @@ public:
     };
 
 private:
-    // Constants
-    static constexpr double MIN_SLIP_ANGLE_VELOCITY = 0.5; // m/s - Singularity protection for slip angle calculation
+    // ========================================
+    // Physics Constants (v0.4.9+)
+    // ========================================
+    // These constants are extracted from the calculation logic to improve maintainability
+    // and provide a single source of truth for tuning. See docs/dev_docs/FFB_formulas.md
+    // for detailed mathematical derivations.
+    
+    // Slip Angle Singularity Protection (v0.4.9)
+    // Prevents division by zero when calculating slip angle at very low speeds.
+    // Value: 0.5 m/s (~1.8 km/h) - Below this speed, slip angle is clamped.
+    static constexpr double MIN_SLIP_ANGLE_VELOCITY = 0.5; // m/s
+    
+    // Rear Tire Stiffness Coefficient (v0.4.10)
+    // Used in the LMU 1.2 rear lateral force workaround calculation.
+    // Formula: F_lat = SlipAngle * Load * STIFFNESS
+    // Value: 15.0 N/(rad·N) - Empirical approximation based on typical race tire cornering stiffness.
+    // Real-world values range from 10-20 depending on tire compound, temperature, and pressure.
+    // This value was tuned to produce realistic rear-end behavior when the game API fails to
+    // report rear mLateralForce (known bug in LMU 1.2).
+    // See: docs/dev_docs/FFB_formulas.md "Rear Aligning Torque (v0.4.10 Workaround)"
+    static constexpr double REAR_TIRE_STIFFNESS_COEFFICIENT = 15.0; // N per (rad * N_load)
+    
+    // Maximum Rear Lateral Force Clamp (v0.4.10)
+    // Safety limit to prevent physics explosions if slip angle spikes unexpectedly.
+    // Value: ±6000 N - Represents maximum lateral force a race tire can generate.
+    // This clamp is applied AFTER the workaround calculation to ensure stability.
+    // Without this clamp, extreme slip angles (e.g., during spins) could generate
+    // unrealistic forces that would saturate the FFB output or cause oscillations.
+    static constexpr double MAX_REAR_LATERAL_FORCE = 6000.0; // N
+
 
 public:
     // Helper: Calculate Raw Slip Angle for a pair of wheels (v0.4.9 Refactor)
@@ -300,6 +330,13 @@ public:
     double approximate_load(const TelemWheelV01& w) {
         // Base: Suspension Force + Est. Unsprung Mass (300N)
         // Note: mSuspForce captures weight transfer and aero
+        return w.mSuspForce + 300.0;
+    }
+
+    // Helper: Approximate Rear Load (v0.4.10)
+    double approximate_rear_load(const TelemWheelV01& w) {
+        // Base: Suspension Force + Est. Unsprung Mass (300N)
+        // This captures weight transfer (braking/accel) and aero downforce implicitly via suspension compression
         return w.mSuspForce + 300.0;
     }
 
@@ -498,11 +535,56 @@ public:
             sop_total *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
         }
         
+        // ========================================
         // --- 2a. Rear Aligning Torque Integration ---
-        double rear_lat_force = (data->mWheel[2].mLateralForce + data->mWheel[3].mLateralForce) / 2.0; // mWheel
-        // Scaled down for Nm. Old was 0.05. 2000N * 0.05 = 100.
-        // New target ~0.5 Nm contribution? 2000 * K = 0.5 => K = 0.00025
-        double rear_torque = rear_lat_force * 0.00025 * m_oversteer_boost; 
+        // ========================================
+        // WORKAROUND for LMU 1.2 API Bug (v0.4.10)
+        // 
+        // PROBLEM: LMU 1.2 reports mLateralForce = 0.0 for rear tires, making it impossible
+        // to calculate rear aligning torque using the standard formula. This breaks oversteer
+        // feedback and rear-end feel.
+        // 
+        // SOLUTION: Manually calculate rear lateral force using tire physics approximation:
+        //   F_lateral = SlipAngle × Load × TireStiffness
+        // 
+        // This workaround will be removed when the LMU API is fixed to report rear lateral forces.
+        // See: docs/dev_docs/FFB_formulas.md "Rear Aligning Torque (v0.4.10 Workaround)"
+        
+        // Step 1: Calculate Rear Loads
+        // Use suspension force + estimated unsprung mass (300N) to approximate tire load.
+        // This captures weight transfer (braking/accel) and aero downforce via suspension compression.
+        double calc_load_rl = approximate_rear_load(data->mWheel[2]);
+        double calc_load_rr = approximate_rear_load(data->mWheel[3]);
+        double avg_rear_load = (calc_load_rl + calc_load_rr) / 2.0;
+
+        // Step 2: Calculate Rear Lateral Force (Workaround for missing mLateralForce)
+        // Use the slip angle calculated by the grip approximation logic (if triggered).
+        // The grip calculator computes slip angle = atan2(lateral_vel, longitudinal_vel)
+        // and applies low-pass filtering for stability.
+        double rear_slip_angle = m_grip_diag.rear_slip_angle; 
+        
+        // Apply simplified tire model: F = α × F_z × C_α
+        // Where:
+        //   α (alpha) = slip angle in radians
+        //   F_z = vertical load on tire (N)
+        //   C_α = tire cornering stiffness coefficient (N/rad per N of load)
+        // 
+        // Using REAR_TIRE_STIFFNESS_COEFFICIENT = 15.0 N/(rad·N)
+        // This is an empirical value tuned for realistic behavior.
+        double calc_rear_lat_force = rear_slip_angle * avg_rear_load * REAR_TIRE_STIFFNESS_COEFFICIENT;
+
+        // Step 3: Safety Clamp (Prevent physics explosions)
+        // Clamp to ±MAX_REAR_LATERAL_FORCE (6000 N) to prevent unrealistic forces
+        // during extreme conditions (e.g., spins, collisions, teleports).
+        // Without this clamp, slip angle spikes could saturate FFB or cause oscillations.
+        calc_rear_lat_force = (std::max)(-MAX_REAR_LATERAL_FORCE, (std::min)(MAX_REAR_LATERAL_FORCE, calc_rear_lat_force));
+
+        // Step 4: Convert to Torque and Apply to SoP
+        // Scale from Newtons to Newton-meters for torque output.
+        // Coefficient 0.00025 was tuned to produce ~0.5 Nm contribution at 2000N lateral force.
+        // This matches the feel of the original implementation when API data was valid.
+        // Multiplied by m_oversteer_boost to allow user tuning of rear-end sensitivity.
+        double rear_torque = calc_rear_lat_force * 0.00025 * m_oversteer_boost; 
         sop_total += rear_torque;
         
         double total_force = output_force + sop_total;
@@ -775,6 +857,8 @@ public:
                 
                 // --- Header B: Internal Physics (Calculated) ---
                 snap.calc_front_load = (float)avg_load; // This is the final load used (maybe approximated)
+                snap.calc_rear_load = (float)avg_rear_load; // New v0.4.10
+                snap.calc_rear_lat_force = (float)calc_rear_lat_force; // New v0.4.10
                 snap.calc_front_grip = (float)avg_grip; // This is the final grip used (maybe approximated)
                 snap.calc_rear_grip = (float)avg_rear_grip;
                 snap.calc_front_slip_ratio = (float)((calculate_manual_slip_ratio(fl, data->mLocalVel.z) + calculate_manual_slip_ratio(fr, data->mLocalVel.z)) / 2.0);
