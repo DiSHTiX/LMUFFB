@@ -384,6 +384,17 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.9] - 2025-12-11
+### Added
+- **Finalized Troubleshooting Graphs**: Updated the internal FFB Engine and GUI to expose deeper physics data for debugging.
+    - **Rear Tire Physics**: Added visualization for `Rear Slip Angle (Smoothed)` and `Rear Slip Angle (Raw)` to troubleshoot oversteer/SoP logic.
+    - **Combined Slip Plot**: Merged `Calc Front Slip Ratio` and `Raw Front Slip Ratio` into a single combined plot (Cyan=Game, Magenta=Calc) for easier comparison.
+    - **Patch Velocities**: Added explicit plots for `Avg Front Long PatchVel`, `Avg Rear Lat PatchVel`, and `Avg Rear Long PatchVel` to help diagnose slide/spin effects.
+- **Explicit Naming**: Updated documentation formulas to be explicit about Front vs Rear variables (e.g., `Front_Load_Factor`, `Front_Grip_Avg`).
+
+### Changed
+- **GUI Labels**: Renamed `Raw Rear Lat Force` to `Avg Rear Lat Force` in the Telemetry Inspector.
+
 ## [0.4.7] - 2025-12-11
 ### Added
 - **Expanded Troubleshooting Graphs**: Major reorganization of the "Troubleshooting" window to facilitate physics debugging.
@@ -701,6 +712,8 @@ struct FFBSnapshot {
     float calc_front_slip_ratio; // New v0.4.7 (Manual Calc)
     float calc_front_slip_angle_smoothed; // Renamed from slip_angle
     float raw_front_slip_angle;  // New v0.4.7 (Raw atan2)
+    float calc_rear_slip_angle_smoothed; // New v0.4.9
+    float raw_rear_slip_angle;   // New v0.4.9 (Raw atan2)
 
     // --- Header C: Raw Game Telemetry (Inputs) ---
     float steer_force;
@@ -718,6 +731,9 @@ struct FFBSnapshot {
     float accel_x;
     float raw_front_lat_patch_vel; // Renamed from patch_vel
     float raw_front_deflection;    // Renamed from deflection
+    float raw_front_long_patch_vel; // New v0.4.9
+    float raw_rear_lat_patch_vel;   // New v0.4.9
+    float raw_rear_long_patch_vel;  // New v0.4.9
 
     // Telemetry Health Flags
     bool warn_load;
@@ -838,11 +854,27 @@ public:
         double slip_angle;      // Calculated slip angle (if approximated)
     };
 
+private:
+    // Constants
+    static constexpr double MIN_SLIP_ANGLE_VELOCITY = 0.5; // m/s - Singularity protection for slip angle calculation
+
+public:
+    // Helper: Calculate Raw Slip Angle for a pair of wheels (v0.4.9 Refactor)
+    // Returns the average slip angle of two wheels using atan2(lateral_vel, longitudinal_vel)
+    double calculate_raw_slip_angle_pair(const TelemWheelV01& w1, const TelemWheelV01& w2) {
+        double v_long_1 = std::abs(w1.mLongitudinalGroundVel);
+        double v_long_2 = std::abs(w2.mLongitudinalGroundVel);
+        if (v_long_1 < MIN_SLIP_ANGLE_VELOCITY) v_long_1 = MIN_SLIP_ANGLE_VELOCITY;
+        if (v_long_2 < MIN_SLIP_ANGLE_VELOCITY) v_long_2 = MIN_SLIP_ANGLE_VELOCITY;
+        double raw_angle_1 = std::atan2(std::abs(w1.mLateralPatchVel), v_long_1);
+        double raw_angle_2 = std::atan2(std::abs(w2.mLateralPatchVel), v_long_2);
+        return (raw_angle_1 + raw_angle_2) / 2.0;
+    }
+
     // Helper: Calculate Slip Angle (v0.4.6 LPF + Logic)
     double calculate_slip_angle(const TelemWheelV01& w, double& prev_state) {
         double v_long = std::abs(w.mLongitudinalGroundVel);
-        double min_speed = 0.5;
-        if (v_long < min_speed) v_long = min_speed;
+        if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
         
         double raw_angle = std::atan2(std::abs(w.mLateralPatchVel), v_long);
         
@@ -1115,7 +1147,6 @@ public:
         // Slip Angle = atan(PatchVelLat / GroundVelLong)
         
         double car_speed_ms = std::abs(data->mLocalVel.z); // Or mLongitudinalGroundVel per wheel
-        double min_speed = 0.5; // Avoid div-by-zero
         
         auto get_slip_ratio = [&](const TelemWheelV01& w) {
             // v0.4.5: Option to use manual calculation
@@ -1124,7 +1155,7 @@ public:
             }
             // Default Game Data
             double v_long = std::abs(w.mLongitudinalGroundVel);
-            if (v_long < min_speed) v_long = min_speed;
+            if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
             return w.mLongitudinalPatchVel / v_long;
         };
         
@@ -1380,22 +1411,16 @@ public:
                 snap.calc_rear_grip = (float)avg_rear_grip;
                 snap.calc_front_slip_ratio = (float)((calculate_manual_slip_ratio(fl, data->mLocalVel.z) + calculate_manual_slip_ratio(fr, data->mLocalVel.z)) / 2.0);
                 snap.calc_front_slip_angle_smoothed = (float)m_grip_diag.front_slip_angle; // Smoothed Slip Angle
+                snap.calc_rear_slip_angle_smoothed = (float)m_grip_diag.rear_slip_angle; // Smoothed Rear Slip Angle
                 
-                // Recalculate Raw Slip Angle (Avg FL/FR) for visualization
-                {
-                    double v_long_fl = std::abs(fl.mLongitudinalGroundVel);
-                    double v_long_fr = std::abs(fr.mLongitudinalGroundVel);
-                    if (v_long_fl < 0.5) v_long_fl = 0.5;
-                    if (v_long_fr < 0.5) v_long_fr = 0.5;
-                    double raw_angle_fl = std::atan2(std::abs(fl.mLateralPatchVel), v_long_fl);
-                    double raw_angle_fr = std::atan2(std::abs(fr.mLateralPatchVel), v_long_fr);
-                    snap.raw_front_slip_angle = (float)((raw_angle_fl + raw_angle_fr) / 2.0);
-                }
+                // Calculate Raw Slip Angles for visualization (v0.4.9 Refactored)
+                snap.raw_front_slip_angle = (float)calculate_raw_slip_angle_pair(fl, fr);
+                snap.raw_rear_slip_angle = (float)calculate_raw_slip_angle_pair(data->mWheel[2], data->mWheel[3]);
 
                 // Helper for Raw Game Slip Ratio
                 auto get_raw_game_slip = [&](const TelemWheelV01& w) {
                     double v_long = std::abs(w.mLongitudinalGroundVel);
-                    if (v_long < 0.5) v_long = 0.5;
+                    if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
                     return w.mLongitudinalPatchVel / v_long;
                 };
 
@@ -1416,6 +1441,11 @@ public:
                 snap.raw_front_lat_patch_vel = (float)((std::abs(fl.mLateralPatchVel) + std::abs(fr.mLateralPatchVel)) / 2.0);
                 snap.raw_front_deflection = (float)((fl.mVerticalTireDeflection + fr.mVerticalTireDeflection) / 2.0);
                 
+                // New Patch Velocities (v0.4.9)
+                snap.raw_front_long_patch_vel = (float)((fl.mLongitudinalPatchVel + fr.mLongitudinalPatchVel) / 2.0);
+                snap.raw_rear_lat_patch_vel = (float)((std::abs(data->mWheel[2].mLateralPatchVel) + std::abs(data->mWheel[3].mLateralPatchVel)) / 2.0);
+                snap.raw_rear_long_patch_vel = (float)((data->mWheel[2].mLongitudinalPatchVel + data->mWheel[3].mLongitudinalPatchVel) / 2.0);
+
                 // Warnings
                 snap.warn_load = frame_warn_load;
                 snap.warn_grip = frame_warn_grip || frame_warn_rear_grip; // Combined warning
@@ -5363,7 +5393,7 @@ $$ Front\_Load\_Factor = \text{Clamp}\left( \frac{\text{Front\_Load}_{FL} + \tex
 
 #### B. Base Force (Understeer / Grip Modulation)
 This modulates the raw steering rack force from the game based on front tire grip.
-$$ F_{base} = F_{steering\_arm} \times \left( 1.0 - \left( (1.0 - \text{Front\_Grip}_{avg}) \times K_{understeer} \right) \right) $$
+$$ F_{base} = T_{steering\_shaft} \times \left( 1.0 - \left( (1.0 - \text{Front\_Grip}_{avg}) \times K_{understeer} \right) \right) $$
 *   $\text{Front\_Grip}_{avg}$: Average of Front Left and Front Right `mGripFract`.
     *   **Fallback (v0.4.5+):** If telemetry grip is missing ($\approx 0.0$) but Load $> 100N$, grip is approximated from **Slip Angle**.
         * **Low Speed Trap (v0.4.6):** If CarSpeed < 5.0 m/s, Grip = 1.0.
@@ -5378,7 +5408,7 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
 
 1.  **Smoothed Lateral G ($G_{lat}$)**: Calculated via Low Pass Filter (Exponential Moving Average).
     *   **Input Clamp (v0.4.6):** Raw AccelX is clamped to +/- 5G ($49.05 m/s^2$) before processing.
-    $$ G_{smooth} = G_{prev} + \alpha \times \left( \frac{\text{AccelX}_{local}}{9.81} - G_{prev} \right) $$
+    $$ G_{smooth} = G_{prev} + \alpha \times \left( \frac{\text{Chassis\_Lat\_Accel}}{9.81} - G_{prev} \right) $$
     *   $\alpha$: User setting `m_sop_smoothing_factor`.
 
 2.  **Base SoP**:
@@ -5462,7 +5492,7 @@ $$ F_{final} = \text{sign}(F_{norm}) \times K_{min\_force} $$
 *   $T_{steering\_shaft}$: `mSteeringShaftTorque` (Nm) - **Changed in v0.4.0 from** `mSteeringArmForce` (N)
 *   $\text{Load}$: `mTireLoad` (N)
 *   $\text{GripFract}$: `mGripFract` (0.0 to 1.0)
-*   $\text{AccelX}_{local}$: `mLocalAccel.x` ($m/s^2$)
+*   $\text{Chassis\_Lat\_Accel}$: `mLocalAccel.x` ($m/s^2$) - **Renamed from** `AccellXlocal`
 *   $\text{LatForce}$: `mLateralForce` (N)
 *   $\text{Vel}_{car}$: `mLocalVel.z` (m/s)
 *   $\text{LateralGroundVel}$: `mLateralGroundVel` (m/s)
@@ -11821,6 +11851,8 @@ static RollingBuffer plot_calc_rear_grip; // New v0.4.7
 static RollingBuffer plot_calc_slip_ratio;
 static RollingBuffer plot_calc_slip_angle_smoothed; // Renamed
 static RollingBuffer plot_raw_slip_angle; // New v0.4.7
+static RollingBuffer plot_calc_rear_slip_angle_smoothed; // New v0.4.9
+static RollingBuffer plot_raw_rear_slip_angle; // New v0.4.9
 
 // --- Header C: Raw Game Telemetry ---
 static RollingBuffer plot_raw_steer;
@@ -11838,6 +11870,9 @@ static RollingBuffer plot_raw_brake;
 static RollingBuffer plot_input_accel;
 static RollingBuffer plot_raw_front_lat_patch_vel; // Renamed
 static RollingBuffer plot_raw_front_deflection; // Renamed
+static RollingBuffer plot_raw_front_long_patch_vel; // New v0.4.9
+static RollingBuffer plot_raw_rear_lat_patch_vel; // New v0.4.9
+static RollingBuffer plot_raw_rear_long_patch_vel; // New v0.4.9
 
 // State for Warnings
 static bool g_warn_load = false;
@@ -11878,6 +11913,8 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         plot_calc_slip_ratio.Add(snap.calc_front_slip_ratio);
         plot_calc_slip_angle_smoothed.Add(snap.calc_front_slip_angle_smoothed);
         plot_raw_slip_angle.Add(snap.raw_front_slip_angle);
+        plot_calc_rear_slip_angle_smoothed.Add(snap.calc_rear_slip_angle_smoothed);
+        plot_raw_rear_slip_angle.Add(snap.raw_rear_slip_angle);
 
         // --- Header C: Raw Telemetry ---
         plot_raw_steer.Add(snap.steer_force);
@@ -11895,6 +11932,9 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         plot_input_accel.Add(snap.accel_x);
         plot_raw_front_lat_patch_vel.Add(snap.raw_front_lat_patch_vel);
         plot_raw_front_deflection.Add(snap.raw_front_deflection);
+        plot_raw_front_long_patch_vel.Add(snap.raw_front_long_patch_vel);
+        plot_raw_rear_lat_patch_vel.Add(snap.raw_rear_lat_patch_vel);
+        plot_raw_rear_long_patch_vel.Add(snap.raw_rear_long_patch_vel);
 
         // Update Warning Flags (Sticky-ish for display)
         g_warn_load = snap.warn_load;
@@ -11989,9 +12029,21 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rear Grip used for SoP/Oversteer math");
         ImGui::NextColumn();
         
-        ImGui::Text("Calc Front Slip Ratio");
-        ImGui::PlotLines("##CalcSlip", plot_calc_slip_ratio.data.data(), (int)plot_calc_slip_ratio.data.size(), plot_calc_slip_ratio.offset, NULL, -1.0f, 1.0f, ImVec2(0, 40));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manual calculation from wheel speed");
+        ImGui::Text("Front Slip Ratio (Comb)");
+        ImVec2 pos_sr = ImGui::GetCursorScreenPos();
+        // Draw Raw (Cyan) first as background
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f)); 
+        ImGui::PlotLines("##RawSlipB", plot_raw_front_slip_ratio.data.data(), (int)plot_raw_front_slip_ratio.data.size(), plot_raw_front_slip_ratio.offset, NULL, -1.0f, 1.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor();
+        
+        // Draw Calc (Magenta) on top
+        ImGui::SetCursorScreenPos(pos_sr); 
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f)); 
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); 
+        ImGui::PlotLines("##CalcSlipB", plot_calc_slip_ratio.data.data(), (int)plot_calc_slip_ratio.data.size(), plot_calc_slip_ratio.offset, NULL, -1.0f, 1.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor(2);
+        
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cyan: Game Raw, Magenta: Manual Calc");
         ImGui::NextColumn();
         
         ImGui::Text("Front Slip Angle (Smoothed)");
@@ -12002,6 +12054,17 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         ImGui::Text("Front Slip Angle (Raw)");
         ImGui::PlotLines("##SlipAR", plot_raw_slip_angle.data.data(), (int)plot_raw_slip_angle.data.size(), plot_raw_slip_angle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Slip Angle (atan2) before smoothing");
+        ImGui::NextColumn();
+
+        ImGui::Text("Rear Slip Angle (Smoothed)");
+        ImGui::PlotLines("##SlipARS", plot_calc_rear_slip_angle_smoothed.data.data(), (int)plot_calc_rear_slip_angle_smoothed.data.size(), plot_calc_rear_slip_angle_smoothed.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Smoothed Rear Slip Angle (LPF)");
+        ImGui::NextColumn();
+        
+        ImGui::Text("Rear Slip Angle (Raw)");
+        ImGui::PlotLines("##SlipARR", plot_raw_rear_slip_angle.data.data(), (int)plot_raw_rear_slip_angle.data.size(), plot_raw_rear_slip_angle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Rear Slip Angle (atan2)");
+
         ImGui::Columns(1);
     }
 
@@ -12058,7 +12121,7 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Ride Height");
         ImGui::NextColumn();
         
-        ImGui::Text("Raw Rear Lat Force"); 
+        ImGui::Text("Avg Rear Lat Force"); 
         ImGui::PlotLines("##RLF", plot_raw_rear_lat_force.data.data(), (int)plot_raw_rear_lat_force.data.size(), plot_raw_rear_lat_force.offset, NULL, -5000.0f, 5000.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Rear Lateral Force");
         ImGui::NextColumn();
@@ -12076,6 +12139,21 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         ImGui::Text("Avg Front Deflection"); 
         ImGui::PlotLines("##Defl", plot_raw_front_deflection.data.data(), (int)plot_raw_front_deflection.data.size(), plot_raw_front_deflection.offset, NULL, 0.0f, 0.1f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Vertical Tire Deflection");
+        ImGui::NextColumn();
+
+        ImGui::Text("Avg Front Long PatchVel");
+        ImGui::PlotLines("##PatchFL", plot_raw_front_long_patch_vel.data.data(), (int)plot_raw_front_long_patch_vel.data.size(), plot_raw_front_long_patch_vel.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Longitudinal Velocity at Contact Patch (Front)");
+        ImGui::NextColumn();
+
+        ImGui::Text("Avg Rear Lat PatchVel");
+        ImGui::PlotLines("##PatchRL", plot_raw_rear_lat_patch_vel.data.data(), (int)plot_raw_rear_lat_patch_vel.data.size(), plot_raw_rear_lat_patch_vel.offset, NULL, 0.0f, 20.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lateral Velocity at Contact Patch (Rear)");
+        ImGui::NextColumn();
+
+        ImGui::Text("Avg Rear Long PatchVel");
+        ImGui::PlotLines("##PatchRLong", plot_raw_rear_long_patch_vel.data.data(), (int)plot_raw_rear_long_patch_vel.data.size(), plot_raw_rear_long_patch_vel.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Longitudinal Velocity at Contact Patch (Rear)");
         ImGui::NextColumn();
         
         ImGui::Text("Combined Input");
@@ -13527,6 +13605,7 @@ int g_tests_failed = 0;
 // --- Tests ---
 
 void test_snapshot_data_integrity(); // Forward declaration
+void test_snapshot_data_v049(); // Forward declaration
 
 void test_manual_slip_singularity() {
     std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
@@ -15166,6 +15245,7 @@ int main() {
     test_universal_bottoming();
     test_preset_initialization();
     test_snapshot_data_integrity();
+    test_snapshot_data_v049();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -15304,6 +15384,83 @@ void test_snapshot_data_integrity() {
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] raw_front_deflection incorrect: " << snap.raw_front_deflection << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_snapshot_data_v049() {
+    std::cout << "\nTest: Snapshot Data v0.4.9 (Rear Physics)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+
+    // Setup input values
+    data.mLocalVel.z = 20.0;
+    data.mDeltaTime = 0.01;
+    
+    // Front Wheels
+    data.mWheel[0].mLongitudinalPatchVel = 1.0;
+    data.mWheel[1].mLongitudinalPatchVel = 1.0;
+    
+    // Rear Wheels (Sliding Lat + Long)
+    data.mWheel[2].mLateralPatchVel = 2.0;
+    data.mWheel[3].mLateralPatchVel = 2.0;
+    data.mWheel[2].mLongitudinalPatchVel = 3.0;
+    data.mWheel[3].mLongitudinalPatchVel = 3.0;
+    data.mWheel[2].mLongitudinalGroundVel = 20.0;
+    data.mWheel[3].mLongitudinalGroundVel = 20.0;
+
+    // Run Engine
+    engine.calculate_force(&data);
+
+    // Verify Snapshot
+    auto batch = engine.GetDebugBatch();
+    if (batch.empty()) {
+        std::cout << "[FAIL] No snapshot." << std::endl;
+        g_tests_failed++;
+        return;
+    }
+    
+    FFBSnapshot snap = batch.back();
+    
+    // Check Front Long Patch Vel
+    // Avg(1.0, 1.0) = 1.0
+    if (std::abs(snap.raw_front_long_patch_vel - 1.0) < 0.001) {
+        std::cout << "[PASS] raw_front_long_patch_vel correct." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] raw_front_long_patch_vel: " << snap.raw_front_long_patch_vel << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Check Rear Lat Patch Vel
+    // Avg(abs(2.0), abs(2.0)) = 2.0
+    if (std::abs(snap.raw_rear_lat_patch_vel - 2.0) < 0.001) {
+        std::cout << "[PASS] raw_rear_lat_patch_vel correct." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] raw_rear_lat_patch_vel: " << snap.raw_rear_lat_patch_vel << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Check Rear Long Patch Vel
+    // Avg(3.0, 3.0) = 3.0
+    if (std::abs(snap.raw_rear_long_patch_vel - 3.0) < 0.001) {
+        std::cout << "[PASS] raw_rear_long_patch_vel correct." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] raw_rear_long_patch_vel: " << snap.raw_rear_long_patch_vel << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Check Rear Slip Angle Raw
+    // atan2(2, 20) = ~0.0996 rad
+    // snap.raw_rear_slip_angle
+    if (std::abs(snap.raw_rear_slip_angle - 0.0996) < 0.01) {
+        std::cout << "[PASS] raw_rear_slip_angle correct." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] raw_rear_slip_angle: " << snap.raw_rear_slip_angle << std::endl;
         g_tests_failed++;
     }
 }
