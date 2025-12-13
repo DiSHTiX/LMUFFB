@@ -222,11 +222,27 @@ public:
         double slip_angle;      // Calculated slip angle (if approximated)
     };
 
+private:
+    // Constants
+    static constexpr double MIN_SLIP_ANGLE_VELOCITY = 0.5; // m/s - Singularity protection for slip angle calculation
+
+public:
+    // Helper: Calculate Raw Slip Angle for a pair of wheels (v0.4.9 Refactor)
+    // Returns the average slip angle of two wheels using atan2(lateral_vel, longitudinal_vel)
+    double calculate_raw_slip_angle_pair(const TelemWheelV01& w1, const TelemWheelV01& w2) {
+        double v_long_1 = std::abs(w1.mLongitudinalGroundVel);
+        double v_long_2 = std::abs(w2.mLongitudinalGroundVel);
+        if (v_long_1 < MIN_SLIP_ANGLE_VELOCITY) v_long_1 = MIN_SLIP_ANGLE_VELOCITY;
+        if (v_long_2 < MIN_SLIP_ANGLE_VELOCITY) v_long_2 = MIN_SLIP_ANGLE_VELOCITY;
+        double raw_angle_1 = std::atan2(std::abs(w1.mLateralPatchVel), v_long_1);
+        double raw_angle_2 = std::atan2(std::abs(w2.mLateralPatchVel), v_long_2);
+        return (raw_angle_1 + raw_angle_2) / 2.0;
+    }
+
     // Helper: Calculate Slip Angle (v0.4.6 LPF + Logic)
     double calculate_slip_angle(const TelemWheelV01& w, double& prev_state) {
         double v_long = std::abs(w.mLongitudinalGroundVel);
-        double min_speed = 0.5;
-        if (v_long < min_speed) v_long = min_speed;
+        if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
         
         double raw_angle = std::atan2(std::abs(w.mLateralPatchVel), v_long);
         
@@ -499,7 +515,6 @@ public:
         // Slip Angle = atan(PatchVelLat / GroundVelLong)
         
         double car_speed_ms = std::abs(data->mLocalVel.z); // Or mLongitudinalGroundVel per wheel
-        double min_speed = 0.5; // Avoid div-by-zero
         
         auto get_slip_ratio = [&](const TelemWheelV01& w) {
             // v0.4.5: Option to use manual calculation
@@ -508,7 +523,7 @@ public:
             }
             // Default Game Data
             double v_long = std::abs(w.mLongitudinalGroundVel);
-            if (v_long < min_speed) v_long = min_speed;
+            if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
             return w.mLongitudinalPatchVel / v_long;
         };
         
@@ -766,34 +781,14 @@ public:
                 snap.calc_front_slip_angle_smoothed = (float)m_grip_diag.front_slip_angle; // Smoothed Slip Angle
                 snap.calc_rear_slip_angle_smoothed = (float)m_grip_diag.rear_slip_angle; // Smoothed Rear Slip Angle
                 
-                // Recalculate Raw Slip Angle (Avg FL/FR) for visualization
-                {
-                    double v_long_fl = std::abs(fl.mLongitudinalGroundVel);
-                    double v_long_fr = std::abs(fr.mLongitudinalGroundVel);
-                    if (v_long_fl < 0.5) v_long_fl = 0.5;
-                    if (v_long_fr < 0.5) v_long_fr = 0.5;
-                    double raw_angle_fl = std::atan2(std::abs(fl.mLateralPatchVel), v_long_fl);
-                    double raw_angle_fr = std::atan2(std::abs(fr.mLateralPatchVel), v_long_fr);
-                    snap.raw_front_slip_angle = (float)((raw_angle_fl + raw_angle_fr) / 2.0);
-                }
-                
-                // Recalculate Raw Rear Slip Angle (Avg RL/RR) for visualization
-                {
-                    const TelemWheelV01& rl = data->mWheel[2];
-                    const TelemWheelV01& rr = data->mWheel[3];
-                    double v_long_rl = std::abs(rl.mLongitudinalGroundVel);
-                    double v_long_rr = std::abs(rr.mLongitudinalGroundVel);
-                    if (v_long_rl < 0.5) v_long_rl = 0.5;
-                    if (v_long_rr < 0.5) v_long_rr = 0.5;
-                    double raw_angle_rl = std::atan2(std::abs(rl.mLateralPatchVel), v_long_rl);
-                    double raw_angle_rr = std::atan2(std::abs(rr.mLateralPatchVel), v_long_rr);
-                    snap.raw_rear_slip_angle = (float)((raw_angle_rl + raw_angle_rr) / 2.0);
-                }
+                // Calculate Raw Slip Angles for visualization (v0.4.9 Refactored)
+                snap.raw_front_slip_angle = (float)calculate_raw_slip_angle_pair(fl, fr);
+                snap.raw_rear_slip_angle = (float)calculate_raw_slip_angle_pair(data->mWheel[2], data->mWheel[3]);
 
                 // Helper for Raw Game Slip Ratio
                 auto get_raw_game_slip = [&](const TelemWheelV01& w) {
                     double v_long = std::abs(w.mLongitudinalGroundVel);
-                    if (v_long < 0.5) v_long = 0.5;
+                    if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
                     return w.mLongitudinalPatchVel / v_long;
                 };
 
