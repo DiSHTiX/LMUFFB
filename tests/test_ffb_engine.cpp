@@ -39,6 +39,7 @@ void test_snapshot_data_v049(); // Forward declaration
 void test_rear_force_workaround(); // Forward declaration
 void test_rear_align_effect(); // Forward declaration
 void test_zero_effects_leakage(); // Forward declaration
+void test_base_force_modes(); // Forward declaration
 
 void test_manual_slip_singularity() {
     std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
@@ -70,6 +71,80 @@ void test_manual_slip_singularity() {
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] Low speed lockup triggered (Phase " << engine.m_lockup_phase << ")." << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_base_force_modes() {
+    std::cout << "\nTest: Base Force Modes & Gain (v0.4.13)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Common Setup
+    engine.m_max_torque_ref = 20.0f; // Reference for normalization
+    engine.m_gain = 1.0f; // Master gain
+    engine.m_steering_shaft_gain = 0.5f; // Test gain application
+    
+    // Inputs
+    data.mSteeringShaftTorque = 10.0; // Input Torque
+    data.mWheel[0].mGripFract = 1.0; // Full Grip (No understeer reduction)
+    data.mWheel[1].mGripFract = 1.0;
+    data.mWheel[0].mRideHeight = 0.1; // No scraping
+    data.mWheel[1].mRideHeight = 0.1;
+    
+    // --- Case 0: Native Mode ---
+    engine.m_base_force_mode = 0;
+    double force_native = engine.calculate_force(&data);
+    
+    // Logic: Input 10.0 * ShaftGain 0.5 * Grip 1.0 = 5.0.
+    // Normalized: 5.0 / 20.0 = 0.25.
+    if (std::abs(force_native - 0.25) < 0.001) {
+        std::cout << "[PASS] Native Mode: Correctly attenuated (0.25)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Native Mode: Got " << force_native << " Expected 0.25." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // --- Case 1: Synthetic Mode ---
+    engine.m_base_force_mode = 1;
+    double force_synthetic = engine.calculate_force(&data);
+    
+    // Logic: Input > 0.5 (deadzone).
+    // Sign is +1.0.
+    // Base Input = +1.0 * MaxTorqueRef (20.0) = 20.0.
+    // Output = 20.0 * ShaftGain 0.5 * Grip 1.0 = 10.0.
+    // Normalized = 10.0 / 20.0 = 0.5.
+    if (std::abs(force_synthetic - 0.5) < 0.001) {
+        std::cout << "[PASS] Synthetic Mode: Constant force applied (0.5)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Synthetic Mode: Got " << force_synthetic << " Expected 0.5." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // --- Case 1b: Synthetic Deadzone ---
+    data.mSteeringShaftTorque = 0.1; // Below 0.5
+    double force_deadzone = engine.calculate_force(&data);
+    if (std::abs(force_deadzone) < 0.001) {
+        std::cout << "[PASS] Synthetic Mode: Deadzone respected." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Synthetic Mode: Deadzone failed." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // --- Case 2: Muted Mode ---
+    engine.m_base_force_mode = 2;
+    data.mSteeringShaftTorque = 10.0; // Restore input
+    double force_muted = engine.calculate_force(&data);
+    
+    if (std::abs(force_muted) < 0.001) {
+        std::cout << "[PASS] Muted Mode: Output is zero." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Muted Mode: Got " << force_muted << " Expected 0.0." << std::endl;
         g_tests_failed++;
     }
 }
@@ -1685,6 +1760,7 @@ int main() {
     test_rear_force_workaround();
     test_rear_align_effect();
     test_zero_effects_leakage();
+    test_base_force_modes();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

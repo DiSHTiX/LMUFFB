@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.13] - 2025-12-14
+### Added
+- **Base Force Debugging Tools**: Added advanced controls for isolating and tuning the primary steering force.
+    - **Steering Shaft Gain**: A slider to attenuate the raw game force (Base Force) without affecting the telemetry data used by other effects (like Oversteer Boost). Useful if the base FFB is too strong but you want to keep effect calculations accurate.
+    - **Base Force Mode**: A new selector in "Advanced Tuning" to change how the base force is generated:
+        - **Native (Physics)**: Uses raw game physics (Default).
+        - **Synthetic (Constant)**: Uses a constant force with the game's direction. Isolates the Grip Modulation effect from suspension noise for precise tuning.
+        - **Muted (Off)**: Forces zero output. Useful for testing SoP or Texture effects in isolation.
+- **Updated Presets**: Updated built-in presets to use the new Debug Modes (e.g., "Test: SoP Only" now uses "Muted" mode for cleaner isolation).
+
+### Changed
+- **Preset Structure**: Updated `config.ini` format to include `steering_shaft_gain` and `base_force_mode`. Old config files will be automatically upgraded.
+
 ## [0.4.12] - 2025-12-14
 ### Added
 - **Screenshot Feature**: Added "Save Screenshot" button to the Tuning Window. Saves PNG files with timestamps to the application directory using `stb_image_write.h` and DirectX 11 buffer mapping.

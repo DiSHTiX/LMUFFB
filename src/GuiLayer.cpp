@@ -291,12 +291,19 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Separator();
     
     ImGui::SliderFloat("Master Gain", &engine.m_gain, 0.0f, 2.0f, "%.2f");
+    ImGui::SliderFloat("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Attenuates raw game force without affecting telemetry.\nUse this instead of Master Gain if other effects are too weak.");
     ImGui::SliderFloat("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f");
     // New Max Torque Ref Slider (v0.4.4)
     ImGui::SliderFloat("Max Torque Ref (Nm)", &engine.m_max_torque_ref, 10.0f, 100.0f, "%.1f Nm");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The torque value that equals 100%% FFB output.\nIncrease this if FFB is too strong at Gain 1.0.\nTypical values: 20-40 Nm.");
 
     if (ImGui::TreeNode("Advanced Tuning")) {
+        // Base Force Mode (v0.4.13)
+        const char* base_modes[] = { "Native (Physics)", "Synthetic (Constant)", "Muted (Off)" };
+        ImGui::Combo("Base Force Mode", &engine.m_base_force_mode, base_modes, IM_ARRAYSIZE(base_modes));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Debug tool to isolate effects.\nNative: Raw physics.\nSynthetic: Constant force to tune Grip drop-off.\nMuted: Zero base force.");
+
         ImGui::SliderFloat("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f (1=Raw)");
         ImGui::SliderFloat("SoP Scale", &engine.m_sop_scale, 0.0f, 200.0f, "%.1f");
         ImGui::SliderFloat("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.1fx");

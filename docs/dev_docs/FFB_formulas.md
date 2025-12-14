@@ -34,7 +34,23 @@ $$ Front\_Load\_Factor = \text{Clamp}\left( \frac{\text{Front\_Load}_{FL} + \tex
 
 #### B. Base Force (Understeer / Grip Modulation)
 This modulates the raw steering rack force from the game based on front tire grip.
-$$ F_{base} = T_{steering\_shaft} \times \left( 1.0 - \left( (1.0 - \text{Front\_Grip}_{avg}) \times K_{understeer} \right) \right) $$
+### B. Base Force (Understeer / Grip Modulation) - Updated v0.4.13
+
+The base force logic has been expanded to support debugging modes and attenuation.
+
+**1. Base Input Selection (Mode)**
+Depending on `m_base_force_mode` setting:
+*   **Mode 0 (Native):** $Base_{input} = T_{steering\_shaft}$
+*   **Mode 1 (Synthetic):**
+    *   If $|T_{steering\_shaft}| > 0.5$ Nm: $Base_{input} = \text{sign}(T_{steering\_shaft}) \times \text{MaxTorqueRef}$
+    *   Else: $Base_{input} = 0.0$
+    *   *Purpose: Constant force to tune Grip Modulation in isolation.*
+*   **Mode 2 (Muted):** $Base_{input} = 0.0$
+
+**2. Modulation & Attenuation**
+$$ F_{base} = (Base_{input} \times K_{shaft\_gain}) \times \left( 1.0 - \left( (1.0 - \text{Front\_Grip}_{avg}) \times K_{understeer} \right) \right) $$
+
+*   $K_{shaft\_gain}$: New slider (0.0-1.0) to attenuate base force without affecting telemetry.
 *   $\text{Front\_Grip}_{avg}$: Average of Front Left and Front Right `mGripFract`.
     *   **Fallback (v0.4.5+):** If telemetry grip is missing ($\approx 0.0$) but Load $> 100N$, grip is approximated from **Slip Angle**.
         * **Low Speed Trap (v0.4.6):** If CarSpeed < 5.0 m/s, Grip = 1.0.
@@ -155,6 +171,7 @@ $$ F_{final} = \text{sign}(F_{norm}) \times K_{min\_force} $$
 
 **User Settings (Coefficients from GUI):**
 *   $K_{gain}$: Master Gain (0.0 - 2.0)
+*   $K_{shaft\_gain}$: Steering Shaft Gain (0.0 - 1.0) **(New v0.4.13)**
 *   $K_{understeer}$: Understeer Effect (0.0 - 1.0)
 *   $K_{sop}$: SoP Effect (0.0 - 2.0)
 *   $K_{oversteer}$: Oversteer Boost (0.0 - 1.0)

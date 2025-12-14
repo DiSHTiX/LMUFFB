@@ -31,6 +31,9 @@ struct Preset {
     float scrub_drag_gain;
     // New Params (v0.4.11)
     float rear_align_effect;
+    // New Params (v0.4.13)
+    float steering_shaft_gain;
+    int base_force_mode;
     
     // Apply this preset to an engine instance
     void Apply(FFBEngine& engine) const {
@@ -55,6 +58,8 @@ struct Preset {
         engine.m_bottoming_method = bottoming_method;
         engine.m_scrub_drag_gain = scrub_drag_gain;
         engine.m_rear_align_effect = rear_align_effect;
+        engine.m_steering_shaft_gain = steering_shaft_gain;
+        engine.m_base_force_mode = base_force_mode;
     }
 };
 

@@ -128,6 +128,10 @@ public:
     // v0.4.4 Features
     float m_max_torque_ref = 40.0f;      // Reference torque for 100% output (Default 40.0 Nm)
     bool m_invert_force = false;         // Invert final output signal
+    
+    // Base Force Debugging (v0.4.13)
+    float m_steering_shaft_gain = 1.0f; // 0.0 - 1.0 (Base force attenuation)
+    int m_base_force_mode = 0;          // 0=Native, 1=Synthetic, 2=Muted
 
     // New Effects (v0.2)
     float m_oversteer_boost = 0.0f; // 0.0 - 1.0 (Rear grip loss boost)
@@ -264,6 +268,13 @@ private:
     // the base steering feel. Increased from 0.00025 in v0.4.10 (4x) to boost rear-end feedback.
     // See: docs/dev_docs/FFB_formulas.md "Rear Aligning Torque"
     static constexpr double REAR_ALIGN_TORQUE_COEFFICIENT = 0.001; // Nm per N
+    
+    // Synthetic Mode Deadzone Threshold (v0.4.13)
+    // Prevents sign flickering at steering center when using Synthetic (Constant) base force mode.
+    // Value: 0.5 Nm - If abs(game_force) < threshold, base input is set to 0.0.
+    // This creates a small deadzone around center to avoid rapid direction changes
+    // when the steering shaft torque oscillates near zero.
+    static constexpr double SYNTHETIC_MODE_DEADZONE_NM = 0.5; // Nm
 
 
 
@@ -494,7 +505,29 @@ public:
         // grip_factor: 1.0 = full force, 0.0 = no force (full understeer)
         // m_understeer_effect: 0.0 = disabled, 1.0 = full effect
         double grip_factor = 1.0 - ((1.0 - avg_grip) * m_understeer_effect);
-        double output_force = game_force * grip_factor;
+        
+        // --- BASE FORCE PROCESSING (v0.4.13) ---
+        double base_input = 0.0;
+        
+        if (m_base_force_mode == 0) {
+            // Mode 0: Native (Physics)
+            base_input = game_force;
+        } else if (m_base_force_mode == 1) {
+            // Mode 1: Synthetic (Constant with Direction)
+            // Apply deadzone to prevent sign flickering at center
+            if (std::abs(game_force) > SYNTHETIC_MODE_DEADZONE_NM) {
+                double sign = (game_force > 0.0) ? 1.0 : -1.0;
+                base_input = sign * (double)m_max_torque_ref; // Use Max Torque as reference constant
+            } else {
+                base_input = 0.0;
+            }
+        } else {
+            // Mode 2: Muted
+            base_input = 0.0;
+        }
+        
+        // Apply Gain and Grip Modulation
+        double output_force = (base_input * (double)m_steering_shaft_gain) * grip_factor;
         
         // --- 2. Seat of Pants (SoP) / Oversteer ---
         // Lateral G-force
@@ -853,9 +886,9 @@ public:
                 
                 // --- Header A: Outputs ---
                 snap.total_output = (float)norm_force;
-                snap.base_force = (float)game_force;
+                snap.base_force = (float)base_input; // Show the processed base input
                 snap.sop_force = (float)sop_base_force;
-                snap.understeer_drop = (float)(game_force * (1.0 - grip_factor));
+                snap.understeer_drop = (float)((base_input * m_steering_shaft_gain) * (1.0 - grip_factor));
                 snap.oversteer_boost = (float)(sop_total - sop_base_force - rear_torque); // Split boost from rear torque
                 snap.ffb_rear_torque = (float)rear_torque;
                 snap.ffb_scrub_drag = (float)scrub_drag_force;

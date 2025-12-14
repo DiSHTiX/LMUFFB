@@ -18,7 +18,8 @@ void Config::LoadPresets() {
         false, 0.5f, false, 0.5f, true, 0.5f, false, 0.5f, // lockup, spin, slide, road
         false, 40.0f, // invert, max_torque_ref (Default 40Nm for 1.0 Gain)
         false, 0, 0.0f, // use_manual_slip, bottoming_method, scrub_drag_gain (v0.4.5)
-        1.0f // rear_align_effect (v0.4.11)
+        1.0f, // rear_align_effect (v0.4.11)
+        1.0f, 0 // steering_shaft_gain, base_force_mode (v0.4.13)
     });
     
     presets.push_back({ "Test: Game Base FFB Only", 
@@ -26,7 +27,8 @@ void Config::LoadPresets() {
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
         false, 40.0f,
         false, 0, 0.0f, // v0.4.5
-        0.0f // rear_align_effect
+        0.0f, // rear_align_effect
+        1.0f, 0 // steering_shaft_gain, base_force_mode
     });
 
     presets.push_back({ "Test: SoP Only", 
@@ -34,7 +36,8 @@ void Config::LoadPresets() {
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
         false, 40.0f,
         false, 0, 0.0f, // v0.4.5
-        0.0f // rear_align_effect (Matched old behavior where boost=0 -> rear=0)
+        0.0f, // rear_align_effect (Matched old behavior where boost=0 -> rear=0)
+        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
     });
 
     presets.push_back({ "Test: Understeer Only", 
@@ -42,7 +45,8 @@ void Config::LoadPresets() {
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
         false, 40.0f,
         false, 0, 0.0f, // v0.4.5
-        0.0f // rear_align_effect
+        0.0f, // rear_align_effect
+        1.0f, 0 // steering_shaft_gain, base_force_mode
     });
 
     presets.push_back({ "Test: Textures Only", 
@@ -50,7 +54,8 @@ void Config::LoadPresets() {
         true, 1.0f, false, 1.0f, true, 1.0f, true, 1.0f,
         false, 40.0f,
         false, 0, 0.0f, // v0.4.5
-        0.0f // rear_align_effect
+        0.0f, // rear_align_effect
+        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
     });
 
     presets.push_back({ "Test: Rear Align Torque Only", 
@@ -58,7 +63,8 @@ void Config::LoadPresets() {
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f, // No textures
         false, 40.0f,
         false, 0, 0.0f, // v0.4.5
-        1.0f // rear_align_effect=1.0
+        1.0f, // rear_align_effect=1.0
+        1.0f, 0 // steering_shaft_gain, base_force_mode (Native)
     });
 
     presets.push_back({ "Test: SoP Base Only", 
@@ -66,7 +72,8 @@ void Config::LoadPresets() {
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
         false, 40.0f,
         false, 0, 0.0f,
-        0.0f // rear_align_effect=0
+        0.0f, // rear_align_effect=0
+        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
     });
 
     presets.push_back({ "Test: Slide Texture Only", 
@@ -74,7 +81,8 @@ void Config::LoadPresets() {
         false, 0.0f, false, 0.0f, true, 1.0f, false, 0.0f, // Slide enabled, gain 1.0
         false, 40.0f,
         false, 0, 0.0f,
-        0.0f
+        0.0f,
+        1.0f, 2 // Muted
     });
 
     presets.push_back({ "Test: No Effects", 
@@ -82,7 +90,8 @@ void Config::LoadPresets() {
         false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f, // lockup, spin, slide, road
         false, 40.0f, // invert, max_torque_ref
         false, 0, 0.0f, // use_manual_slip, bottoming_method, scrub_drag_gain
-        0.0f // rear_align_effect
+        0.0f, // rear_align_effect
+        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
     });
 
     // Parse User Presets from config.ini [Presets] section
@@ -159,6 +168,9 @@ void Config::LoadPresets() {
                         else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
                         else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = std::stof(value);
                         else if (key == "rear_align_effect") current_preset.rear_align_effect = std::stof(value);
+                        // New Params (v0.4.13)
+                        else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
+                        else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
                     } catch (...) {}
                 }
             }
@@ -207,6 +219,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "bottoming_method=" << engine.m_bottoming_method << "\n";
         file << "scrub_drag_gain=" << engine.m_scrub_drag_gain << "\n";
         file << "rear_align_effect=" << engine.m_rear_align_effect << "\n";
+        file << "steering_shaft_gain=" << engine.m_steering_shaft_gain << "\n";
+        file << "base_force_mode=" << engine.m_base_force_mode << "\n";
         file.close();
         std::cout << "[Config] Saved to " << filename << std::endl;
     } else {
@@ -260,6 +274,8 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "bottoming_method") engine.m_bottoming_method = std::stoi(value);
                     else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = std::stof(value);
                     else if (key == "rear_align_effect") engine.m_rear_align_effect = std::stof(value);
+                    else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
+                    else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
                 } catch (...) {
                     std::cerr << "[Config] Error parsing line: " << line << std::endl;
                 }
