@@ -159,10 +159,10 @@ Once you have reviewed these documents, please proceed with the following task:
 
 **Task: (...)**
 
-**Context:**
+**Reference Documents:**
 (...)
 
-**Reference Documents:**
+**Context:**
 (...)
 
 **Implementation Requirements:**
@@ -257,4 +257,15 @@ Once you have reviewed these documents and performed the setup, please proceed w
 
 **Task: (...)**
 
-*(Rest of your prompt...)*
+**Reference Documents:**
+(...)
+
+**Context:**
+(...)
+
+**Implementation Requirements:**
+(...)
+
+**Deliverables:**
+(...)
+
