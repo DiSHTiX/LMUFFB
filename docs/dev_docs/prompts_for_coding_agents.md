@@ -236,3 +236,25 @@ Analysis of the current version reveals three critical issues:
 **Constraints:**
 *   **Safety:** Ensure the calculated rear lateral force is clamped.
 *   **Visuals:** Ensure the multi-line plot for Load uses distinct colors and resets cursor position correctly.
+
+
+# Prompt template to fix git repo cloning issues
+
+Please clone this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below.
+
+**⚠️ CRITICAL ENVIRONMENT SETUP (Perform these steps first):**
+1.  **Clone to Temp:** Clone the repository into a temporary folder (e.g., `git clone https://github.com/coasting-nc/LMUFFB temp_repo`).
+2.  **Flatten:** Move all contents from `temp_repo` into the current root directory (`.`).
+3.  **Detach (Crucial):** **DELETE the `.git` folder** that came with the clone (`rm -rf .git`).
+    *   *Reason:* I do not have write access to the remote. You must treat these as local files only. This prevents "Submodule" errors (mode 160000) and prevents you from attempting `git push`.
+4.  **Verify:** Ensure the files (like `src/`, `CMakeLists.txt`) are in the root directory and that no `.git` folder exists.
+
+**Standard Task Workflow:**
+*   Load Memory: Read `AGENTS_MEMORY.md`.
+*   Load Rules: Read `AGENTS.md`.
+
+Once you have reviewed these documents and performed the setup, please proceed with the following task:
+
+**Task: (...)**
+
+*(Rest of your prompt...)*
