@@ -1048,6 +1048,8 @@ we don't have anymore the plot for _avg deflection_ (I think it was removed when
 avg deflection: is it for all 4 tires? Specify in the variable name and / or plot title.
 
 
+add the settings for which slip angle is ideal for grip. Now it is 0.10, but it could be lower. There is a doc for this. docs\dev_docs\grip_calculation_and_slip_angle_v0.4.12.md
+
 #### Other
 Notes on FFB math formulas and plot visualization
 
