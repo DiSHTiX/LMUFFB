@@ -144,3 +144,14 @@ See: docs\dev_docs\avg_load_issue.md
 *   **Struct**: `GripDiagnostics m_grip_diag` tracks whether approximation was used and the original values.
 *   **Why**: Original telemetry values are overwritten by the fallback logic. To debug or display "raw" data, use `m_grip_diag.original` instead of the modified variables.
 
+
+## 7. Git & Repo Management
+
+### Submodule Trap
+*   **Issue:** Cloning a repo inside an already initialized repo (even if empty) can lead to nested submodules or detached git states.
+*   **Fix:** Ensure the root directory is correctly initialized or cloned into. If working in a provided sandbox with `.git`, configure the remote and fetch rather than cloning into a subdirectory.
+
+### File Operations
+*   **Lesson:** When moving files from a nested repo to root, ensure hidden files (like `.git`) are handled correctly or that the root `.git` is properly synced.
+*   **Tooling:** `replace_with_git_merge_diff` requires exact context matching. If files are modified or desynchronized, `overwrite_file_with_block` is safer.
+
