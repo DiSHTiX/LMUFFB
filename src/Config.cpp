@@ -4,106 +4,115 @@
 #include <iostream>
 
 bool Config::m_ignore_vjoy_version_warning = false;
-bool Config::m_enable_vjoy = false;        // Disabled by default (Replaces vJoyActive logic)
-bool Config::m_output_ffb_to_vjoy = false; // Disabled by default (Safety)
+bool Config::m_enable_vjoy = false;
+bool Config::m_output_ffb_to_vjoy = false;
 
 std::vector<Preset> Config::presets;
 
 void Config::LoadPresets() {
     presets.clear();
     
-    // Built-in Presets
-    presets.push_back({ "Default", 
-        0.5f, 1.0f, 0.15f, 20.0f, 0.05f, 0.0f, 0.0f, // gain, under, sop, scale, smooth, min, over
-        false, 0.5f, false, 0.5f, true, 0.5f, false, 0.5f, // lockup, spin, slide, road
-        false, 40.0f, // invert, max_torque_ref (Default 40Nm for 1.0 Gain)
-        false, 0, 0.0f, // use_manual_slip, bottoming_method, scrub_drag_gain (v0.4.5)
-        1.0f, // rear_align_effect (v0.4.11)
-        1.0f, 0 // steering_shaft_gain, base_force_mode (v0.4.13)
-    });
+    // 1. Default (Uses the defaults defined in Config.h)
+    presets.push_back(Preset("Default"));
     
-    presets.push_back({ "Test: Game Base FFB Only", 
-        0.5f, 0.0f, 0.0f, 5.0f, 0.0f, 0.0f, 0.0f,
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
-        false, 40.0f,
-        false, 0, 0.0f, // v0.4.5
-        0.0f, // rear_align_effect
-        1.0f, 0 // steering_shaft_gain, base_force_mode
-    });
+    // 2. Test: Game Base FFB Only
+    presets.push_back(Preset("Test: Game Base FFB Only")
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSoPScale(5.0f)
+        .SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+    );
 
-    presets.push_back({ "Test: SoP Only", 
-        0.5f, 0.0f, 1.0f, 5.0f, 0.0f, 0.0f, 0.0f,
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
-        false, 40.0f,
-        false, 0, 0.0f, // v0.4.5
-        0.0f, // rear_align_effect (Matched old behavior where boost=0 -> rear=0)
-        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
-    });
+    // 3. Test: SoP Only
+    presets.push_back(Preset("Test: SoP Only")
+        .SetUndersteer(0.0f)
+        .SetSoP(1.0f)
+        .SetSoPScale(5.0f)
+        .SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
 
-    presets.push_back({ "Test: Understeer Only", 
-        0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
-        false, 40.0f,
-        false, 0, 0.0f, // v0.4.5
-        0.0f, // rear_align_effect
-        1.0f, 0 // steering_shaft_gain, base_force_mode
-    });
+    // 4. Test: Understeer Only
+    presets.push_back(Preset("Test: Understeer Only")
+        .SetUndersteer(1.0f)
+        .SetSoP(0.0f)
+        .SetSoPScale(0.0f)
+        .SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+    );
 
-    presets.push_back({ "Test: Textures Only", 
-        0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        true, 1.0f, false, 1.0f, true, 1.0f, true, 1.0f,
-        false, 40.0f,
-        false, 0, 0.0f, // v0.4.5
-        0.0f, // rear_align_effect
-        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
-    });
+    // 5. Test: Textures Only
+    presets.push_back(Preset("Test: Textures Only")
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSoPScale(0.0f)
+        .SetSmoothing(0.0f)
+        .SetLockup(true, 1.0f)
+        .SetSpin(true, 1.0f)
+        .SetSlide(true, 1.0f)
+        .SetRoad(true, 1.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
 
-    presets.push_back({ "Test: Rear Align Torque Only", 
-        1.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f, // gain, under, sop(0), scale, smooth, min, over(0)
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f, // No textures
-        false, 40.0f,
-        false, 0, 0.0f, // v0.4.5
-        1.0f, // rear_align_effect=1.0
-        1.0f, 0 // steering_shaft_gain, base_force_mode (Native)
-    });
+    // 6. Test: Rear Align Torque Only
+    presets.push_back(Preset("Test: Rear Align Torque Only")
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(1.0f)
+    );
 
-    presets.push_back({ "Test: SoP Base Only", 
-        1.0f, 0.0f, 1.0f, 20.0f, 0.0f, 0.0f, 0.0f, // sop=1.0, over=0
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f,
-        false, 40.0f,
-        false, 0, 0.0f,
-        0.0f, // rear_align_effect=0
-        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
-    });
+    // 7. Test: SoP Base Only
+    presets.push_back(Preset("Test: SoP Base Only")
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(1.0f)
+        .SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
 
-    presets.push_back({ "Test: Slide Texture Only", 
-        1.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f,
-        false, 0.0f, false, 0.0f, true, 1.0f, false, 0.0f, // Slide enabled, gain 1.0
-        false, 40.0f,
-        false, 0, 0.0f,
-        0.0f,
-        1.0f, 2 // Muted
-    });
+    // 8. Test: Slide Texture Only
+    presets.push_back(Preset("Test: Slide Texture Only")
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSmoothing(0.0f)
+        .SetSlide(true, 1.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
 
-    presets.push_back({ "Test: No Effects", 
-        1.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f, // gain, under, sop, scale, smooth, min, over
-        false, 0.0f, false, 0.0f, false, 0.0f, false, 0.0f, // lockup, spin, slide, road
-        false, 40.0f, // invert, max_torque_ref
-        false, 0, 0.0f, // use_manual_slip, bottoming_method, scrub_drag_gain
-        0.0f, // rear_align_effect
-        1.0f, 2 // steering_shaft_gain, base_force_mode (Muted)
-    });
+    // 9. Test: No Effects
+    presets.push_back(Preset("Test: No Effects")
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
 
-    // Parse User Presets from config.ini [Presets] section
+    // --- Parse User Presets from config.ini ---
+    // (Keep the existing parsing logic below, it works fine for file I/O)
     std::ifstream file("config.ini");
     if (!file.is_open()) return;
 
     std::string line;
     bool in_presets = false;
     
-    // Preset parsing state
     std::string current_preset_name = "";
-    Preset current_preset;
+    Preset current_preset; // Uses default constructor with default values
     bool preset_pending = false;
 
     while (std::getline(file, line)) {
@@ -122,15 +131,12 @@ void Config::LoadPresets() {
             
             if (line == "[Presets]") {
                 in_presets = true;
-            } else if (line.rfind("[Preset:", 0) == 0) { // e.g. [Preset:My Custom]
-                // Start a new preset
-                in_presets = false; // We are in a specific preset block now
+            } else if (line.rfind("[Preset:", 0) == 0) { 
+                in_presets = false; 
                 size_t end_pos = line.find(']');
                 if (end_pos != std::string::npos) {
                     current_preset_name = line.substr(8, end_pos - 8);
-                    // Initialize with default values to be safe
-                    current_preset = presets[0]; 
-                    current_preset.name = current_preset_name;
+                    current_preset = Preset(current_preset_name); // Reset to defaults
                     preset_pending = true;
                 }
             } else {
@@ -146,6 +152,7 @@ void Config::LoadPresets() {
                 std::string value;
                 if (std::getline(is_line, value)) {
                     try {
+                        // Map keys to struct members
                         if (key == "gain") current_preset.gain = std::stof(value);
                         else if (key == "understeer") current_preset.understeer = std::stof(value);
                         else if (key == "sop") current_preset.sop = std::stof(value);
@@ -163,12 +170,10 @@ void Config::LoadPresets() {
                         else if (key == "road_gain") current_preset.road_gain = std::stof(value);
                         else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
                         else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
-                        // New Params (v0.4.5)
                         else if (key == "use_manual_slip") current_preset.use_manual_slip = std::stoi(value);
                         else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
                         else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = std::stof(value);
                         else if (key == "rear_align_effect") current_preset.rear_align_effect = std::stof(value);
-                        // New Params (v0.4.13)
                         else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
                         else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
                     } catch (...) {}
@@ -177,7 +182,6 @@ void Config::LoadPresets() {
         }
     }
     
-    // Push the last one
     if (preset_pending && !current_preset_name.empty()) {
         current_preset.name = current_preset_name;
         presets.push_back(current_preset);

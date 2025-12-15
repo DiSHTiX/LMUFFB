@@ -318,19 +318,38 @@ public:
         result.approximated = false;
         result.slip_angle = 0.0;
         
+        // ==================================================================================
+        // CRITICAL LOGIC FIX (v0.4.14) - DO NOT MOVE INSIDE CONDITIONAL BLOCK
+        // ==================================================================================
+        // We MUST calculate slip angle every single frame, regardless of whether the 
+        // grip fallback is triggered or not.
+        //
+        // Reason 1 (Physics State): The Low Pass Filter (LPF) inside calculate_slip_angle 
+        //           relies on continuous execution. If we skip frames (because telemetry 
+        //           is good), the 'prev_slip' state becomes stale. When telemetry eventually 
+        //           fails, the LPF will smooth against ancient history, causing a math spike.
+        //
+        // Reason 2 (Dependency): The 'Rear Aligning Torque' effect (calculated later) 
+        //           reads 'result.slip_angle'. If we only calculate this when grip is 
+        //           missing, the Rear Torque effect will toggle ON/OFF randomly based on 
+        //           telemetry health, causing violent kicks and "reverse FFB" sensations.
+        // ==================================================================================
+        
+        double slip1 = calculate_slip_angle(w1, prev_slip1);
+        double slip2 = calculate_slip_angle(w2, prev_slip2);
+        result.slip_angle = (slip1 + slip2) / 2.0;
+
         // Fallback condition: Grip is essentially zero BUT car has significant load
         if (result.value < 0.0001 && avg_load > 100.0) {
             result.approximated = true;
             
             // Low Speed Cutoff (v0.4.6)
             if (car_speed < 5.0) {
-                result.slip_angle = 0.0;
-                result.value = 1.0; // Force full grip at low speeds
+                // Note: We still keep the calculated slip_angle in result.slip_angle
+                // for visualization/rear torque, even if we force grip to 1.0 here.
+                result.value = 1.0; 
             } else {
-                double slip1 = calculate_slip_angle(w1, prev_slip1);
-                double slip2 = calculate_slip_angle(w2, prev_slip2);
-                result.slip_angle = (slip1 + slip2) / 2.0;
-                
+                // Use the pre-calculated slip angle
                 double excess = (std::max)(0.0, result.slip_angle - 0.10);
                 result.value = 1.0 - (excess * 4.0);
             }
@@ -778,10 +797,6 @@ public:
             delta_l = (std::max)(-0.01, (std::min)(0.01, delta_l));
             delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
 
-            // Store for next frame
-            m_prev_vert_deflection[0] = vert_l;
-            m_prev_vert_deflection[1] = vert_r;
-            
             // Amplify sudden changes
             double road_noise = (delta_l + delta_r) * 50.0 * m_road_texture_gain; // Scaled for Nm (was 5000)
             
@@ -811,8 +826,6 @@ public:
                 double susp_r = fr.mSuspForce;
                 double dForceL = (susp_l - m_prev_susp_force[0]) / dt;
                 double dForceR = (susp_r - m_prev_susp_force[1]) / dt;
-                m_prev_susp_force[0] = susp_l;
-                m_prev_susp_force[1] = susp_r;
                 
                 double max_dForce = (std::max)(dForceL, dForceR);
                 // Threshold: 100,000 N/s
@@ -877,6 +890,21 @@ public:
             norm_force *= -1.0;
         }
         
+        // ==================================================================================
+        // CRITICAL: UNCONDITIONAL STATE UPDATES (Fix for Toggle Spikes)
+        // ==================================================================================
+        // We must update history variables every frame, even if effects are disabled.
+        // This prevents "stale state" spikes when effects are toggled on.
+        
+        // Road Texture State
+        m_prev_vert_deflection[0] = fl.mVerticalTireDeflection;
+        m_prev_vert_deflection[1] = fr.mVerticalTireDeflection;
+
+        // Bottoming Method B State
+        m_prev_susp_force[0] = fl.mSuspForce;
+        m_prev_susp_force[1] = fr.mSuspForce;
+        // ==================================================================================
+
         // --- SNAPSHOT LOGIC ---
         // Capture all internal states for visualization
         {

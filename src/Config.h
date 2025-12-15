@@ -7,34 +7,69 @@
 
 struct Preset {
     std::string name;
-    float gain;
-    float understeer;
-    float sop;
-    float sop_scale;
-    float sop_smoothing;
-    float min_force;
-    float oversteer_boost;
-    bool lockup_enabled;
-    float lockup_gain;
-    bool spin_enabled;
-    float spin_gain;
-    bool slide_enabled;
-    float slide_gain;
-    bool road_enabled;
-    float road_gain;
-    // New Params (v0.4.4)
-    bool invert_force;
-    float max_torque_ref;
-    // New Params (v0.4.5)
-    bool use_manual_slip;
-    int bottoming_method;
-    float scrub_drag_gain;
-    // New Params (v0.4.11)
-    float rear_align_effect;
-    // New Params (v0.4.13)
-    float steering_shaft_gain;
-    int base_force_mode;
     
+    // 1. Define Defaults inline (Matches "Default" preset logic)
+    float gain = 0.5f;
+    float understeer = 1.0f;
+    float sop = 0.15f;
+    float sop_scale = 20.0f;
+    float sop_smoothing = 0.05f;
+    float min_force = 0.0f;
+    float oversteer_boost = 0.0f;
+    
+    bool lockup_enabled = false;
+    float lockup_gain = 0.5f;
+    
+    bool spin_enabled = false;
+    float spin_gain = 0.5f;
+    
+    bool slide_enabled = true;
+    float slide_gain = 0.5f;
+    
+    bool road_enabled = false;
+    float road_gain = 0.5f;
+    
+    bool invert_force = false;
+    float max_torque_ref = 40.0f;
+    
+    bool use_manual_slip = false;
+    int bottoming_method = 0;
+    float scrub_drag_gain = 0.0f;
+    
+    float rear_align_effect = 1.0f;
+    
+    float steering_shaft_gain = 1.0f;
+    int base_force_mode = 0; // 0=Native
+
+    // 2. Constructor
+    Preset(std::string n) : name(n) {}
+    Preset() : name("Unnamed") {} // Default constructor for file loading
+
+    // 3. Fluent Setters (The "Python Dictionary" feel)
+    Preset& SetGain(float v) { gain = v; return *this; }
+    Preset& SetUndersteer(float v) { understeer = v; return *this; }
+    Preset& SetSoP(float v) { sop = v; return *this; }
+    Preset& SetSoPScale(float v) { sop_scale = v; return *this; }
+    Preset& SetSmoothing(float v) { sop_smoothing = v; return *this; }
+    Preset& SetMinForce(float v) { min_force = v; return *this; }
+    Preset& SetOversteer(float v) { oversteer_boost = v; return *this; }
+    
+    Preset& SetLockup(bool enabled, float g) { lockup_enabled = enabled; lockup_gain = g; return *this; }
+    Preset& SetSpin(bool enabled, float g) { spin_enabled = enabled; spin_gain = g; return *this; }
+    Preset& SetSlide(bool enabled, float g) { slide_enabled = enabled; slide_gain = g; return *this; }
+    Preset& SetRoad(bool enabled, float g) { road_enabled = enabled; road_gain = g; return *this; }
+    
+    Preset& SetInvert(bool v) { invert_force = v; return *this; }
+    Preset& SetMaxTorque(float v) { max_torque_ref = v; return *this; }
+    
+    Preset& SetManualSlip(bool v) { use_manual_slip = v; return *this; }
+    Preset& SetBottoming(int method) { bottoming_method = method; return *this; }
+    Preset& SetScrub(float v) { scrub_drag_gain = v; return *this; }
+    Preset& SetRearAlign(float v) { rear_align_effect = v; return *this; }
+    
+    Preset& SetShaftGain(float v) { steering_shaft_gain = v; return *this; }
+    Preset& SetBaseMode(int v) { base_force_mode = v; return *this; }
+
     // Apply this preset to an engine instance
     void Apply(FFBEngine& engine) const {
         engine.m_gain = gain;

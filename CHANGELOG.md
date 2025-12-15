@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.14] - 2025-12-14
+### Fixed
+- **Critical Physics Instability**: Fixed a major bug where physics state variables (Slip Angle, Road Texture history, Bottoming history) were only updated conditionally. This caused violent "reverse FFB" kicks and spikes when effects were toggled or when telemetry dropped frames.
+    - Moved `calculate_slip_angle` outside the conditional block in `calculate_grip` to ensure LPF state is always current.
+    - Moved `m_prev_vert_deflection` and `m_prev_susp_force` updates to the end of `calculate_force` to ensure unconditional updates.
+- **Refactoring**: Updated `Config` system to use the Fluent Builder Pattern for cleaner preset definitions.
+
+### Added
+- **Regression Tests**: Added a suite of regression tests (`test_regression_road_texture_toggle`, `test_regression_bottoming_switch`, `test_regression_rear_torque_lpf`) to prevent recurrence of state-related bugs.
+- **Stress Test**: Added a fuzzing test (`test_stress_stability`) to ensure stability under random inputs.
+
 ## [0.4.13] - 2025-12-14
 ### Added
 - **Base Force Debugging Tools**: Added advanced controls for isolating and tuning the primary steering force.

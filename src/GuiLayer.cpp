@@ -8,7 +8,11 @@
 
 // Define STB_IMAGE_WRITE_IMPLEMENTATION only once in the project (here is fine)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+// Suppress deprecation warning for sprintf in stb_image_write.h (third-party library)
+#pragma warning(push)
+#pragma warning(disable: 4996)
 #include "stb_image_write.h"
+#pragma warning(pop)
 #include <ctime>
 
 #ifdef ENABLE_IMGUI
