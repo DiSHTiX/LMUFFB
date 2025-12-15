@@ -201,7 +201,7 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
     if (std::abs(normalizedForce) > 0.99) {
         static int clip_log = 0;
         if (clip_log++ % 400 == 0) { // Log approx once per second at 400Hz
-            std::cout << "[DI] WARNING: Output saturated at " << normalizedForce << ". Possible feedback loop or scaling issue." << std::endl;
+            std::cout << "[DI] WARNING: FFB Output Saturated (Clipping). Force: " << normalizedForce << ". Reduce Gain or increase Max Torque Ref." << std::endl;
         }
     }
 
