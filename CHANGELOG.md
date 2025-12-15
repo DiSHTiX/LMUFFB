@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.15] - 2025-12-15
+### Changed
+- **User Experience Improvements**: Removed all vJoy and Joystick Gremlin-related annoyances for users.
+    - **Removed Startup Popups**: Eliminated vJoy DLL not found error popup, vJoy version mismatch warning, and rF2 shared memory plugin conflict warning. The app now starts silently without bothering users about optional components.
+    - **Simplified Documentation**: Completely rewrote `README.md` and `README.txt` to focus on DirectInput-only setup. Removed all references to vJoy installation, Joystick Gremlin configuration, and rFactor 2 shared memory plugin setup.
+    - **Streamlined Setup**: Installation now requires only: (1) Reduce wheel strength in device driver, (2) Configure LMU to disable in-game FFB, (3) Select your wheel in lmuFFB. No third-party tools needed.
+
+### Technical Notes
+- vJoy code infrastructure remains in place for backward compatibility and potential future use, but runs silently without user interaction
+- Existing config files with vJoy settings will continue to work without errors
+- This is a user-facing cleanup only; complete code removal is planned for v0.5.0+
+
 ## [0.4.14] - 2025-12-14
 ### Fixed
 - **Critical Physics Instability**: Fixed a major bug where physics state variables (Slip Angle, Road Texture history, Bottoming history) were only updated conditionally. This caused violent "reverse FFB" kicks and spikes when effects were toggled or when telemetry dropped frames.

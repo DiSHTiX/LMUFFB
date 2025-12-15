@@ -407,6 +407,18 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.15] - 2025-12-15
+### Changed
+- **User Experience Improvements**: Removed all vJoy and Joystick Gremlin-related annoyances for users.
+    - **Removed Startup Popups**: Eliminated vJoy DLL not found error popup, vJoy version mismatch warning, and rF2 shared memory plugin conflict warning. The app now starts silently without bothering users about optional components.
+    - **Simplified Documentation**: Completely rewrote `README.md` and `README.txt` to focus on DirectInput-only setup. Removed all references to vJoy installation, Joystick Gremlin configuration, and rFactor 2 shared memory plugin setup.
+    - **Streamlined Setup**: Installation now requires only: (1) Reduce wheel strength in device driver, (2) Configure LMU to disable in-game FFB, (3) Select your wheel in lmuFFB. No third-party tools needed.
+
+### Technical Notes
+- vJoy code infrastructure remains in place for backward compatibility and potential future use, but runs silently without user interaction
+- Existing config files with vJoy settings will continue to work without errors
+- This is a user-facing cleanup only; complete code removal is planned for v0.5.0+
+
 ## [0.4.14] - 2025-12-14
 ### Fixed
 - **Critical Physics Instability**: Fixed a major bug where physics state variables (Slip Angle, Road Texture history, Bottoming history) were only updated conditionally. This caused violent "reverse FFB" kicks and spikes when effects were toggled or when telemetry dropped frames.
@@ -1746,26 +1758,14 @@ void FFBThread() {
     long axis_min = 1;
     long axis_max = 32768;
     
-    // Attempt to load vJoy (but don't acquire yet)
+    // Attempt to load vJoy (silently - no popups if missing)
     bool vJoyDllLoaded = false;
     if (DynamicVJoy::Get().Load()) {
         vJoyDllLoaded = true;
-        // Version Check
-        SHORT ver = DynamicVJoy::Get().GetVersion();
-        std::cout << "[vJoy] DLL Version: " << std::hex << ver << std::dec << std::endl;
-        // Expected 2.1.9 (0x219)
-        if (ver < 0x218 && !Config::m_ignore_vjoy_version_warning) {
-             std::string msg = "vJoy Driver Version Mismatch.\n\nDetected: " + std::to_string(ver) + "\nExpected: 2.1.8 or higher.\n\n"
-                               "Some features may not work. Please update vJoy.";
-             int result = MessageBoxA(NULL, msg.c_str(), "LMUFFB Warning", MB_ICONWARNING | MB_OKCANCEL);
-             if (result == IDCANCEL) {
-                 Config::m_ignore_vjoy_version_warning = true;
-                 Config::Save(g_engine); // Save immediately
-             }
-        }
+        // Version check removed - vJoy is optional, no need to warn users
     } else {
-        std::cerr << "[vJoy] Failed to load vJoyInterface.dll. Please ensure it is in the same folder as the executable." << std::endl;
-        MessageBoxA(NULL, "Failed to load vJoyInterface.dll.\n\nPlease ensure vJoy is installed and the DLL is in the app folder.", "LMUFFB Error", MB_ICONERROR | MB_OK);
+        // vJoy not found - this is fine, DirectInput FFB works without it
+        std::cout << "[vJoy] Not found (optional component, not required)" << std::endl;
     }
 
     // Track acquisition state locally
@@ -1885,9 +1885,9 @@ int main(int argc, char* argv[]) {
     }
 
     // 1. Setup Shared Memory
-    // Check for conflicts
+    // Check for conflicts (silent - no popup, just log to console)
     if (GameConnector::Get().CheckLegacyConflict()) {
-        if (!headless) MessageBoxA(NULL, "Legacy rFactor 2 Shared Memory Plugin detected.\nThis may conflict with LMU. Please remove 'rFactor2SharedMemoryMapPlugin64.dll' if issues occur.", "Warning", MB_ICONWARNING | MB_OK);
+        std::cout << "[Info] Legacy rF2 plugin detected (not a problem for LMU 1.2+)" << std::endl;
     }
 
     if (!GameConnector::Get().TryConnect()) {
@@ -1933,7 +1933,7 @@ int main(int argc, char* argv[]) {
 ```markdown
 # lmuFFB
 
-A FFB app for LMU, similar to irFFB and Marvin’s iRacing App
+A FFB app for LMU, similar to irFFB and Marvin's iRacing App
 
 Experimental alpha version.
 
@@ -1997,13 +1997,7 @@ Your testing and feedback is greatly appreciated! 🙏
 
 ## Installation & Configuration (LMU 1.2+)
 
-### 1. Prerequisites
-
-*   **vJoy Driver**: Install version **2.1.9.1** (by jshafer817) or compatible. Download from [vJoy releases](https://github.com/jshafer817/vJoy/releases).
-    *   *Why vJoy?* The game needs a "dummy" device to bind steering to, so it doesn't try to send its own FFB to your real wheel while lmuFFB is controlling it.
-    *   *Tip:* **Disable all vJoy FFB Effects** in the "Configure vJoy" tool, except "Constant Force" (though lmuFFB drives your wheel directly, this prevents vJoy from trying to interfere if you use legacy mode).
-
-### 2. Step-by-Step Setup
+### Step-by-Step Setup
 
 **⚠️ STEP 0: Reduce Wheel Strength FIRST (CRITICAL)**
 1.  **BEFORE doing anything else**, open your wheel device driver (Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.)
@@ -2012,51 +2006,12 @@ Your testing and feedback is greatly appreciated! 🙏
     *   Belt/Gear Wheels: Set to **20-30%**
 3.  **Save the settings** and keep the driver software open for adjustments
 
-**A. Configure vJoy**
-1.  Open **Configure vJoy**.
-2.  Set up **Device 1** with at least **X Axis** enabled.
-3.  Click Apply.
-
-**B. Configure Le Mans Ultimate (LMU)**
+**A. Configure Le Mans Ultimate (LMU)**
 1.  Start LMU.
 2.  Go to **Settings > Graphics**:
     *   Set **Display Mode** to **Borderless**. (Prevents crashes/minimizing).
 3.  Go to **Controls / Bindings**.
-    *   *Screenshot:* ![LMU Controls](docs/screenshots/lmu_controls.png) *(To be added)*
-4.  **Steering Axis**: 
-    *   **Method A (Direct - Recommended):** Bind to your **Physical Wheel**.
-        
-        **Step-by-Step Setup:**
-        1.  **Clean Slate:** Close Joystick Gremlin and vJoy Feeder if running.
-        2.  **Game Setup:**
-            *   Start Le Mans Ultimate.
-            *   Bind **Steering** directly to your **Physical Wheel** (e.g., Simucube, Fanatec, Moza, Logitech).
-            *   **Important:** Set In-Game FFB Strength to **0%** (or "Off").
-        3.  **App Setup:**
-            *   Start LMUFFB.
-            *   **CRITICAL STEP:** In the LMUFFB window, look for the **"FFB Device"** dropdown menu.
-            *   Click it and select your **Physical Wheel** from the list.
-            *   *Note:* You **must** do this manually. If the dropdown says "Select Device...", the app is calculating forces but sending them nowhere.
-        4.  **Verify:**
-            *   Check the console for errors. If you select your wheel and **do not** see a red error like `[DI] Failed to acquire`, then it is connected!
-            *   Drive the car. You should feel the physics-based FFB.
-            *   **If FFB feels "backwards" or "inverted"** (wheel pushes away from center instead of pulling toward it), check the **"Invert FFB"** checkbox in the lmuFFB GUI to reverse the force direction.
-        
-        **Troubleshooting - No FFB:**
-        *   **Check Console Messages:** While driving, look for `[DI Warning] Device unavailable` repeating in the console.
-            *   **YES, I see the warning:** The game has 'Locked' your wheel in Exclusive Mode. You cannot use the Direct Method. You must use Method B (vJoy Bridge).
-            *   **NO, console is clean:** The game might be overwriting the signal. Try **Alt-Tabbing** out of the game. If FFB suddenly kicks in when the game is in the background, it confirms the game is interfering. Use Method B.
-        *   **Try Adjusting Settings:** If you feel no FFB, try tweaking these values in lmuFFB:
-            *   **Master Gain:** Increase from 0.5 to 1.0 or higher.
-            *   **SOP (Seat of Pants):** Increase from 0.0 to 0.3 (you should feel lateral forces in corners).
-            *   **Understeer Effect:** Ensure it's at 1.0 (default).
-        
-        Method A vs Method B:
-        *   *Pros:* Simplest setup. No vJoy required.
-        *   *Cons:* If LMU "locks" the device (Exclusive Mode), LMUFFB might fail to send forces. If this happens, try Method B.
-    *   **Method B (vJoy Bridge - Compatibility):** Bind to **vJoy Device (Axis Y)**.
-        *   *Requirement:* You MUST use **Joystick Gremlin** (or similar) to map your Physical Wheel to vJoy Axis Y. The "vJoy Demo Feeder" is NOT sufficient for driving.
-        *   *Why Axis Y?* LMUFFB uses Axis X for FFB monitoring (if enabled). Using Y prevents conflicts.
+4.  **Steering Axis**: Bind to your **Physical Wheel** (e.g., Simucube, Fanatec, Moza, Logitech).
 5.  **In-Game Force Feedback settings in LMU**:
     *   **FFB Strength**: reduce to **0%** (Off).
     *   **Effects**: Set "Force Feedback Effects" to **Off**.
@@ -2064,10 +2019,9 @@ Your testing and feedback is greatly appreciated! 🙏
     *   **Advanced**: Set "Collision Strength" and "Steering Torque Sensitivity" to **0%**.
     *   **Tweaks**: Disable "Use Constant Steering Force Effect".
 
-**C. Configure lmuFFB**
+**B. Configure lmuFFB**
 1.  Run `LMUFFB.exe`.
 2.  **FFB Device**: In the dropdown, select your **Physical Wheel** (e.g., "Simucube 2 Pro", "Fanatec DD1").
-    *   *Note:* Do NOT select the vJoy device here. You want lmuFFB to talk to your real wheel.
 3.  **Master Gain**: Start low (0.5) and increase.
 4.  **SOP Effect**: Start at **0.0**. This effect injects lateral G-force. On High-Torque wheels (DD), this can cause violent oscillation if set too high.
 5.  Drive! You should feel force feedback generated by the app.
@@ -2075,13 +2029,8 @@ Your testing and feedback is greatly appreciated! 🙏
 ### Troubleshooting
 
 - **Wheel Jerking / Fighting**: You likely have a "Double FFB" conflict.
-    - Ensure in-game Steering is bound to **vJoy**, NOT your real wheel.
--   **Wheel Jerking / Fighting**: You likely have a "Double FFB" conflict.
-    -   Ensure in-game Steering is bound to **vJoy**, NOT your real wheel.
-    -   Ensure in-game FFB is sending to vJoy.
-    -   If the wheel oscillates on straights, reduce **SOP Effect** to 0.0 and increase smoothing.
--   **No Steering (Car won't turn)**:
-    -   If you used **Method B (vJoy)**, you need **Joystick Gremlin** running to bridge your wheel to vJoy. The "vJoy Demo Feeder" is for testing only.
+    - Ensure in-game FFB Strength is set to **0%** (Off).
+    - If the wheel oscillates on straights, reduce **SOP Effect** to 0.0 and increase smoothing.
 -   **Inverted FFB (Force pushes away from center)**:
     -   If the FFB feels "backwards" or "inverted" while driving (wheel pushes away from center instead of pulling toward it), check the **"Invert FFB"** checkbox in the lmuFFB GUI.
     -   This reverses the force direction to match your wheel's expected behavior.
@@ -2092,11 +2041,12 @@ Your testing and feedback is greatly appreciated! 🙏
     -   Then adjust the "Gain" slider in lmuFFB to fine-tune.
 -   **No FFB**: 
     -   Ensure the "FFB Device" in lmuFFB is your real wheel.
-    -   Check if the Shared Memory is working (Does "Connected to Shared Memory" appear in the console?).
+    -   Check if the Shared Memory is working (Does "Connected to Le Mans Ultimate" appear in the GUI?).
     -   Verify you're running LMU 1.2 or later (earlier versions don't have native shared memory).
--   **"vJoyInterface.dll not found"**: Ensure the DLL is in the same folder as the executable. You can grab it from `C:\\Program Files\\vJoy\\SDK\\lib\\amd64\\` or download from the [vJoy GitHub](https://github.com/shauleiz/vJoy/tree/master/SDK/lib/amd64/vJoyInterface.dll).
-    -   *Alternative:* You can try moving `LMUFFB.exe` directly into `C:\\Program Files\\vJoy\\x64\\` if you have persistent DLL issues.
--   **"Could not open file mapping object"**: Start the game and load a track first. The shared memory only activates when driving.
+-   **Device Unavailable**: 
+    -   If you see `[DI Warning] Device unavailable` in the console, the game may have locked your wheel in Exclusive Mode.
+    -   Try **Alt-Tabbing** out of the game. If FFB suddenly works when the game is in the background, it confirms the game is interfering.
+    -   Some wheels work better than others with simultaneous access - this is a hardware/driver limitation.
 
 ## Known Issues (v0.4.2+)
 
@@ -2138,7 +2088,6 @@ For feedback, questions, or support:
 *   [FFB Effects & Customization Guide](docs/ffb_effects.md)
 *   [FFB Customization Guide (Legacy)](docs/ffb_customization.md)
 *   [Telemetry Data Reference](docs/dev_docs/telemetry_data_reference.md)
-*   [vJoy Compatibility Guide](docs/vjoy_compatibility.md)
 *   [Comparisons with Other Apps](docs/comparisons.md)
 *   [FFB Math Formulas](docs/dev_docs/FFB_formulas.md)
 
@@ -2162,40 +2111,27 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
     *   **Dynamic Oversteer**: Counter-steering force suggestion based on rear axle alignment torque (v0.2.2).
     *   **Progressive Lockup**: Feel the edge of tire braking limit before full lock (v0.2.2).
     *   **Traction Loss**: Feel the rear "float" and spin up under power (v0.2.2).
-*   **Easy Installation**: Inno Setup installer script included to manage dependencies (vJoy, Plugins).
 
 
 ## Building (for developers)
 
-### Prerequisites for all methods
+### Prerequisites
 *   **Compiler**: MSVC (Visual Studio 2022 Build Tools) or generic C++ compiler.
 *   **Build System**: CMake (3.10+).
-*   **vJoy**:
-    *   **Users**: Install the **vJoy Driver**. We recommend version **2.1.9.1** (by jshafer817) for Windows 10/11 compatibility. See [vJoy Compatibility Guide](docs/vjoy_compatibility.md) for download links and details.
-    *   **Developers**: The vJoy Installer typically installs the **SDK** (headers and libraries) to `C:\Program Files\vJoy\SDK`. lmuFFB links against this SDK.
 *   **Dear ImGui (Optional)**: Download from [GitHub](https://github.com/ocornut/imgui) and place in `vendor/imgui` to enable the GUI.
 
 ### Option A: Visual Studio 2022 (IDE)
 1.  Open Visual Studio.
 2.  Select "Open a local folder" and choose the repo root.
 3.  Visual Studio will auto-detect `CMakeLists.txt`.
-4.  Open `CMakeSettings.json` (or Project Settings) to verify the variable `VJOY_SDK_DIR` points to your vJoy SDK location (Default: `C:/Program Files/vJoy/SDK`).
-5.  Select **Build > Build All**.
+4.  Select **Build > Build All**.
 
 ### Option B: Visual Studio Code
 1.  Install **VS Code**.
 2.  Install extensions: **C/C++** (Microsoft) and **CMake Tools** (Microsoft).
 3.  Open the repo folder in VS Code.
 4.  When prompted to configure CMake, select your installed compiler kit (e.g., *Visual Studio Community 2022 Release - x86_amd64*).
-5.  Open `.vscode/settings.json` (or create it) to set the vJoy path:
-    ```json
-    {
-        "cmake.configureSettings": {
-            "VJOY_SDK_DIR": "C:/Path/To/vJoy/SDK"
-        }
-    }
-    ```
-6.  Click **Build** in the bottom status bar.
+5.  Click **Build** in the bottom status bar.
 
 ### Option C: Command Line (Windows)
 1.  Open the Powershell.
@@ -2204,15 +2140,6 @@ The application reads telemetry from the rFactor 2 engine (Le Mans Ultimate) via
     ```cmd
     'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake --build build --config Release --clean-first
     ```
-
-## Building the Installer (WIP, not yet supported)
-
-To create the `LMUFFB_Setup.exe`:
-
-1.  **Install Inno Setup**: Download from [jrsoftware.org](https://jrsoftware.org/isdl.php).
-2.  **Build the Project**: Ensure you have built the `Release` version of `LMUFFB.exe` using Visual Studio.
-3.  **Run Compiler**: Open `installer/lmuffb.iss` in Inno Setup Compiler and click **Compile**.
-4.  **Output**: The installer will be generated in `installer/Output/`.
 
 ---
 
@@ -2237,21 +2164,7 @@ This change ensures consistent FFB strength across different hardware and makes 
 
 ### rFactor 2 Compatibility
 
-**Note**: rFactor 2 is **not supported** in v0.4.0+. For rFactor 2, please use earlier versions of lmuFFB (v0.3.x). See the [rFactor 2 Setup Guide](#rfactor-2-setup-legacy) at the end of this document.
-
-
-## rFactor 2 Setup (Legacy)
-
-**Note**: rFactor 2 support was removed in v0.4.0. To use lmuFFB with rFactor 2, you must download and use **version 0.3.x** from the [releases page](https://github.com/coasting-nc/LMUFFB/releases).
-
-### Prerequisites for rFactor 2 (v0.3.x only):
-
-1. **rF2 Shared Memory Plugin**: Download `rFactor2SharedMemoryMapPlugin64.dll` from [TheIronWolfModding's GitHub](https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin#download)
-2. **Installation**: Place the DLL in `rFactor 2/Plugins/` directory
-3. **Activation**: Enable the plugin in rFactor 2's game settings: edit [Game Folder]\UserData\player\CustomPluginVariables.JSON , set " Enabled" value to 1, and restart rF2  
-4. Follow the same vJoy and wheel configuration steps as described above for LMU
-
-For detailed rFactor 2 setup instructions, refer to the README included with v0.3.x releases.
+**Note**: rFactor 2 is **not supported** in v0.4.0+. For rFactor 2, please use earlier versions of lmuFFB (v0.3.x). See the [releases page](https://github.com/coasting-nc/LMUFFB/releases) for v0.3.x downloads.
 
 ```
 
@@ -2341,31 +2254,7 @@ Your testing and feedback is greatly appreciated!
 
 rFactor 2 Compatibility:
 rFactor 2 is NOT SUPPORTED in v0.4.0+. For rFactor 2, please use earlier 
-versions of lmuFFB (v0.3.x). See the rFactor 2 Setup Guide at the end of 
-this document.
-
-
-PREREQUISITES (LMU 1.2+)
-------------------------
-
-1. vJoy Driver (Version 2.1.9.1 recommended)
-   Download: https://github.com/jshafer817/vJoy/releases
-   
-   Why vJoy? LMU needs a "dummy" device to bind steering to, so it doesn't 
-   try to send its own FFB to your real wheel while lmuFFB is controlling it.
-   
-   Configuration:
-   - Open "Configure vJoy" tool
-   - Set up Device 1 with at least X Axis enabled
-   - Disable all vJoy FFB Effects EXCEPT "Constant Force"
-   - Click Apply
-
-2. vJoyInterface.dll (Required for lmuFFB to run)
-   This DLL MUST be in the same folder as LMUFFB.exe
-   
-   Download from:
-   - C:\Program Files\vJoy\SDK\lib\amd64\ (if you installed vJoy SDK)
-   - https://github.com/shauleiz/vJoy/tree/master/SDK/lib/amd64/vJoyInterface.dll
+versions of lmuFFB (v0.3.x). See the releases page for v0.3.x downloads.
 
 
 STEP-BY-STEP SETUP
@@ -2388,54 +2277,11 @@ A. Configure Le Mans Ultimate (LMU)
       - Set Display Mode to "Borderless" (Prevents crashes/minimizing)
    
    3. Go to Controls / Bindings
-   4. Steering Axis - Choose ONE method:
-      
-      METHOD A (Direct - Recommended):
-      Step-by-Step Setup:
-      1. Clean Slate: Close Joystick Gremlin and vJoy Feeder if running
-      2. Game Setup:
-         - Start Le Mans Ultimate
-         - Bind Steering directly to your Physical Wheel 
-           (e.g., Simucube, Fanatec, Moza, Logitech)
-         - IMPORTANT: Set In-Game FFB Strength to 0% (or "Off")
-      3. App Setup:
-         - Start LMUFFB
-         - CRITICAL STEP: In the LMUFFB window, find the "FFB Device" dropdown
-         - Click it and select your Physical Wheel from the list
-         - Note: You MUST do this manually. If it says "Select Device...", 
-           the app is calculating forces but sending them nowhere
-      4. Verify:
-         - Check the console for errors. If you select your wheel and do NOT 
-            see a red error like "[DI] Failed to acquire", then it is connected!
-         - Drive the car. You should feel the physics-based FFB
-         - If FFB feels "backwards" or "inverted" (wheel pushes away from 
-            center instead of pulling toward it), check the "Invert FFB" 
-            checkbox in the lmuFFB GUI to reverse the force direction
-      
-      Troubleshooting - No FFB:
-      - Check Console Messages: While driving, look for "[DI Warning] Device 
-        unavailable" repeating in the console
-        * YES, I see the warning: The game has 'Locked' your wheel in Exclusive 
-          Mode. You cannot use the Direct Method. You must use Method B (vJoy Bridge)
-        * NO, console is clean: The game might be overwriting the signal. Try 
-          Alt-Tabbing out of the game. If FFB suddenly kicks in when the game 
-          is in the background, it confirms the game is interfering. Use Method B
-      - Try Adjusting Settings: If you feel no FFB, try tweaking these values:
-        * Master Gain: Increase from 0.5 to 1.0 or higher
-        * SOP (Seat of Pants): Increase from 0.0 to 0.3 (feel lateral forces)
-        * Understeer Effect: Ensure it's at 1.0 (default)
-      
-      Method A vs Method B:
-      Pros: Simplest setup. No vJoy required
-      Cons: If wheel has no FFB, try Method B
-      
-      METHOD B (vJoy Bridge - Compatibility):
-      - Bind to "vJoy Device (Axis Y)"
-      - IMPORTANT: You MUST use "Joystick Gremlin" to map your wheel to vJoy Axis Y.
-      - Why? Guarantees separation of FFB and Input.
+   4. Steering Axis: Bind to your Physical Wheel 
+      (e.g., Simucube, Fanatec, Moza, Logitech)
 
    5. In-Game Force Feedback settings in LMU:
-      - FFB Strength: reduce to **0%** (Off).
+      - FFB Strength: reduce to 0% (Off)
       - Effects: Set "Force Feedback Effects" to Off
       - Smoothing: Set to 0 (Raw) for fastest telemetry updates
       - Advanced: Set Collision Strength and Torque Sensitivity to 0%
@@ -2444,7 +2290,6 @@ A. Configure Le Mans Ultimate (LMU)
 B. Configure lmuFFB
    1. Run LMUFFB.exe
    2. FFB Device: Select your Physical Wheel (e.g., "Simucube 2 Pro", "Fanatec DD1")
-      - Do NOT select the vJoy device here
    3. Master Gain: Start low (0.5) and increase gradually
    4. SOP Effect: Start at 0.0
       - This effect injects lateral G-force
@@ -2457,14 +2302,8 @@ TROUBLESHOOTING
 
 Wheel Jerking / Fighting:
   - You likely have a "Double FFB" conflict
-  - Ensure LMU Steering is bound to vJoy, NOT your real wheel
-  - Ensure LMU FFB is sending to vJoy (or disabled/strength at 0)
+  - Ensure LMU FFB Strength is set to 0% (Off)
   - If the wheel oscillates on straights, reduce SOP Effect to 0.0
-
-No Steering (Car won't turn):
-  - If using Method B (vJoy), you need Joystick Gremlin running
-  - Ensure it maps your wheel to vJoy Axis Y
-  - The "vJoy Demo Feeder" is for testing only, not driving
 
 Inverted FFB (Force pushes away from center):
   - If the FFB feels "backwards" or "inverted" while driving (wheel pushes 
@@ -2485,10 +2324,13 @@ No FFB:
   - Verify you're running LMU 1.2 or later (earlier versions don't have 
     native shared memory)
 
-"vJoyInterface.dll not found":
-  - Copy vJoyInterface.dll to the same folder as LMUFFB.exe
-  - Get it from: C:\Program Files\vJoy\SDK\lib\amd64\
-  - Or download: https://github.com/shauleiz/vJoy/tree/master/SDK/lib/amd64/vJoyInterface.dll
+Device Unavailable:
+  - If you see "[DI Warning] Device unavailable" in the console, the game 
+    may have locked your wheel in Exclusive Mode
+  - Try Alt-Tabbing out of the game. If FFB suddenly works when the game 
+    is in the background, it confirms the game is interfering
+  - Some wheels work better than others with simultaneous access - this is 
+    a hardware/driver limitation
 
 "Could not open file mapping object":
   - Start LMU and load a track first
@@ -2529,8 +2371,7 @@ What we need from the community:
 
 Other Known Issues:
 - Telemetry Gaps: Some users report missing telemetry for Dashboard apps 
-  (ERS, Temps). lmuFFB has robust fallbacks, but if Tire Temperature data 
-  is broken, the Understeer effect may be static.
+  (ERS, Temps). lmuFFB has robust fallbacks that prevent dead FFB effects.
 
 
 FEEDBACK & SUPPORT
@@ -2553,21 +2394,6 @@ RFACTOR 2 SETUP (LEGACY)
 NOTE: rFactor 2 support was removed in v0.4.0. To use lmuFFB with rFactor 2, 
 you must download and use version 0.3.x from the releases page:
 https://github.com/coasting-nc/LMUFFB/releases
-
-PREREQUISITES FOR RFACTOR 2 (v0.3.x only):
-
-1. rF2 Shared Memory Plugin
-   Download rFactor2SharedMemoryMapPlugin64.dll from:
-   https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin#download
-
-2. Installation
-   - Place the DLL in rFactor 2/Plugins/ directory
-   - Enable the plugin in rFactor 2's game settings: : edit [Game Folder]\UserData\player\CustomPluginVariables.JSON , set " Enabled" value to 1, and restart rF2
-
-3. Follow the same vJoy and wheel configuration steps as described above for LMU
-
-For detailed rFactor 2 setup instructions, refer to the README included with 
-v0.3.x releases.
 
 ```
 

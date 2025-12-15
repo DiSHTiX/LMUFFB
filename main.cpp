@@ -33,26 +33,14 @@ void FFBThread() {
     long axis_min = 1;
     long axis_max = 32768;
     
-    // Attempt to load vJoy (but don't acquire yet)
+    // Attempt to load vJoy (silently - no popups if missing)
     bool vJoyDllLoaded = false;
     if (DynamicVJoy::Get().Load()) {
         vJoyDllLoaded = true;
-        // Version Check
-        SHORT ver = DynamicVJoy::Get().GetVersion();
-        std::cout << "[vJoy] DLL Version: " << std::hex << ver << std::dec << std::endl;
-        // Expected 2.1.9 (0x219)
-        if (ver < 0x218 && !Config::m_ignore_vjoy_version_warning) {
-             std::string msg = "vJoy Driver Version Mismatch.\n\nDetected: " + std::to_string(ver) + "\nExpected: 2.1.8 or higher.\n\n"
-                               "Some features may not work. Please update vJoy.";
-             int result = MessageBoxA(NULL, msg.c_str(), "LMUFFB Warning", MB_ICONWARNING | MB_OKCANCEL);
-             if (result == IDCANCEL) {
-                 Config::m_ignore_vjoy_version_warning = true;
-                 Config::Save(g_engine); // Save immediately
-             }
-        }
+        // Version check removed - vJoy is optional, no need to warn users
     } else {
-        std::cerr << "[vJoy] Failed to load vJoyInterface.dll. Please ensure it is in the same folder as the executable." << std::endl;
-        MessageBoxA(NULL, "Failed to load vJoyInterface.dll.\n\nPlease ensure vJoy is installed and the DLL is in the app folder.", "LMUFFB Error", MB_ICONERROR | MB_OK);
+        // vJoy not found - this is fine, DirectInput FFB works without it
+        std::cout << "[vJoy] Not found (optional component, not required)" << std::endl;
     }
 
     // Track acquisition state locally
@@ -172,9 +160,9 @@ int main(int argc, char* argv[]) {
     }
 
     // 1. Setup Shared Memory
-    // Check for conflicts
+    // Check for conflicts (silent - no popup, just log to console)
     if (GameConnector::Get().CheckLegacyConflict()) {
-        if (!headless) MessageBoxA(NULL, "Legacy rFactor 2 Shared Memory Plugin detected.\nThis may conflict with LMU. Please remove 'rFactor2SharedMemoryMapPlugin64.dll' if issues occur.", "Warning", MB_ICONWARNING | MB_OK);
+        std::cout << "[Info] Legacy rF2 plugin detected (not a problem for LMU 1.2+)" << std::endl;
     }
 
     if (!GameConnector::Get().TryConnect()) {
