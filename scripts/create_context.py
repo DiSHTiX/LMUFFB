@@ -104,6 +104,10 @@ def main():
                     print(f"Skipping (done features): {relpath}")
                     continue
 
+                if 'docs/dev_docs/done implementations reports' in relpath_normalized:
+                    print(f"Skipping (implementation reports): {relpath}")
+                    continue
+
                 if 'docs/dev_docs/drafts' in relpath_normalized:
                     print(f"Skipping (drafts): {relpath}")
                     continue
