@@ -3,6 +3,7 @@
 #include <string>
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include "../FFBEngine.h"
 #include "../src/lmu_sm_interface/InternalsPlugin.hpp"
 #include "../src/lmu_sm_interface/SharedMemoryInterface.hpp" // Added for GameState testing
@@ -43,6 +44,9 @@ void test_zero_effects_leakage(); // Forward declaration
 void test_base_force_modes(); // Forward declaration
 void test_sop_yaw_kick(); // Forward declaration
 void test_gyro_damping(); // Forward declaration (v0.4.17)
+void test_yaw_accel_smoothing(); // Forward declaration (v0.4.18)
+void test_yaw_accel_convergence(); // Forward declaration (v0.4.18)
+void test_regression_yaw_slide_feedback(); // Forward declaration (v0.4.18)
 
 
 void test_manual_slip_singularity() {
@@ -154,7 +158,7 @@ void test_base_force_modes() {
 }
 
 void test_sop_yaw_kick() {
-    std::cout << "\nTest: SoP Yaw Kick" << std::endl;
+    std::cout << "\nTest: SoP Yaw Kick (v0.4.18 Smoothed)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
@@ -173,10 +177,14 @@ void test_sop_yaw_kick() {
     engine.m_scrub_drag_gain = 0.0f;
     engine.m_rear_align_effect = 0.0f;
     
+    // v0.4.18 UPDATE: With Low Pass Filter (alpha=0.1), the yaw acceleration
+    // is smoothed over multiple frames. On the first frame with raw input = 1.0,
+    // the smoothed value will be: 0.0 + 0.1 * (1.0 - 0.0) = 0.1
+    // Formula: force = yaw_smoothed * gain * 5.0
+    // First frame: 0.1 * 1.0 * 5.0 = 0.5 Nm
+    // Norm: 0.5 / 20.0 = 0.025
+    
     // Input: 1.0 rad/s^2 Yaw Accel
-    // Formula: force = yaw * gain * 5.0
-    // Expected: 1.0 * 1.0 * 5.0 = 5.0 Nm
-    // Norm: 5.0 / 20.0 = 0.25
     data.mLocalRotAccel.y = 1.0;
     
     // Ensure no other inputs
@@ -186,11 +194,12 @@ void test_sop_yaw_kick() {
     
     double force = engine.calculate_force(&data);
     
-    if (std::abs(force - 0.25) < 0.001) {
-        std::cout << "[PASS] Yaw Kick calculated correctly (0.25)." << std::endl;
+    // First frame should be ~0.025 (10% of steady-state due to LPF)
+    if (std::abs(force - 0.025) < 0.005) {
+        std::cout << "[PASS] Yaw Kick first frame smoothed correctly (" << force << " ≈ 0.025)." << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Yaw Kick mismatch. Got " << force << " Expected 0.25." << std::endl;
+        std::cout << "[FAIL] Yaw Kick first frame mismatch. Got " << force << " Expected ~0.025." << std::endl;
         g_tests_failed++;
     }
 }
@@ -1995,6 +2004,274 @@ void test_stress_stability() {
     }
 }
 
+// ========================================
+// v0.4.18 Yaw Acceleration Smoothing Tests
+// ========================================
+
+void test_yaw_accel_smoothing() {
+    std::cout << "\nTest: Yaw Acceleration Smoothing (v0.4.18)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Isolate Yaw Kick effect
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_sop_effect = 0.0f;
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_gain = 1.0f;
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_slide_texture_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_gyro_gain = 0.0f;
+    
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mSteeringShaftTorque = 0.0;
+    
+    // Test 1: Verify smoothing reduces first-frame response
+    // Raw input: 10.0 rad/s^2 (large spike)
+    // Expected smoothed (first frame): 0.0 + 0.1 * (10.0 - 0.0) = 1.0
+    // Force: 1.0 * 1.0 * 5.0 = 5.0 Nm
+    // Normalized: 5.0 / 20.0 = 0.25
+    data.mLocalRotAccel.y = 10.0;
+    
+    double force_frame1 = engine.calculate_force(&data);
+    
+    // Without smoothing, this would be 10.0 * 1.0 * 5.0 / 20.0 = 2.5 (clamped to 1.0)
+    // With smoothing (alpha=0.1), first frame = 0.25
+    if (std::abs(force_frame1 - 0.25) < 0.01) {
+        std::cout << "[PASS] First frame smoothed to 10% of raw input (" << force_frame1 << " ~= 0.25)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] First frame smoothing incorrect. Got " << force_frame1 << " Expected ~0.25." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test 2: Verify state accumulation (second frame)
+    // Smoothed (frame 2): 1.0 + 0.1 * (10.0 - 1.0) = 1.0 + 0.9 = 1.9
+    // Force: 1.9 * 1.0 * 5.0 = 9.5 Nm
+    // Normalized: 9.5 / 20.0 = 0.475
+    double force_frame2 = engine.calculate_force(&data);
+    
+    if (std::abs(force_frame2 - 0.475) < 0.02) {
+        std::cout << "[PASS] Second frame accumulated correctly (" << force_frame2 << " ~= 0.475)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Second frame accumulation incorrect. Got " << force_frame2 << " Expected ~0.475." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test 3: Verify high-frequency noise rejection
+    // Simulate rapid oscillation (noise from Slide Rumble)
+    // Alternate between +5.0 and -5.0 every frame
+    // The smoothed value should remain close to 0 (averaging out the noise)
+    FFBEngine engine2;
+    engine2.m_sop_yaw_gain = 1.0f;
+    engine2.m_sop_effect = 0.0f;
+    engine2.m_max_torque_ref = 20.0f;
+    engine2.m_gain = 1.0f;
+    engine2.m_understeer_effect = 0.0f;
+    engine2.m_lockup_enabled = false;
+    engine2.m_spin_enabled = false;
+    engine2.m_slide_texture_enabled = false;
+    engine2.m_bottoming_enabled = false;
+    engine2.m_scrub_drag_gain = 0.0f;
+    engine2.m_rear_align_effect = 0.0f;
+    engine2.m_gyro_gain = 0.0f;
+    
+    TelemInfoV01 data2;
+    std::memset(&data2, 0, sizeof(data2));
+    data2.mWheel[0].mRideHeight = 0.1;
+    data2.mWheel[1].mRideHeight = 0.1;
+    data2.mSteeringShaftTorque = 0.0;
+    
+    // Run 20 frames of alternating noise
+    double max_force = 0.0;
+    for (int i = 0; i < 20; i++) {
+        data2.mLocalRotAccel.y = (i % 2 == 0) ? 5.0 : -5.0;
+        double force = engine2.calculate_force(&data2);
+        max_force = (std::max)(max_force, std::abs(force));
+    }
+    
+    // With smoothing, the max force should be much smaller than the raw input would produce
+    // Raw would give: 5.0 * 1.0 * 5.0 / 20.0 = 1.25 (clamped to 1.0)
+    // Smoothed should stay well below 0.5
+    if (max_force < 0.5) {
+        std::cout << "[PASS] High-frequency noise rejected (max force " << max_force << " < 0.5)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] High-frequency noise not rejected. Max force: " << max_force << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_yaw_accel_convergence() {
+    std::cout << "\nTest: Yaw Acceleration Convergence (v0.4.18)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_sop_effect = 0.0f;
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_gain = 1.0f;
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_slide_texture_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_gyro_gain = 0.0f;
+    
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mSteeringShaftTorque = 0.0;
+    
+    // Test: Verify convergence to steady-state value
+    // Constant input: 1.0 rad/s^2
+    // Expected steady-state: 1.0 * 1.0 * 5.0 / 20.0 = 0.25
+    data.mLocalRotAccel.y = 1.0;
+    
+    // Run for 50 frames (should converge with alpha=0.1)
+    double force = 0.0;
+    for (int i = 0; i < 50; i++) {
+        force = engine.calculate_force(&data);
+    }
+    
+    // After 50 frames with alpha=0.1, should be very close to steady-state (0.25)
+    // Formula: smoothed = target * (1 - (1-alpha)^n)
+    // After 50 frames: smoothed ~= 1.0 * (1 - 0.9^50) ~= 0.9948
+    // Force: 0.9948 * 1.0 * 5.0 / 20.0 ~= 0.2487
+    if (std::abs(force - 0.25) < 0.01) {
+        std::cout << "[PASS] Converged to steady-state after 50 frames (" << force << " ~= 0.25)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Did not converge. Got " << force << " Expected ~0.25." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test: Verify response to step change
+    // Change input from 1.0 to 0.0 (rotation stops)
+    data.mLocalRotAccel.y = 0.0;
+    
+    // First frame after change
+    double force_after_change = engine.calculate_force(&data);
+    
+    // Smoothed should decay: prev_smoothed + 0.1 * (0.0 - prev_smoothed)
+    // If prev_smoothed ~= 0.9948, new = 0.9948 + 0.1 * (0.0 - 0.9948) = 0.8953
+    // Force: 0.8953 * 1.0 * 5.0 / 20.0 ~= 0.224
+    if (force_after_change < force && force_after_change > 0.2) {
+        std::cout << "[PASS] Smoothly decaying after step change (" << force_after_change << ")." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Decay behavior incorrect. Got " << force_after_change << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_regression_yaw_slide_feedback() {
+    std::cout << "\nTest: Regression - Yaw/Slide Feedback Loop (v0.4.18)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Enable BOTH Yaw Kick and Slide Rumble (the problematic combination)
+    engine.m_sop_yaw_gain = 1.0f;  // Yaw Kick enabled
+    engine.m_slide_texture_enabled = true;  // Slide Rumble enabled
+    engine.m_slide_texture_gain = 1.0f;
+    
+    engine.m_sop_effect = 0.0f;
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_gain = 1.0f;
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_gyro_gain = 0.0f;
+    
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mWheel[0].mTireLoad = 4000.0;
+    data.mWheel[1].mTireLoad = 4000.0;
+    data.mSteeringShaftTorque = 0.0;
+    data.mDeltaTime = 0.0025; // 400Hz
+    
+    // Simulate the bug scenario:
+    // 1. Slide Rumble generates high-frequency vibration (sawtooth wave)
+    // 2. This would cause yaw acceleration to spike (if not smoothed)
+    // 3. Yaw Kick would amplify the spikes
+    // 4. Feedback loop: wheel shakes harder
+    
+    // Set up lateral sliding (triggers Slide Rumble)
+    data.mWheel[0].mLateralPatchVel = 5.0;
+    data.mWheel[1].mLateralPatchVel = 5.0;
+    
+    // Simulate high-frequency yaw acceleration noise (what Slide Rumble would cause)
+    // Alternate between +10 and -10 rad/s^2 (extreme noise)
+    double max_force = 0.0;
+    double sum_force = 0.0;
+    int frames = 50;
+    
+    for (int i = 0; i < frames; i++) {
+        // Simulate noise that would come from vibrations
+        data.mLocalRotAccel.y = (i % 2 == 0) ? 10.0 : -10.0;
+        
+        double force = engine.calculate_force(&data);
+        max_force = (std::max)(max_force, std::abs(force));
+        sum_force += std::abs(force);
+    }
+    
+    double avg_force = sum_force / frames;
+    
+    // CRITICAL TEST: With smoothing, the system should remain stable
+    // Without smoothing (v0.4.16), this would create a feedback loop with forces > 1.0
+    // With smoothing (v0.4.18), max force should stay reasonable (< 1.0, ideally < 0.8)
+    if (max_force < 1.0) {
+        std::cout << "[PASS] No feedback loop detected (max force " << max_force << " < 1.0)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Potential feedback loop! Max force: " << max_force << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Additional check: Average force should be low (noise should cancel out)
+    if (avg_force < 0.5) {
+        std::cout << "[PASS] Average force remains low (avg " << avg_force << " < 0.5)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Average force too high: " << avg_force << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Verify that the smoothing state doesn't explode
+    // Check internal state by running a few more frames with zero input
+    data.mLocalRotAccel.y = 0.0;
+    data.mWheel[0].mLateralPatchVel = 0.0;
+    data.mWheel[1].mLateralPatchVel = 0.0;
+    
+    for (int i = 0; i < 10; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    // After settling, force should decay to near zero
+    double final_force = engine.calculate_force(&data);
+    if (std::abs(final_force) < 0.1) {
+        std::cout << "[PASS] System settled after noise removed (final force " << final_force << ")." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] System did not settle. Final force: " << final_force << std::endl;
+        g_tests_failed++;
+    }
+}
+
 int main() {
     // Regression Tests (v0.4.14)
     test_regression_road_texture_toggle();
@@ -2044,6 +2321,9 @@ int main() {
     test_zero_effects_leakage();
     test_base_force_modes();
     test_gyro_damping(); // v0.4.17
+    test_yaw_accel_smoothing(); // v0.4.18
+    test_yaw_accel_convergence(); // v0.4.18
+    test_regression_yaw_slide_feedback(); // v0.4.18
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -2676,4 +2956,5 @@ void test_gyro_damping() {
         }
     }
 }
+
 
