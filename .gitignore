@@ -90,3 +90,6 @@ tests/build-tests/x64/Debug/ZERO_CHECK/ZERO_CHECK.tlog/CustomBuild.command.1.tlo
 tests/build-tests/x64/Debug/ZERO_CHECK/ZERO_CHECK.tlog/CustomBuild.read.1.tlog
 tests/build-tests/x64/Debug/ZERO_CHECK/ZERO_CHECK.tlog/CustomBuild.write.1.tlog
 tests/build-tests/x64/Debug/ZERO_CHECK/ZERO_CHECK.tlog/ZERO_CHECK.lastbuildstate
+.specstory/.gitignore
+.specstory/.project.json
+.specstory/history/2025-12-06_08-39Z-please-fix-this-\[build]-main-cpp.md
