@@ -2,7 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.18] - 2025-12-16
+## [0.4.19] - 2025-12-16
+### Fixed
+- **CRITICAL: Coordinate System Inversions**: Fixed three fundamental bugs caused by mismatched coordinate systems between rFactor 2/LMU (left-handed, +X = left) and DirectInput (standard, +X = right). These inversions caused FFB effects to fight the physics instead of helping, creating positive feedback loops and unstable behavior.
+    - **Seat of Pants (SoP)**: Inverted lateral G calculation to match DirectInput convention. Previously, in a right turn, SoP would lighten the wheel instead of making it heavy, fighting against the natural aligning torque.
+        - **Fix**: Changed `lat_g = raw_g / 9.81` to `lat_g = -(raw_g / 9.81)` in FFBEngine.h line 571.
+        - **Impact**: Steering now feels properly weighted in corners, with the wheel pulling in the correct direction to simulate load transfer.
+    - **Rear Aligning Torque**: Inverted calculated rear lateral force AND fixed slip angle calculation to provide counter-steering (restoring) torque in BOTH directions. This was the root cause of the user-reported bug: "Slide rumble throws the wheel in the direction I am turning."
+        - **Problem**: When the rear slid left during oversteer, the torque would pull the wheel RIGHT (into the slide), creating a catastrophic positive feedback loop that made the car uncontrollable.
+        - **Fix 1**: Changed `rear_torque = calc_rear_lat_force * ...` to `rear_torque = -calc_rear_lat_force * ...` in FFBEngine.h line 666.
+        - **Fix 2 (CRITICAL)**: Removed `std::abs()` from slip angle calculation (line 315) to preserve sign information. Changed `std::atan2(std::abs(w.mLateralPatchVel), v_long)` to `std::atan2(w.mLateralPatchVel, v_long)`.
+        - **Impact**: Oversteer now provides natural counter-steering cues in BOTH left and right turns, making the car stable and predictable. The initial fix only worked for right turns; the slip angle fix ensures left turns also get proper counter-steering.
+    - **Scrub Drag**: Fixed direction to oppose motion instead of amplifying it. Previously acted as negative damping, pushing the car faster into slides.
+        - **Problem**: When sliding left, friction would push LEFT (same direction), accelerating the slide instead of resisting it.
+        - **Fix**: Changed `drag_dir = (avg_lat_vel > 0.0) ? -1.0 : 1.0` to `drag_dir = (avg_lat_vel > 0.0) ? 1.0 : -1.0` in FFBEngine.h line 840.
+        - **Impact**: Lateral slides now feel properly damped, with friction resisting the motion as expected.
+
+### Added
+- **Comprehensive Regression Tests**: Added four new test functions to prevent recurrence of coordinate system bugs:
+    - `test_coordinate_sop_inversion()`: Verifies SoP pulls in the correct direction for left and right turns.
+    - `test_coordinate_rear_torque_inversion()`: Verifies rear torque provides counter-steering during oversteer.
+    - `test_coordinate_scrub_drag_direction()`: Verifies friction opposes slide direction.
+    - `test_regression_no_positive_feedback()`: Simulates the original bug scenario (right turn with oversteer) and verifies all forces work together instead of fighting.
+
+### Technical Details
+- **Root Cause**: The rFactor 2/LMU physics engine uses a left-handed coordinate system where +X points to the driver's left, while DirectInput uses the standard convention where +Force means right. Without proper sign inversions, lateral vectors (position, velocity, acceleration, force) are mathematically inverted relative to the wheel's expectation.
+- **Documentation**: See `docs/bug_reports/wrong rf2 coordinates use.md` for detailed analysis and derivation of the fixes.
+
+
 ### Fixed
 - **Critical Stability Issue**: Fixed a noise feedback loop between Slide Rumble and Yaw Kick effects that caused violent wheel behavior.
     - **Problem**: Slide Rumble vibrations caused the yaw acceleration telemetry (a derivative value) to spike with high-frequency noise. The Yaw Kick effect amplified these spikes, creating a positive feedback loop where the wheel would shake increasingly harder and feel like it was "fighting" the user.

@@ -297,22 +297,30 @@ private:
 public:
     // Helper: Calculate Raw Slip Angle for a pair of wheels (v0.4.9 Refactor)
     // Returns the average slip angle of two wheels using atan2(lateral_vel, longitudinal_vel)
+    // v0.4.19: Removed abs() from lateral velocity to preserve sign for debug visualization
     double calculate_raw_slip_angle_pair(const TelemWheelV01& w1, const TelemWheelV01& w2) {
         double v_long_1 = std::abs(w1.mLongitudinalGroundVel);
         double v_long_2 = std::abs(w2.mLongitudinalGroundVel);
         if (v_long_1 < MIN_SLIP_ANGLE_VELOCITY) v_long_1 = MIN_SLIP_ANGLE_VELOCITY;
         if (v_long_2 < MIN_SLIP_ANGLE_VELOCITY) v_long_2 = MIN_SLIP_ANGLE_VELOCITY;
-        double raw_angle_1 = std::atan2(std::abs(w1.mLateralPatchVel), v_long_1);
-        double raw_angle_2 = std::atan2(std::abs(w2.mLateralPatchVel), v_long_2);
+        // v0.4.19: PRESERVE SIGN for debug graphs - do NOT use abs()
+        double raw_angle_1 = std::atan2(w1.mLateralPatchVel, v_long_1);
+        double raw_angle_2 = std::atan2(w2.mLateralPatchVel, v_long_2);
         return (raw_angle_1 + raw_angle_2) / 2.0;
     }
 
     // Helper: Calculate Slip Angle (v0.4.6 LPF + Logic)
+    // v0.4.19 CRITICAL FIX: Removed abs() from mLateralPatchVel to preserve sign
+    // This allows rear aligning torque to provide correct counter-steering in BOTH directions
     double calculate_slip_angle(const TelemWheelV01& w, double& prev_state) {
         double v_long = std::abs(w.mLongitudinalGroundVel);
         if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
         
-        double raw_angle = std::atan2(std::abs(w.mLateralPatchVel), v_long);
+        // v0.4.19: PRESERVE SIGN - Do NOT use abs() on lateral velocity
+        // Positive lateral vel (+X = left) → Positive slip angle
+        // Negative lateral vel (-X = right) → Negative slip angle
+        // This sign is critical for directional counter-steering
+        double raw_angle = std::atan2(w.mLateralPatchVel, v_long);  // SIGN PRESERVED
         
         // LPF: Alpha ~0.1 (Strong smoothing for stability)
         double alpha = 0.1;
@@ -568,7 +576,10 @@ public:
         // Lateral G-force
         // v0.4.6: Clamp Input to reasonable Gs (+/- 5G)
         double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
-        double lat_g = raw_g / 9.81;
+        // v0.4.19: Invert to match DirectInput coordinate system
+        // Game: +X = Left, DirectInput: +Force = Right
+        // In a right turn, body feels left force (+X), but we want left pull (-Force)
+        double lat_g = -(raw_g / 9.81);
         
         // SoP Smoothing (Time-Corrected Low Pass Filter) (Report v0.4.2)
         // m_sop_smoothing_factor (0.0 to 1.0) is treated as a "Smoothness" knob.
@@ -663,7 +674,9 @@ public:
         // Coefficient was tuned to produce ~3.0 Nm contribution at 3000N lateral force (v0.4.11).
         // This provides a distinct counter-steering cue.
         // Multiplied by m_rear_align_effect to allow user tuning of rear-end sensitivity.
-        double rear_torque = calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect; 
+        // v0.4.19: INVERTED to provide counter-steering (restoring) torque instead of destabilizing force
+        // When rear slides left (+slip), we want left pull (-torque) to correct the slide
+        double rear_torque = -calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect; 
         sop_total += rear_torque;
 
         // --- 2b. Yaw Acceleration Injector (The "Kick") ---
@@ -837,7 +850,10 @@ public:
                 double abs_lat_vel = std::abs(avg_lat_vel);
                 if (abs_lat_vel > 0.001) { // Avoid noise
                     double fade = (std::min)(1.0, abs_lat_vel / 0.5);
-                    double drag_dir = (avg_lat_vel > 0.0) ? -1.0 : 1.0;
+                    // v0.4.19: FIXED - Friction opposes motion
+                    // Game: +X = Left, DirectInput: +Force = Right
+                    // If sliding left (+vel), friction pushes right (+force)
+                    double drag_dir = (avg_lat_vel > 0.0) ? 1.0 : -1.0;
                     scrub_drag_force = drag_dir * m_scrub_drag_gain * 5.0 * fade; // Scaled & Faded
                     total_force += scrub_drag_force;
                 }
