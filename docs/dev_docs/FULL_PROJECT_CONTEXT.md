@@ -371,6 +371,9 @@ Remove-Item -Path "vendor\imgui-master.zip", "vendor\imgui-master" -Recurse -For
 
 # Actual build
 
+Update version number
+& 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build
+
 Build release (Windows)
 & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake --build build --config Release
 
@@ -406,6 +409,38 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [0.4.18] - 2025-12-16
+### Fixed
+- **Critical Stability Issue**: Fixed a noise feedback loop between Slide Rumble and Yaw Kick effects that caused violent wheel behavior.
+    - **Problem**: Slide Rumble vibrations caused the yaw acceleration telemetry (a derivative value) to spike with high-frequency noise. The Yaw Kick effect amplified these spikes, creating a positive feedback loop where the wheel would shake increasingly harder and feel like it was "fighting" the user.
+    - **Solution**: Implemented a Low Pass Filter (Exponential Moving Average with alpha=0.1) on the yaw acceleration data before calculating the Yaw Kick force. This filters out high-frequency vibration noise while preserving the low-frequency "actual rotation kick" signal.
+    - **Impact**: Users can now safely use Slide Rumble and Yaw Kick effects simultaneously without experiencing unstable or violent FFB behavior.
+    - **Technical Details**: Added `m_yaw_accel_smoothed` state variable to `FFBEngine` class. The filter uses 10% new data and 90% history, effectively removing noise above ~1.6 Hz while keeping the intended rotation cues intact.
+
+## [0.4.17] - 2025-12-15
+### Added
+- **Synthetic Gyroscopic Damping**: Implemented stabilization effect to prevent "tank slappers" during drifts.
+    - Added `Gyroscopic Damping` slider (0.0 - 1.0) to Tuning Window.
+    - Added "Gyro Damping" trace to Debug Window FFB Components graph.
+    - Force opposes rapid steering movements and scales with car speed.
+    - Uses Low Pass Filter (LPF) to smooth noisy steering velocity derivative.
+    - Added `m_gyro_gain` and `m_gyro_smoothing` settings to configuration system.
+
+### Changed
+- **Physics Engine**: Updated total force calculation to include gyroscopic damping component.
+- **Documentation**: Updated `FFB_formulas.md` with gyroscopic damping formula and tuning parameter.
+
+### Testing
+- Added `test_gyro_damping()` unit test to verify force direction and magnitude.
+
+
+## [0.4.16] - 2025-12-15
+### Added
+- **SoP Yaw Kick**: Implemented "Yaw Acceleration Injection" to provide a predictive kick when rotation starts.
+    - Added `m_sop_yaw_gain` slider (0.0 - 2.0) to Tuning Window.
+    - Added "Yaw Kick" trace to Debug Window.
+    - Updated physics engine to mix Yaw Acceleration with Lateral G-Force in SoP calculation.
 
 ## [0.4.15] - 2025-12-15
 ### Changed
@@ -799,6 +834,8 @@ struct FFBSnapshot {
     float oversteer_boost;
     float ffb_rear_torque;  // New v0.4.7
     float ffb_scrub_drag;   // New v0.4.7
+    float ffb_yaw_kick;     // New v0.4.16
+    float ffb_gyro_damping; // New v0.4.17
     float texture_road;
     float texture_slide;
     float texture_lockup;
@@ -869,6 +906,9 @@ public:
     // New Effects (v0.2)
     float m_oversteer_boost = 0.0f; // 0.0 - 1.0 (Rear grip loss boost)
     float m_rear_align_effect = 1.0f; // New v0.4.11
+    float m_sop_yaw_gain = 0.0f;      // New v0.4.16 (Yaw Acceleration Injection)
+    float m_gyro_gain = 0.0f;         // New v0.4.17 (Gyroscopic Damping)
+    float m_gyro_smoothing = 0.1f;    // New v0.4.17
     
     bool m_lockup_enabled = false;
     float m_lockup_gain = 0.5f;
@@ -910,6 +950,13 @@ public:
     double m_prev_vert_deflection[2] = {0.0, 0.0}; // FL, FR
     double m_prev_slip_angle[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR (LPF State)
     
+    // Gyro State (v0.4.17)
+    double m_prev_steering_angle = 0.0;
+    double m_steering_velocity_smoothed = 0.0;
+    
+    // Yaw Acceleration Smoothing State (v0.4.18)
+    double m_yaw_accel_smoothed = 0.0;
+
     // Phase Accumulators for Dynamic Oscillators
     double m_lockup_phase = 0.0;
     double m_spin_phase = 0.0;
@@ -1009,7 +1056,11 @@ private:
     // when the steering shaft torque oscillates near zero.
     static constexpr double SYNTHETIC_MODE_DEADZONE_NM = 0.5; // Nm
 
-
+    // Gyroscopic Damping Constants (v0.4.17)
+    // Default steering range (540 degrees) if physics range is missing
+    static constexpr double DEFAULT_STEERING_RANGE_RAD = 9.4247; 
+    // Normalizes car speed (m/s) to 0-1 range for typical speeds (10m/s baseline)
+    static constexpr double GYRO_SPEED_SCALE = 10.0; 
 
 public:
     // Helper: Calculate Raw Slip Angle for a pair of wheels (v0.4.9 Refactor)
@@ -1382,8 +1433,50 @@ public:
         // Multiplied by m_rear_align_effect to allow user tuning of rear-end sensitivity.
         double rear_torque = calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect; 
         sop_total += rear_torque;
+
+        // --- 2b. Yaw Acceleration Injector (The "Kick") ---
+        // Reads rotational acceleration (radians/sec^2)
+        // 
+        // v0.4.18 FIX: Apply Low Pass Filter to prevent noise feedback loop
+        // PROBLEM: Slide Rumble injects high-frequency vibrations -> Yaw Accel spikes (derivatives are noise-sensitive)
+        //          -> Yaw Kick amplifies the noise -> Wheel shakes harder -> Feedback loop
+        // SOLUTION: Smooth the yaw acceleration to filter out high-frequency noise while keeping low-frequency signal
+        double raw_yaw_accel = data->mLocalRotAccel.y;
+        
+        // Apply Smoothing (Low Pass Filter)
+        // Alpha 0.1 means we trust 10% new data, 90% history.
+        // This kills high-frequency vibration noise while preserving actual rotation kicks.
+        double alpha_yaw = 0.1;
+        m_yaw_accel_smoothed = m_yaw_accel_smoothed + alpha_yaw * (raw_yaw_accel - m_yaw_accel_smoothed);
+        
+        // Use SMOOTHED value for the kick
+        // Scaled by 5.0 (Base multiplier) and User Gain
+        // Added AFTER Oversteer Boost to provide a clean, independent cue.
+        double yaw_force = m_yaw_accel_smoothed * m_sop_yaw_gain * 5.0;
+        sop_total += yaw_force;
         
         double total_force = output_force + sop_total;
+
+        // --- 2c. Synthetic Gyroscopic Damping (v0.4.17) ---
+        // Calculate Steering Angle (Radians)
+        float range = data->mPhysicalSteeringWheelRange;
+        if (range <= 0.0f) range = (float)DEFAULT_STEERING_RANGE_RAD; // Fallback 540 deg
+        
+        double steer_angle = data->mUnfilteredSteering * (range / 2.0);
+        
+        // Calculate Velocity (rad/s)
+        double steer_vel = (steer_angle - m_prev_steering_angle) / dt;
+        m_prev_steering_angle = steer_angle; // Update history
+        
+        // Smoothing (LPF)
+        double alpha_gyro = (std::min)(1.0f, m_gyro_smoothing);
+        m_steering_velocity_smoothed += alpha_gyro * (steer_vel - m_steering_velocity_smoothed);
+        
+        // Damping Force: Opposes velocity, scales with car speed
+        double gyro_force = -1.0 * m_steering_velocity_smoothed * m_gyro_gain * (car_speed / GYRO_SPEED_SCALE);
+        
+        // Add to total
+        total_force += gyro_force;
         
         // --- Helper: Calculate Slip Data (Approximation) ---
         // The new LMU interface does not expose mSlipRatio/mSlipAngle directly.
@@ -1650,9 +1743,11 @@ public:
                 snap.base_force = (float)base_input; // Show the processed base input
                 snap.sop_force = (float)sop_base_force;
                 snap.understeer_drop = (float)((base_input * m_steering_shaft_gain) * (1.0 - grip_factor));
-                snap.oversteer_boost = (float)(sop_total - sop_base_force - rear_torque); // Split boost from rear torque
+                snap.oversteer_boost = (float)(sop_total - sop_base_force - rear_torque - yaw_force); // Split boost from other SoP components
                 snap.ffb_rear_torque = (float)rear_torque;
                 snap.ffb_scrub_drag = (float)scrub_drag_force;
+                snap.ffb_yaw_kick = (float)yaw_force;
+                snap.ffb_gyro_damping = (float)gyro_force; // New v0.4.17
                 snap.texture_road = (float)road_noise;
                 snap.texture_slide = (float)slide_noise;
                 snap.texture_lockup = (float)lockup_rumble;
@@ -3521,902 +3616,6 @@ Directly using `CreateWindow` or Microsoft Foundation Classes.
 
 ```
 
-# File: docs\bug_reports\Intermittent Reversed FFB Feel.md
-```markdown
-
-# Core issue
-
-The core issue is this: "sudden pulls/loss of FFB off centre at random times. Almost like the “reverse FFB” setting was working intermittently".
-
-
-# Proposed fix
-
-Based on the user's report and the code analysis, I have identified the bug. It is a **logic error in `FFBEngine.h`** related to how the **Rear Aligning Torque** and **Slip Angle** are calculated.
-
-### The Root Cause: Conditional Execution of Physics
-
-The user reports "random" pulls and "intermittent" behavior. This is caused by the fact that the **Rear Aligning Torque** effect is currently **turning ON and OFF randomly** based on the quality of the game's connection, and when it turns on, it uses stale data that causes violent spikes.
-
-**The Bug in `calculate_grip` (FFBEngine.h):**
-Currently, the code *only* calculates the Slip Angle (and updates its smoothing filter) **IF** the game fails to provide Grip data.
-
-```cpp
-// Current Logic (Simplified)
-if (grip < 0.0001) { 
-    // 1. Telemetry is missing (Bugged frame)
-    // 2. Calculate Slip Angle (and update LPF state)
-    // 3. Use Slip Angle for Rear Torque
-} else {
-    // 1. Telemetry is good (Normal frame)
-    // 2. Slip Angle is set to 0.0
-    // 3. Rear Torque becomes 0.0
-}
-```
-
-**The Consequence:**
-1.  **Intermittent "Reverse" Feel:** As long as the game sends valid grip data, the **Rear Aligning Torque** (which provides the counter-steer force) is **0.0**.
-2.  **The Spike (Lock Up):** LMU telemetry is known to be "glitchy" (dropping frames). When a frame drops (Grip becomes 0), the `if` block executes.
-    *   The Rear Torque suddenly jumps from **0 Nm** to **~6 Nm** (due to the new v0.4.11 scaling).
-    *   Worse, the **Smoothing Filter (LPF)** for the slip angle hasn't been updated for seconds/minutes. It tries to smooth the *current* slide against *ancient* history, potentially resulting in a mathematical spike or erratic value.
-3.  **Result:** The wheel kicks violently ("sudden pull") or locks up because the force toggles instantly between "Game Only" and "Game + Calculated Rear Torque".
-
-### The Fix
-
-We must calculate the Slip Angle **every single frame**, regardless of whether we need it for the Grip Fallback. This ensures:
-1.  The **Rear Aligning Torque** is always active and consistent (no on/off toggling).
-2.  The **Smoothing Filter** is always up-to-date (no spikes from stale state).
-
-### Corrected Code for `FFBEngine.h`
-
-You need to modify the `calculate_grip` function.
-
-**File:** `FFBEngine.h`
-**Function:** `calculate_grip` (Lines ~260-295)
-
-```cpp
-    // Helper: Calculate Grip with Fallback (v0.4.6 Hardening)
-    GripResult calculate_grip(const TelemWheelV01& w1, 
-                              const TelemWheelV01& w2,
-                              double avg_load,
-                              bool& warned_flag,
-                              double& prev_slip1,
-                              double& prev_slip2,
-                              double car_speed) {
-        GripResult result;
-        result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
-        result.value = result.original;
-        result.approximated = false;
-        
-        // --- FIX START: ALWAYS CALCULATE SLIP ANGLE ---
-        // We must calculate this every frame to keep the Low Pass Filter (LPF) 
-        // state (prev_slip) updated and to provide valid data for Rear Aligning Torque.
-        double slip1 = calculate_slip_angle(w1, prev_slip1);
-        double slip2 = calculate_slip_angle(w2, prev_slip2);
-        result.slip_angle = (slip1 + slip2) / 2.0;
-        // --- FIX END ---
-
-        // Fallback condition: Grip is essentially zero BUT car has significant load
-        if (result.value < 0.0001 && avg_load > 100.0) {
-            result.approximated = true;
-            
-            // Low Speed Cutoff (v0.4.6)
-            if (car_speed < 5.0) {
-                // Note: We still keep the calculated slip_angle in result.slip_angle
-                // for visualization/rear torque, even if we force grip to 1.0 here.
-                result.value = 1.0; 
-            } else {
-                // Use the pre-calculated slip angle
-                double excess = (std::max)(0.0, result.slip_angle - 0.10);
-                result.value = 1.0 - (excess * 4.0);
-            }
-            
-            // Safety Clamp (v0.4.6): Never drop below 0.2 in approximation
-            result.value = (std::max)(0.2, result.value);
-            
-            if (!warned_flag) {
-                std::cout << "[WARNING] Missing Grip. Using Approx based on Slip Angle." << std::endl;
-                warned_flag = true;
-            }
-        }
-        
-        result.value = (std::max)(0.0, (std::min)(1.0, result.value));
-        return result;
-    }
-```
-
-### Summary of Changes for the User
-You can explain to the user:
-"I found the issue. The 'Rear Aligning Torque' effect was accidentally turning itself ON and OFF depending on whether the game telemetry skipped a frame. This caused the random 'kicks' and the feeling of the FFB reversing, because the force would suddenly jump from 0% to 100% in a split second. I have fixed it so the physics calculation runs continuously."
-
-# Documentation updates
-
-Here is the documentation package to ensure this fix is preserved and understood in the future.
-
-I have divided this into three parts:
-1.  **In-Code Comments (`FFBEngine.h`)**: The first line of defense.
-2.  **New Incident Report (`docs/dev_docs/`)**: A detailed explanation of the "Why".
-3.  **Update to `AGENTS_MEMORY.md`**: To ensure future AI sessions respect this constraint.
-
----
-
-### 1. Code Comments (Apply to `FFBEngine.h`)
-
-Replace the relevant section in `calculate_grip` with this heavily commented version. The `CRITICAL` tag helps future developers/AI spot it immediately.
-
-```cpp
-    // Helper: Calculate Grip with Fallback (v0.4.6 Hardening)
-    GripResult calculate_grip(const TelemWheelV01& w1, 
-                              const TelemWheelV01& w2,
-                              double avg_load,
-                              bool& warned_flag,
-                              double& prev_slip1,
-                              double& prev_slip2,
-                              double car_speed) {
-        GripResult result;
-        result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
-        result.value = result.original;
-        result.approximated = false;
-        
-        // ==================================================================================
-        // CRITICAL LOGIC FIX (v0.4.14) - DO NOT MOVE INSIDE CONDITIONAL BLOCK
-        // ==================================================================================
-        // We MUST calculate slip angle every single frame, regardless of whether the 
-        // grip fallback is triggered or not.
-        //
-        // Reason 1 (Physics State): The Low Pass Filter (LPF) inside calculate_slip_angle 
-        //           relies on continuous execution. If we skip frames (because telemetry 
-        //           is good), the 'prev_slip' state becomes stale. When telemetry eventually 
-        //           fails, the LPF will smooth against ancient history, causing a math spike.
-        //
-        // Reason 2 (Dependency): The 'Rear Aligning Torque' effect (calculated later) 
-        //           reads 'result.slip_angle'. If we only calculate this when grip is 
-        //           missing, the Rear Torque effect will toggle ON/OFF randomly based on 
-        //           telemetry health, causing violent kicks and "reverse FFB" sensations.
-        // ==================================================================================
-        
-        double slip1 = calculate_slip_angle(w1, prev_slip1);
-        double slip2 = calculate_slip_angle(w2, prev_slip2);
-        result.slip_angle = (slip1 + slip2) / 2.0;
-
-        // Fallback condition: Grip is essentially zero BUT car has significant load
-        if (result.value < 0.0001 && avg_load > 100.0) {
-            // ... [Rest of fallback logic] ...
-```
-
----
-
-### 2. New Documentation File
-
-Create a new file: **`docs/dev_docs/bug_analysis_rear_torque_instability.md`**
-
-```markdown
-# Bug Analysis: Rear Torque Instability & "Reverse FFB" Kicks
-
-**Date:** 2025-12-14
-**Fixed In:** v0.4.14
-**Severity:** Critical
-**Component:** `FFBEngine.h` -> `calculate_grip`
-
-## The Symptom
-Users reported "sudden pulls," "loss of FFB off-center," and behavior that felt like the "Reverse FFB" setting was toggling intermittently. This often resulted in the wheel locking up fully to the left or right.
-
-## The Root Cause
-The issue stemmed from **Conditional Physics Execution**.
-
-In versions prior to v0.4.14, the **Slip Angle** calculation was nested *inside* the Grip Fallback logic:
-
-```cpp
-// BROKEN LOGIC (Do not use)
-if (grip_telemetry_missing) {
-    slip_angle = calculate_slip_angle(...); // Updates LPF state
-    // ... use slip angle for grip ...
-} 
-// else: slip_angle remains 0.0
-```
-
-### The Chain Reaction
-1.  **Dependency:** The **Rear Aligning Torque** effect (introduced in v0.4.11) relies on `m_grip_diag.rear_slip_angle`.
-2.  **The Toggle:** 
-    *   **Frame A (Good Telemetry):** Grip is valid. The `if` block is skipped. `slip_angle` is 0.0. **Rear Torque is 0.0.**
-    *   **Frame B (Bad Telemetry):** Grip drops to 0 (common LMU bug). The `if` block runs. `slip_angle` is calculated (e.g., 0.15 rad). **Rear Torque jumps to ~6.0 Nm.**
-3.  **The Spike:** Because the Low Pass Filter (LPF) inside `calculate_slip_angle` wasn't running during the "Good" frames, its internal state (`prev_slip`) was stale (potentially seconds old). When Frame B hit, the filter tried to smooth the current value against ancient history, often resulting in a mathematical spike.
-
-## The Fix
-The Slip Angle calculation was moved **outside** the conditional block. It now runs **every frame**.
-
-```cpp
-// CORRECT LOGIC
-slip_angle = calculate_slip_angle(...); // Always update LPF state
-
-if (grip_telemetry_missing) {
-    // ... use slip angle for grip ...
-}
-```
-
-## Regression Prevention
-**Do not optimize this code by moving the calculation back inside the `if` block.** 
-Even if `slip_angle` seems unused for the *Grip* calculation when telemetry is valid, it is **required** for the *Rear Aligning Torque* effect which runs downstream.
-```
-
----
-
-### 3. Update `AGENTS_MEMORY.md`
-
-Append this to the **"Critical Constraints & Math"** section of `AGENTS_MEMORY.md`. This ensures future AI agents don't try to "optimize" the code by putting the calculation back inside the if-statement.
-
-```markdown
-### Continuous Physics State (Anti-Glitch)
-*   **Rule:** Never make the calculation of physics state variables (like Slip Angle, RPM smoothing, or LPFs) conditional on telemetry health or other flags.
-*   **Why:** 
-    1.  **Filters:** Low Pass Filters (LPF) rely on a continuous stream of `dt` updates. If you stop calling them, their internal state becomes stale. When you call them again, they produce a spike.
-    2.  **Downstream Dependencies:** A variable calculated in a "Fallback" block (like `slip_angle` in `calculate_grip`) might be used by a completely different effect later (like `Rear Aligning Torque`).
-*   **Incident:** See `docs/dev_docs/bug_analysis_rear_torque_instability.md`. We caused violent wheel kicks by only calculating Slip Angle when Grip was missing.
-```
-
-# Other sources of instability to fix
-
-Based on a thorough inspection of the code, I have identified **two additional sources of instability** related to "Conditional State Updates". These are similar in nature to the bug we just fixed, where internal history variables become "stale" when an effect is disabled, causing violent spikes when re-enabled or when switching modes.
-
-### 1. The "Road Texture" Spike
-**Location:** `FFBEngine.h` inside `calculate_force` (Lines ~600-620)
-**The Issue:**
-The variable `m_prev_vert_deflection` (used to calculate the suspension velocity for road bumps) is only updated **inside** the `if (m_road_texture_enabled)` block.
-
-```cpp
-if (m_road_texture_enabled) {
-    // ... calculation ...
-    double delta_l = vert_l - m_prev_vert_deflection[0]; // Uses OLD state
-    // ...
-    m_prev_vert_deflection[0] = vert_l; // Updates state
-}
-```
-
-**The Scenario:**
-1.  User disables "Road Details". `m_prev_vert_deflection` stops updating (e.g., stays at 0.05m).
-2.  User drives a lap. Suspension moves to 0.08m.
-3.  User enables "Road Details".
-4.  **The Spike:** The code calculates `delta = 0.08 - 0.05 = 0.03m`. This is a massive instantaneous jump (equivalent to hitting a 3cm curb in 0.002 seconds).
-5.  **Result:** A violent "BANG" in the wheel upon enabling the effect. (Note: The v0.4.6 clamp limits this to 0.01m, reducing the damage, but it's still a max-force kick).
-
-### 2. The "Bottoming" Method Switch Spike
-**Location:** `FFBEngine.h` inside `calculate_force` (Lines ~630-650)
-**The Issue:**
-The variable `m_prev_susp_force` (used for Method B: Suspension Spike) is only updated when `m_bottoming_enabled` is true **AND** `m_bottoming_method == 1`.
-
-**The Scenario:**
-1.  User runs with "Method A" (Scraping). `m_prev_susp_force` is stale (e.g., 0 or old value).
-2.  User switches to "Method B" (Spike) while driving.
-3.  **The Spike:** The derivative calculation `(current_force - prev_force) / dt` sees a jump from 0 to 3000N instantly.
-    *   `dForce = 3000 / 0.0025 = 1,200,000 N/s`.
-4.  **Result:** This exceeds the threshold (100,000), triggering a false "Bottoming" crunch immediately upon switching methods.
-
----
-
-### The Fix: Unconditional State Updates
-
-We must move the state update logic **outside** of the conditional effect blocks. The "Previous State" must always track the "Current State" of the physics, regardless of whether the FFB effect is currently active.
-
-**Apply this change to `FFBEngine.h`:**
-
-1.  **Remove** the lines `m_prev_vert_deflection[...] = ...` and `m_prev_susp_force[...] = ...` from their respective `if` blocks.
-2.  **Add** a new section at the very end of `calculate_force` (before the return) to update these states unconditionally.
-
-```cpp
-    double calculate_force(const TelemInfoV01* data) {
-        // ... [All existing logic] ...
-
-        // --- 5. Suspension Bottoming ---
-        if (m_bottoming_enabled) {
-             // ... [Existing logic, BUT REMOVE m_prev_susp_force updates from here] ...
-        }
-
-        // ... [Min Force Logic] ...
-
-        // ==================================================================================
-        // CRITICAL: UNCONDITIONAL STATE UPDATES (Fix for Toggle Spikes)
-        // ==================================================================================
-        // We must update history variables every frame, even if effects are disabled.
-        // This prevents "stale state" spikes when effects are toggled on.
-        
-        // Road Texture State
-        m_prev_vert_deflection[0] = fl.mVerticalTireDeflection;
-        m_prev_vert_deflection[1] = fr.mVerticalTireDeflection;
-
-        // Bottoming Method B State
-        m_prev_susp_force[0] = fl.mSuspForce;
-        m_prev_susp_force[1] = fr.mSuspForce;
-        // ==================================================================================
-
-        // --- SNAPSHOT LOGIC ---
-        // ...
-        
-        return (std::max)(-1.0, (std::min)(1.0, norm_force));
-    }
-```
-
-### Recommendation
-Applying this fix along with the previous "Rear Torque" fix will eliminate the remaining sources of "random" instability caused by toggling settings or telemetry glitches.
-
-# Tests to add
-
-Here are the specific regression tests to lock in your fixes, plus a comprehensive "Stress Test" to catch future instability.
-
-You should add these functions to `tests/test_ffb_engine.cpp` and call them from `main()`.
-
-### 1. Regression Tests (The "Anti-Spike" Suite)
-
-These tests specifically simulate the "Toggle" scenarios that caused the bugs. If anyone moves the state update logic back inside the `if` blocks in the future, these tests will fail.
-
-```cpp
-void test_regression_road_texture_toggle() {
-    std::cout << "\nTest: Regression - Road Texture Toggle Spike" << std::endl;
-    FFBEngine engine;
-    TelemInfoV01 data;
-    std::memset(&data, 0, sizeof(data));
-    
-    // Setup
-    engine.m_road_texture_enabled = false; // Start DISABLED
-    engine.m_road_texture_gain = 1.0;
-    engine.m_max_torque_ref = 20.0f;
-    engine.m_gain = 1.0f;
-    
-    // Frame 1: Car is at Ride Height A
-    data.mWheel[0].mVerticalTireDeflection = 0.05; // 5cm
-    data.mWheel[1].mVerticalTireDeflection = 0.05;
-    data.mWheel[0].mTireLoad = 4000.0; // Valid load
-    data.mWheel[1].mTireLoad = 4000.0;
-    engine.calculate_force(&data); // State should update here even if disabled
-    
-    // Frame 2: Car compresses significantly (Teleport or heavy braking)
-    data.mWheel[0].mVerticalTireDeflection = 0.10; // Jump to 10cm
-    data.mWheel[1].mVerticalTireDeflection = 0.10;
-    engine.calculate_force(&data); // State should update here to 0.10
-    
-    // Frame 3: User ENABLES effect while at 0.10
-    engine.m_road_texture_enabled = true;
-    
-    // Small movement in this frame
-    data.mWheel[0].mVerticalTireDeflection = 0.101; // +1mm change
-    data.mWheel[1].mVerticalTireDeflection = 0.101;
-    
-    double force = engine.calculate_force(&data);
-    
-    // EXPECTATION:
-    // If fixed: Delta = 0.101 - 0.100 = 0.001. Force is tiny.
-    // If broken: Delta = 0.101 - 0.050 (from Frame 1) = 0.051. Force is huge.
-    
-    // 0.001 * 50.0 (mult) * 1.0 (gain) = 0.05 Nm.
-    // Normalized: 0.05 / 20.0 = 0.0025.
-    
-    if (std::abs(force) < 0.01) {
-        std::cout << "[PASS] No spike on enable. Force: " << force << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Spike detected! State was stale. Force: " << force << std::endl;
-        g_tests_failed++;
-    }
-}
-
-void test_regression_bottoming_switch() {
-    std::cout << "\nTest: Regression - Bottoming Method Switch Spike" << std::endl;
-    FFBEngine engine;
-    TelemInfoV01 data;
-    std::memset(&data, 0, sizeof(data));
-    
-    engine.m_bottoming_enabled = true;
-    engine.m_bottoming_gain = 1.0;
-    engine.m_bottoming_method = 0; // Start with Method A (Scraping)
-    data.mDeltaTime = 0.01;
-    
-    // Frame 1: Low Force
-    data.mWheel[0].mSuspForce = 1000.0;
-    data.mWheel[1].mSuspForce = 1000.0;
-    engine.calculate_force(&data); // Should update m_prev_susp_force even if Method A is active
-    
-    // Frame 2: High Force (Ramp up)
-    data.mWheel[0].mSuspForce = 5000.0;
-    data.mWheel[1].mSuspForce = 5000.0;
-    engine.calculate_force(&data); // Should update m_prev_susp_force to 5000
-    
-    // Frame 3: Switch to Method B (Spike)
-    engine.m_bottoming_method = 1;
-    
-    // Steady state force (no spike)
-    data.mWheel[0].mSuspForce = 5000.0; 
-    data.mWheel[1].mSuspForce = 5000.0;
-    
-    double force = engine.calculate_force(&data);
-    
-    // EXPECTATION:
-    // If fixed: dForce = (5000 - 5000) / dt = 0. No effect.
-    // If broken: dForce = (5000 - 0) / dt = 500,000. Massive spike triggers effect.
-    
-    if (std::abs(force) < 0.001) {
-        std::cout << "[PASS] No spike on method switch." << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Spike detected on switch! Force: " << force << std::endl;
-        g_tests_failed++;
-    }
-}
-
-void test_regression_rear_torque_lpf() {
-    std::cout << "\nTest: Regression - Rear Torque LPF Continuity" << std::endl;
-    FFBEngine engine;
-    TelemInfoV01 data;
-    std::memset(&data, 0, sizeof(data));
-    
-    engine.m_rear_align_effect = 1.0;
-    engine.m_sop_effect = 0.0; // Isolate rear torque
-    engine.m_oversteer_boost = 0.0;
-    engine.m_max_torque_ref = 20.0f;
-    
-    // Setup: Car is sliding sideways (5 m/s) but has Grip (1.0)
-    // This means Rear Torque is 0.0 (because grip is good), BUT LPF should be tracking the slide.
-    data.mWheel[2].mLateralPatchVel = 5.0;
-    data.mWheel[3].mLateralPatchVel = 5.0;
-    data.mWheel[2].mLongitudinalGroundVel = 20.0;
-    data.mWheel[3].mLongitudinalGroundVel = 20.0;
-    data.mWheel[2].mGripFract = 1.0; // Good grip
-    data.mWheel[3].mGripFract = 1.0;
-    data.mWheel[2].mTireLoad = 4000.0;
-    data.mWheel[3].mTireLoad = 4000.0;
-    data.mWheel[2].mSuspForce = 3700.0; // For load calc
-    data.mWheel[3].mSuspForce = 3700.0;
-    data.mDeltaTime = 0.01;
-    
-    // Run 50 frames. The LPF should settle on the slip angle (~0.24 rad).
-    for(int i=0; i<50; i++) {
-        engine.calculate_force(&data);
-    }
-    
-    // Frame 51: Telemetry Glitch! Grip drops to 0.
-    // This triggers the Rear Torque calculation using the LPF value.
-    data.mWheel[2].mGripFract = 0.0;
-    data.mWheel[3].mGripFract = 0.0;
-    
-    double force = engine.calculate_force(&data);
-    
-    // EXPECTATION:
-    // If fixed: LPF is settled at ~0.24. Force is calculated based on 0.24.
-    // If broken: LPF was not running. It starts at 0. It smooths 0 -> 0.24.
-    //            First frame value would be ~0.024 (10% of target).
-    
-    // Target Torque (approx):
-    // Slip = 0.245. Load = 4000. K = 15.
-    // F_lat = 0.245 * 4000 * 15 = 14,700 -> Clamped 6000.
-    // Torque = 6000 * 0.001 = 6.0 Nm.
-    // Norm = 6.0 / 20.0 = 0.3.
-    
-    // If broken (LPF reset):
-    // Slip = 0.0245. F_lat = 1470. Torque = 1.47. Norm = 0.07.
-    
-    if (force > 0.25) {
-        std::cout << "[PASS] LPF was running in background. Force: " << force << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] LPF was stale/reset. Force too low: " << force << std::endl;
-        g_tests_failed++;
-    }
-}
-```
-
-### 2. Stress Test (The "Fuzzing" Suite)
-
-This test throws random, extreme, and invalid values at the engine to ensure it never crashes or outputs `NaN`.
-
-**Note:** You need to add `#include <random>` at the top of the file.
-
-```cpp
-void test_stress_stability() {
-    std::cout << "\nTest: Stress Stability (Fuzzing)" << std::endl;
-    FFBEngine engine;
-    TelemInfoV01 data;
-    std::memset(&data, 0, sizeof(data));
-    
-    // Enable EVERYTHING
-    engine.m_lockup_enabled = true;
-    engine.m_spin_enabled = true;
-    engine.m_slide_texture_enabled = true;
-    engine.m_road_texture_enabled = true;
-    engine.m_bottoming_enabled = true;
-    engine.m_use_manual_slip = true;
-    engine.m_scrub_drag_gain = 1.0;
-    
-    std::default_random_engine generator;
-    std::uniform_real_distribution<double> distribution(-100000.0, 100000.0);
-    std::uniform_real_distribution<double> dist_small(-1.0, 1.0);
-    
-    bool failed = false;
-    
-    // Run 1000 iterations of chaos
-    for(int i=0; i<1000; i++) {
-        // Randomize Inputs
-        data.mSteeringShaftTorque = distribution(generator);
-        data.mLocalAccel.x = distribution(generator);
-        data.mLocalVel.z = distribution(generator);
-        data.mDeltaTime = std::abs(dist_small(generator) * 0.1); // Random dt
-        
-        for(int w=0; w<4; w++) {
-            data.mWheel[w].mTireLoad = distribution(generator);
-            data.mWheel[w].mGripFract = dist_small(generator); // -1 to 1
-            data.mWheel[w].mSuspForce = distribution(generator);
-            data.mWheel[w].mVerticalTireDeflection = distribution(generator);
-            data.mWheel[w].mLateralPatchVel = distribution(generator);
-            data.mWheel[w].mLongitudinalGroundVel = distribution(generator);
-        }
-        
-        // Calculate
-        double force = engine.calculate_force(&data);
-        
-        // Check 1: NaN / Infinity
-        if (std::isnan(force) || std::isinf(force)) {
-            std::cout << "[FAIL] Iteration " << i << " produced NaN/Inf!" << std::endl;
-            failed = true;
-            break;
-        }
-        
-        // Check 2: Bounds (Should be clamped -1 to 1)
-        if (force > 1.00001 || force < -1.00001) {
-            std::cout << "[FAIL] Iteration " << i << " exceeded bounds: " << force << std::endl;
-            failed = true;
-            break;
-        }
-    }
-    
-    if (!failed) {
-        std::cout << "[PASS] Survived 1000 iterations of random input." << std::endl;
-        g_tests_passed++;
-    } else {
-        g_tests_failed++;
-    }
-}
-```
-
-### 3. Update `main()`
-
-Add these calls to your `main` function in `tests/test_ffb_engine.cpp`:
-
-```cpp
-int main() {
-    // ... existing tests ...
-    
-    // Regression Tests (v0.4.14)
-    test_regression_road_texture_toggle();
-    test_regression_bottoming_switch();
-    test_regression_rear_torque_lpf();
-    
-    // Stress Test
-    test_stress_stability();
-    
-    // ...
-}
-```
-
-```
-
-# File: docs\bug_reports\User bug report 001 Wheel Jerking with SOP Slider.md
-```markdown
-Based on the user report and the provided codebase, here is an analysis of the issue and the troubleshooting steps to assist the user.
-
-### Analysis of the Issue
-
-The user is reporting two distinct symptoms:
-1.  **"Couldn't feel any effect":** The app is running, but the wheel isn't reacting to the app's commands.
-2.  **"Jerking about randomly... if SOP slider > 0":** When a specific effect is enabled, the signal becomes unstable.
-
-**Root Cause Diagnosis:**
-The most probable cause is a **"Double FFB Conflict"**.
-
-In the `README.md`, the architecture requires the game (Le Mans Ultimate) to send its signals to a **vJoy** (Virtual) device, while the **LMUFFB App** reads telemetry and sends the new FFB to the **Physical** wheel.
-
-If the user has bound their **Moza R9 directly in the game settings** (instead of binding the vJoy device), two things happen:
-1.  **The Game** is sending FFB commands to the Moza R9.
-2.  **The App** is trying to send FFB commands to the Moza R9 (via the new DirectInput mode).
-
-This results in a "Race Condition" at the driver level. The wheel receives a command from the Game, then milliseconds later a command from the App. This causes the "Jerking" (fighting signals) and the "No Effect" (the game overwriting the app's output).
-
-The **SOP (Seat of Pants)** effect exacerbates this because it injects a constant lateral force during cornering. If the game is trying to center the wheel (aligning torque) and the App is trying to push it sideways (SOP), the rapid switching between these two contradictory commands causes violent oscillation.
-
----
-
-### Troubleshooting Response for the User
-
-Here is a draft you can send to the user.
-
-***
-
-**Subject:** Re: Moza R9 Setup / Jerking Issues
-
-Hi, thanks for the report!
-
-Based on your description ("No effect" initially, followed by "Jerking" when SOP is added), it sounds like you might be experiencing a **Double FFB Conflict**.
-
-This happens when both **Le Mans Ultimate (The Game)** and **LMUFFB (The App)** are trying to control your steering wheel motor at the same time. They end up fighting each other, causing the wheel to go limp or jerk violently.
-
-Please try this exact setup sequence to ensure the "Bridge" is working correctly:
-
-**1. The "Dummy" Setup (In-Game)**
-*   Ensure **vJoy** is installed.
-*   In Le Mans Ultimate **Controls** menu, you must bind your **Steering Axis** to the **vJoy Device**, NOT your Moza R9.
-    *   *Tip:* You may need to use the "vJoy Feeder" app (comes with vJoy) to move the virtual axis so the game detects it.
-*   This ensures the game sends its Force Feedback to the "Dummy" (vJoy) and leaves your real wheel free for the App to control.
-
-**2. The "Real" Setup (In App)**
-*   Open LMUFFB.
-*   In the **FFB Device** dropdown, select your **Moza R9**.
-*   Now, the App will read the physics from the game and send the force to your Moza.
-
-**3. Verify SOP Settings**
-*   The **SOP (Seat of Pants)** effect adds Lateral G-force to the wheel. On a Direct Drive wheel like the R9, this can be very strong.
-*   Once you have the vJoy binding sorted, start with **SOP Effect** at **0.0** and **Master Gain** at **0.5**.
-*   Gradually increase SOP. If it still jerks on straights, let me know—it might indicate noise in the telemetry data which we can filter out in the next update.
-
-**Summary Checklist:**
-1.  [ ] Game Steering Axis = vJoy Device (Axis X)
-2.  [ ] App FFB Device = Moza R9
-3.  [ ] Game FFB Strength = 0 (or default, doesn't matter as long as it's sent to vJoy)
-
-Let me know if that resolves the fighting sensation!
-
-***
-
-### Developer Notes (Internal)
-
-If the user confirms they set it up correctly and the issue persists, there are two code-side areas to investigate in `FFBEngine.h` and `DirectInputFFB.cpp`:
-
-1.  **SOP Noise Filtering (`FFBEngine.h`):**
-    The current SOP implementation takes raw lateral acceleration:
-    ```cpp
-    double lat_g = data->mLocalAccel.x / 9.81;
-    double sop_force = lat_g * m_sop_effect * 1000.0;
-    ```
-    If `mLocalAccel.x` is noisy (jittering around 0 on straights), this will translate directly to torque jitter.
-    *Fix:* Implement a simple low-pass filter or a deadzone for `lat_g` in the next build.
-
-2.  **DirectInput Update Safety (`DirectInputFFB.cpp`):**
-    In `UpdateForce`, we check `if (magnitude == m_last_force) return;`.
-    However, on high-torque DD wheels, rapid updates (400Hz) of the `ConstantForce` parameter without a `DIEP_START` flag is usually correct, but some drivers handle this poorly.
-    *Verification:* If the user is still having issues, we might need to throttle the DirectInput update rate to 100Hz (while keeping physics at 400Hz) to see if the Moza driver prefers less frequent updates.
-```
-
-# File: docs\bug_reports\User bug report 002 VJoy Setup Troubleshooting and Bug.md
-```markdown
-Based on the user's report and the provided codebase, here is the analysis of the problem and the troubleshooting steps to assist the user.
-
-### Analysis of the Issue
-
-The user is facing two distinct problems:
-1.  **"I have no steering in game now":** The user expects the app to pass their steering input to the game, but it is not happening.
-2.  **"The wheel is now randomly and intermittently spinning about":** The wheel is moving on its own, likely due to a signal conflict.
-
-#### Root Cause 1: LMUFFB is not an Input Bridge (Missing "Feeder")
-The user states: *"It's as if LMUFFB isn't returning the steering angle to vJoy."*
-
-Looking at `main.cpp` and `DirectInputFFB.cpp`, the application **does not read the steering axis** of the physical wheel. It only calculates Force Feedback.
-*   **The Code:** The `FFBThread` calculates force and sends it to the wheel. It does *not* poll the wheel's position to update vJoy.
-*   **The Docs:** `README.md` (Installation Step 4A) explicitly states: *"You MUST use a tool like **vJoy Feeder**, **Joystick Gremlin**, or **Mojo** to map your physical wheel axis to the vJoy axis. LMUFFB does not yet bridge steering input."*
-
-**Conclusion:** The user stopped the "vJoy Feeder" app after testing it, or assumes LMUFFB replaces it. They need a separate app running in the background to actually steer the car.
-
-#### Root Cause 2: The "Spinning" is caused by an Axis Conflict (Critical Bug/Config Trap)
-The user states: *"The wheel is now randomly and intermittently spinning about... turning the wheel doesn't show anything in vJoy monitor."*
-
-There is a conflict between the Code and the Documentation/User Setup:
-1.  **The Code (`main.cpp` line 81):**
-    ```cpp
-    // Update vJoy Axis (for monitoring) if active
-    if (vJoyActive) {
-        long axis_val = (long)((force + 1.0) * 0.5 * (axis_max - axis_min) + axis_min);
-        DynamicVJoy::Get().SetAxis(axis_val, VJOY_DEVICE_ID, 0x30); // 0x30 = HID_USAGE_X
-    }
-    ```
-    The app writes the **Calculated Force** to **vJoy Axis X** at 400Hz. This is intended for debugging/monitoring FFB visually.
-
-2.  **The User Setup:**
-    The user has likely bound **Game Steering** to **vJoy Axis X** (as per the README instructions).
-
-3.  **The Result:**
-    *   The App calculates FFB Force.
-    *   The App writes this Force to vJoy Axis X.
-    *   The Game reads vJoy Axis X as **Steering Input**.
-    *   **Feedback Loop:** The FFB Force is literally steering the car. If the FFB pushes left, the car steers left, which changes the physics, which changes the FFB. This causes the "random spinning" and "jerking."
-
----
-
-### Troubleshooting Response for the User
-
-Here is the suggested response to guide the user through fixing both issues.
-
-***
-
-**Subject:** Re: No steering and wheel spinning issues
-
-Hi, thanks for the detailed follow-up. Moving the EXE to the vJoy folder was a good move to fix the DLL issue.
-
-I have analyzed your report against the code, and I believe I know exactly what is happening. There are two separate things we need to fix.
-
-### 1. Fix "No Steering" (The Bridge)
-**The Issue:** LMUFFB calculates Force Feedback, but it **does not** read your steering angle. It cannot "bridge" your Moza steering to vJoy on its own.
-**The Fix:** You must keep a "Feeder" application running in the background while you play.
-1.  Open **vJoy Feeder** (or Joystick Gremlin).
-2.  Select your Moza R9.
-3.  Ensure that turning your Moza moves the vJoy Axis bars.
-4.  **Leave this app open** while playing the game.
-
-### 2. Fix "Wheel Spinning" (The Axis Conflict)
-**The Issue:** This is a conflict between the App and your Game bindings.
-Currently, LMUFFB outputs the **FFB Force** signal to **vJoy Axis X** (so you can see the force visually in vJoy Monitor).
-However, if you bind the **Game Steering** to **vJoy Axis X**, the App is effectively "steering the car" with the Force Feedback signal. This creates a feedback loop where the wheel spins and jerks on its own.
-
-**The Fix:** You need to use a different axis for steering to avoid the FFB signal.
-
-**Please follow these exact steps:**
-
-1.  **Configure vJoy:**
-    *   Open **Configure vJoy**.
-    *   Ensure **Device 1** has at least **X** and **Y** axes enabled.
-2.  **Configure the Feeder (e.g., vJoy Feeder / Gremlin):**
-    *   Map your **Moza Steering** to **vJoy Axis Y** (instead of X).
-3.  **Configure the Game:**
-    *   Go to LMU Controls.
-    *   Bind **Steering** to **vJoy Axis Y**.
-4.  **Run LMUFFB:**
-    *   Now, LMUFFB will write FFB info to Axis X (which the game ignores).
-    *   Your Feeder will write Steering to Axis Y (which the game uses).
-
-**Summary Checklist:**
-*   [ ] **Feeder App** is running in the background.
-*   [ ] **Feeder** maps Moza Wheel -> vJoy **Axis Y**.
-*   [ ] **Game** Steering is bound to vJoy **Axis Y**.
-*   [ ] **LMUFFB** FFB Device is set to **Moza R9**.
-
-Let me know if this stabilizes the wheel!
-
-***
-
-### Recommendation for Developers (Code Fix)
-
-The current behavior in `main.cpp` is dangerous because it defaults to overwriting the most common steering axis (X) with FFB data.
-
-**Recommended Changes for v0.3.9:**
-1.  **Disable vJoy Output by Default:** In `Config.h` / `Config.cpp`, add a boolean `m_output_ffb_to_vjoy` defaulting to `false`.
-2.  **Modify `main.cpp`:**
-    ```cpp
-    // Only write to vJoy if explicitly enabled for debugging
-    if (vJoyActive && Config::m_output_ffb_to_vjoy) {
-        long axis_val = ...;
-        DynamicVJoy::Get().SetAxis(axis_val, VJOY_DEVICE_ID, 0x30);
-    }
-    ```
-3.  **Update Documentation:** Clearly state that vJoy Axis X is used for FFB monitoring *only* if enabled, and users should use Axis X for steering (if the feature is disabled) or Axis Y (if enabled).
-
-
-
-# Follow up question 1
-
-An user replied to the suggested steps as following:
-
-> Open vJoy Feeder (or Joystick Gremlin).
-> Select your Moza R9.
-
-Where in vJoy feeder do I select my Moza wheel?
-
-[see image] docs\bug_reports\vJoy Feeder.jpeg
-
-# Answer 1
-
-That is my mistake, and I apologize for the confusion. Thank you for the screenshot—it clarifies exactly what is happening.
-
-The application in your screenshot is the **vJoy Demo Feeder**. It is only designed to test if vJoy is working by moving those sliders with your mouse. **It cannot read your physical Moza wheel.**
-
-To bridge your Moza wheel to vJoy, you need a specific mapping software. The most reliable (and free) tool for this is **Joystick Gremlin**.
-
-Here is the corrected step-by-step guide to get your steering working without the "spinning" issue:
-
-### 1. Download Joystick Gremlin
-*   Download it here: [https://whitemagic.github.io/JoystickGremlin/](https://whitemagic.github.io/JoystickGremlin/)
-*   Install and run it.
-
-### 2. Map Your Wheel (The Bridge)
-1.  In Joystick Gremlin, you will see tabs at the top for your connected devices. Click the tab for your **Moza R9**.
-2.  Turn your physical wheel. You should see one of the axes in the list highlight/move (usually "X Axis" or "Rotation X").
-3.  Click on that axis in the list.
-4.  On the right side, under "Action", choose **"Map to vJoy"**.
-5.  **Crucial Step (To fix the spinning bug):**
-    *   Select vJoy Device: **1**
-    *   Select Axis: **Y** (Do **NOT** select X, as LMUFFB is currently overwriting X for its display, causing the spinning).
-
-### 3. Activate the Bridge
-*   In the top menu of Joystick Gremlin, click the **"Activate"** button (the Gamepad icon turns green).
-*   *Test:* Now, when you turn your physical Moza wheel, the **Y bar** in the vJoy Monitor (or the Feeder you screenshotted) should move.
-
-### 4. Bind in Game
-*   Go into Le Mans Ultimate.
-*   Bind **Steering** to that new **vJoy Axis Y**.
-
-Once you do this, the "Bridge" is complete:
-**Moza** -> **Joystick Gremlin** -> **vJoy Axis Y** -> **Game**.
-
-This leaves **vJoy Axis X** free for LMUFFB to use for its display without interfering with your steering.
-
-# Follow up question 2
-
-I added this alternative suggestion to an user:
-
-"Try binding the wheel in game as the steering device, but set all FFB strength settings to 0 and disable all the FFB toggles in the in-game FFB configuration, to prevent receiving FFB from the game."
-
-Do you think this is a feasible solution for "Fix "No Steering" (The Bridge)​" and "Fix "Wheel Spinning" (The Axis Conflict)​" ?
-
-It seems strange that we need this bridge thing.. no other app like irFBB or Marvin's app needed Joystick Gremlin, as far as I am aware.
-
-
-# Answer 2
-
-
-This is a **very good suggestion**, and yes, it is absolutely a feasible solution. In fact, if it works on the user's specific system, it is the **preferred solution** because it eliminates the complexity of Joystick Gremlin entirely.
-
-Here is the breakdown of why we suggested the "Bridge" method initially, and why your suggestion might work better.
-
-### 1. Is your suggestion feasible?
-**Yes.**
-This is referred to as **"Method B"** in your `README.txt`.
-
-*   **How it works:**
-    1.  **Game Input:** The game reads the **Physical Wheel** directly for steering. (Solves "No Steering").
-    2.  **Game Output:** You set Game FFB to **0 / None**. This stops the game from sending forces.
-    3.  **App Output:** LMUFFB sends forces to the **Physical Wheel**.
-    4.  **vJoy:** Not used at all. (Solves "Wheel Spinning" because the game isn't listening to the vJoy axis where LMUFFB writes data).
-
-*   **The Risk (Why we hesitated):**
-    The only risk is **"Device Locking" (Exclusive Mode)**.
-    Some games, when you bind a wheel to them, tell Windows: *"I own this device now. No other app can touch it."*
-    *   **If LMU does this:** LMUFFB will try to send FFB, get an "Access Denied" error, and the wheel will be dead.
-    *   **If LMU is "polite" (Shared Mode):** It will read the steering, ignore the FFB, and let LMUFFB write the FFB. **This is the ideal scenario.**
-
-**Recommendation:**
-Tell the user to try this immediately. If LMUFFB shows "Device Acquired" in the console while the game is running, **this is the best way to play.**
-
----
-
-### 2. Why did other apps (iRFFB, Marvin's) not need a bridge?
-
-You are correct that needing a third-party "Feeder" is annoying. The difference lies in how those apps were architected compared to the current state of LMUFFB.
-
-**A. iRFFB (Direct Mode)**
-iRFFB has a "Direct" mode where it does exactly what you suggested:
-*   The Game reads the steering.
-*   The App sends the FFB.
-*   *Note:* iRacing is very good at allowing "Shared" access to devices. rFactor 2 (LMU) is older technology and sometimes more aggressive about locking devices.
-
-**B. Input Passthrough (Internal Bridge)**
-Some advanced FFB apps act as the bridge internally.
-1.  The App reads the physical wheel axis (using DirectInput).
-2.  The App writes that value to vJoy.
-3.  The Game reads vJoy.
-*   **Current LMUFFB Status:** Your app **does not yet have the code** to read the physical wheel axis. It only calculates physics. That is why we currently need an external tool (Gremlin) to do that reading/writing.
-
-### Summary for the User
-
-You can send them this:
-
-> "That is actually the best solution if it works on your system!
->
-> The 'Bridge' (Joystick Gremlin) is a fallback method we use when the game refuses to share the wheel with the app.
->
-> **Please try the Direct Method:**
-> 1.  **Uninstall/Disable vJoy** (or just unbind it in-game).
-> 2.  **In Game:** Bind your **Moza R9** directly to Steering.
-> 3.  **In Game:** Set FFB Strength to **0%** (or 'None' if available).
-> 4.  **In App:** Select **Moza R9**.
->
-> If the wheel has force feedback and steers the car, you are good to go! You don't need vJoy or Gremlin.
->
-> If the wheel has **NO force feedback** (is limp) while the app is running, it means the game has 'Locked' the device. In that case, you will need to go back to the Joystick Gremlin method."
-
-
-```
-
 # File: docs\dev_docs\add button and save screenshot plan.md
 ```markdown
 See vendor\stb_image_write.h
@@ -6275,7 +5474,7 @@ $$ F_{final} = \text{Clamp}\left( \left( \frac{F_{total}}{20.0} \times K_{gain} 
 
 Where **$F_{total}$** is the sum of all physics components:
 
-$$ F_{total} = (F_{base} + F_{sop} + F_{vib\_lock} + F_{vib\_spin} + F_{vib\_slide} + F_{vib\_road} + F_{vib\_bottom}) \times M_{spin\_drop} $$
+$$ F_{total} = (F_{base} + F_{sop} + F_{vib\_lock} + F_{vib\_spin} + F_{vib\_slide} + F_{vib\_road} + F_{vib\_bottom} + F_{gyro}) \times M_{spin\_drop} $$
 
 *(Note: $M_{spin\_drop}$ is a reduction multiplier active only during traction loss).*
 
@@ -6332,7 +5531,17 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
     
     **Note**: Scaling changed from 5.0 to 20.0 in v0.4.10 to provide stronger baseline Nm output.
 
-3.  **Oversteer Boost**:
+3.  **Yaw Acceleration (The Kick) - New v0.4.16, Smoothed v0.4.18**:
+    $$ F_{yaw} = \text{YawAccel}_{smoothed} \times K_{yaw} \times 5.0 $$
+    
+    *   Injects `mLocalRotAccel.y` (Radians/sec²) to provide a predictive kick when rotation starts.
+    *   **v0.4.18 Fix:** Applied Low Pass Filter (Exponential Moving Average, $\alpha = 0.1$) to prevent noise feedback loop with Slide Rumble.
+        *   **Problem:** Slide Rumble vibrations caused yaw acceleration (a derivative) to spike with high-frequency noise, which Yaw Kick amplified, creating a positive feedback loop.
+        *   **Solution:** $\text{YawAccel}_{smoothed} = \text{YawAccel}_{prev} + 0.1 \times (\text{YawAccel}_{raw} - \text{YawAccel}_{prev})$
+        *   This filters out high-frequency noise (> ~1.6 Hz) while preserving actual rotation kicks.
+    *   $K_{yaw}$: User setting `m_sop_yaw_gain` (0.0 - 2.0).
+
+4.  **Oversteer Boost**:
     If Front Grip > Rear Grip:
     $$ F_{sop\_boosted} = F_{sop\_base} \times \left( 1.0 + (\text{Grip}_{delta} \times K_{oversteer} \times 2.0) \right) $$
     where $\text{Grip}_{delta} = \text{Front\_Grip}_{avg} - \text{Rear\_Grip}_{avg}$
@@ -6354,7 +5563,7 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
     
     **Note**: Coefficient changed from 0.00025 to 0.001 in v0.4.11.
 
-$$ F_{sop} = F_{sop\_boosted} + T_{rear} $$
+$$ F_{sop} = F_{sop\_boosted} + T_{rear} + F_{yaw} $$
 
 #### D. Dynamic Textures (Vibrations)
 
@@ -6404,6 +5613,14 @@ Active if Max Tire Load > 8000N or Ride Height < 2mm.
     **Note**: Magnitude scaling changed from 0.5 to 0.0025 in v0.4.1 (Nm units).
 *   **Frequency**: Fixed 50Hz sine wave pulse.
 
+**6. Synthetic Gyroscopic Damping ($F_{gyro}$) - New v0.4.17**
+Stabilizes the wheel by opposing rapid steering movements (prevents "tank slappers").
+*   $Angle$: Steering Input $\times$ (Range / 2.0).
+*   $Vel$: $(Angle - Angle_{prev}) / dt$.
+*   $Vel_{smooth}$: Smoothed derivative of steering angle (LPF).
+*   $F_{gyro} = -1.0 \times Vel_{smooth} \times K_{gyro} \times (\text{CarSpeed} / 10.0)$
+*   **Note**: Scales with car speed (faster = more stability needed).
+
 ---
 
 ### 3. Post-Processing (Min Force)
@@ -6432,6 +5649,8 @@ $$ F_{final} = \text{sign}(F_{norm}) \times K_{min\_force} $$
 *   $K_{shaft\_gain}$: Steering Shaft Gain (0.0 - 1.0) **(New v0.4.13)**
 *   $K_{understeer}$: Understeer Effect (0.0 - 1.0)
 *   $K_{sop}$: SoP Effect (0.0 - 2.0)
+*   $K_{yaw}$: SoP Yaw Gain (0.0 - 2.0) **(New v0.4.15)**
+*   $K_{gyro}$: Gyroscopic Damping Gain (0.0 - 1.0) **(New v0.4.17)**
 *   $K_{oversteer}$: Oversteer Boost (0.0 - 1.0)
 *   $K_{rear\_align}$: Rear Align Torque (0.0 - 2.0)
 *   $K_{lockup}, K_{spin}, K_{slide}, K_{road}, K_{drag}$: Texture/Effect Gains
@@ -12762,6 +11981,98 @@ Does the Formula Pro have such data? It is not licensed, so...
 Unless the agreements with Goodyear and Bridgestone prevent this.
 ```
 
+# File: docs\dev_docs\windows_stdmax_macro_issue.md
+```markdown
+# Windows Compilation Issue: std::max Macro Conflict
+
+## Problem
+
+When compiling C++ code on Windows with MSVC, calls to `std::max` and `std::min` can fail with cryptic errors like:
+
+```
+error C2589: '(': illegal token on right side of '::'
+error C2062: type 'unknown-type' unexpected
+error C2059: syntax error: ')'
+```
+
+## Root Cause
+
+Windows headers (particularly `<windows.h>` and `<windef.h>`) define `max` and `min` as **preprocessor macros**:
+
+```cpp
+#define max(a,b) (((a) > (b)) ? (a) : (b))
+#define min(a,b) (((a) < (b)) ? (a) : (b))
+```
+
+When you write `std::max(a, b)`, the preprocessor expands it to:
+```cpp
+std::(((a) > (b)) ? (a) : (b))(a, b)  // Invalid syntax!
+```
+
+This is a well-known Windows SDK issue that has existed for decades.
+
+## Solution
+
+Wrap `std::max` and `std::min` calls in **extra parentheses** to prevent macro expansion:
+
+### ❌ Wrong (will fail on Windows):
+```cpp
+double result = std::max(a, b);
+double result = std::min(a, b);
+```
+
+### ✅ Correct (works on all platforms):
+```cpp
+double result = (std::max)(a, b);
+double result = (std::min)(a, b);
+```
+
+The extra parentheses prevent the preprocessor from recognizing the macro pattern.
+
+## Alternative Solutions
+
+1. **Define NOMINMAX** (before including Windows headers):
+   ```cpp
+   #define NOMINMAX
+   #include <windows.h>
+   ```
+   This prevents the macros from being defined, but may break code that relies on them.
+
+2. **Undefine the macros** (after including Windows headers):
+   ```cpp
+   #include <windows.h>
+   #undef max
+   #undef min
+   ```
+
+3. **Use the parentheses approach** (recommended):
+   - Works everywhere
+   - No side effects
+   - No need to modify includes
+   - Already used throughout `FFBEngine.h`
+
+## Project Convention
+
+**This project uses the parentheses approach** for consistency with existing code in `FFBEngine.h`. All calls to `std::max` and `std::min` should use:
+
+```cpp
+(std::max)(a, b)
+(std::min)(a, b)
+```
+
+## References
+
+- Microsoft Docs: [Avoiding Name Collisions](https://docs.microsoft.com/en-us/windows/win32/winprog/using-the-windows-headers#faster-builds-with-smaller-header-files)
+- Stack Overflow: [Why does std::min/max not work?](https://stackoverflow.com/questions/5004356/why-does-stdmin-max-not-work-on-windows)
+
+## History
+
+- **v0.4.18**: Encountered in test code when adding yaw acceleration smoothing tests
+- **Earlier versions**: Already resolved in main codebase (`FFBEngine.h`)
+- **Lesson**: Always use `(std::max)` and `(std::min)` in this project
+
+```
+
 # File: docs\dev_docs\workaounds_and_improvements_ffb_v0.4.4+.md
 ```markdown
 Based on the analysis of the provided codebase (`FFBEngine.h`, `InternalsPlugin.hpp`) and the constraint that `mGripFract` and `mTireLoad` are currently returning **0.0**, here is the detailed breakdown of the impact and solutions.
@@ -13032,6 +12343,47 @@ double radius_m = (double)raw_radius_cm / 100.0;
 
 **Summary:** Treat `unsigned char` as a "Tiny Integer" (0-255). It is used here for memory efficiency.
 
+```
+
+# File: docs\dev_docs\Yaw Kick names.md
+```markdown
+Here are the best options for naming this effect in the GUI, keeping in mind that it needs to be short enough for a label but descriptive enough for a user to understand what it feels like.
+
+### Top Recommendation
+**"SoP Yaw (Kick)"**
+
+*   **Why it works:**
+    *   **Context:** It groups the effect under "SoP" (Seat of Pants), so the user knows it relates to chassis movement, not steering rack forces.
+    *   **Physics:** It identifies "Yaw" (rotation) as the source.
+    *   **Sensation:** It uses "(Kick)" to describe the tactile feeling. Unlike Lateral G (which is a sustained weight), Acceleration is felt as a sudden impulse or kick.
+
+---
+
+### Alternative Options
+
+Here is a breakdown by naming philosophy:
+
+#### 1. Descriptive (Focus on the Sensation)
+*   **Yaw Kick** (Short, punchy, accurate)
+*   **Rotation Snap** (Describes the sudden movement of the car)
+*   **Yaw Impulse** (More technical, implies a short burst of force)
+*   **Rear Jolt** (Focuses on the rear axle behavior)
+
+#### 2. Functional (Focus on the Purpose)
+*   **Slide Cue** (Tells the user *why* they need it: to detect a slide)
+*   **Oversteer Cue** (Specific to oversteer initiation)
+*   **Slide Onset** (Implies it happens at the *start* of the slide)
+*   **Rotation Cue** (Simple and direct)
+
+#### 3. Technical (Focus on the Data)
+*   **Yaw Acceleration** (Accurate, but perhaps too long for a GUI column)
+*   **Rotational Accel**
+*   **Yaw Accel Gain**
+
+### Recommendation for the Prompt
+I suggest using **"SoP Yaw (Kick)"** for the GUI label. It balances technical accuracy with the visceral description of the effect.
+
+In the code variables, use `m_sop_yaw_gain` to keep it consistent with the existing `m_sop_effect`.
 ```
 
 # File: docs\dev_docs\Yaw, Gyroscopic Damping , Dynamic Weight, Per-Wheel Hydro-Grain, and Adaptive Optimal Slip Angle implementation.md
@@ -13679,12 +13031,6 @@ double excess = (std::max)(0.0, result.slip_angle - dynamic_limit);
 
 ```
 
-# File: docs\dev_docs\prompts\prompt.md
-```markdown
-
-
-```
-
 # File: docs\dev_docs\prompts\prompt_for_v_0.4.14.md
 ```markdown
 Please initialize this session by following the **Standard Task Workflow** defined in `AGENTS.md`.
@@ -13787,6 +13133,135 @@ We have identified a critical logic error in `FFBEngine.h` where physics state v
 5.  Updated `AGENTS_MEMORY.md`.
 6.  **Verification**: Run the tests (`./run_tests` in the build folder) and ensure the new regression tests PASS.
 
+```
+
+# File: docs\dev_docs\prompts\prompt_for_v_0.4.16.md
+```markdown
+You will have to work on the files downloaded from this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below. Therefore, if you haven't done it already, clone this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below.
+
+Please initialize this session by following the **Standard Task Workflow** defined in `AGENTS.md`.
+
+1.  **Sync**: Run `git fetch && git reset --hard origin/main` for the LMUFFB repository to ensure you see the latest files.
+1.  **Load Memory**: Read `AGENTS_MEMORY.md` from the root dir of the LMUFFB repository to review build workarounds and architectural insights. 
+2.  **Load Rules**: Read `AGENTS.md` from the root dir of the LMUFFB repository to confirm instructions. 
+
+Once you have reviewed these documents, please proceed with the following task:
+
+**Task: Implement "SoP Injector" (Yaw Acceleration Cue)**
+
+**Reference Documents:**
+*   `docs/dev_docs/Yaw, Gyroscopic Damping , Dynamic Weight, Per-Wheel Hydro-Grain, and Adaptive Optimal Slip Angle implementation.md` (Sections 1 and 5).
+*   `docs/dev_docs/FFB_formulas.md` (For documentation updates).
+
+**Context:**
+We are enhancing the "Seat of Pants" (SoP) effect to be more "Informative" and "Visceral". Currently, SoP relies on Lateral G-Force (`mLocalAccel.x`), which represents weight transfer. However, this is reactive. To provide a predictive "Kick" when the rear end breaks traction (especially on low-grip surfaces where G-force might drop), we need to inject **Yaw Acceleration** (`mLocalRotAccel.y`) into the signal.
+
+**Implementation Requirements:**
+
+1.  **Update `FFBEngine.h`**:
+    *   Add a new configuration variable: `float m_sop_yaw_gain = 0.0f;` (Default to 0.0 so it is an opt-in feature).
+    *   In `calculate_force`:
+        *   Read `data->mLocalRotAccel.y` (Yaw Acceleration).
+        *   Calculate the force: `double yaw_force = data->mLocalRotAccel.y * m_sop_yaw_gain * 5.0;` (Use 5.0 as the base scaling factor as per the reference doc).
+        *   Add `yaw_force` to `sop_total`.
+    *   Update `FFBSnapshot` struct to include `float ffb_yaw_kick` and populate it in the snapshot logic.
+
+2.  **Update Configuration (`src/Config.h` & `src/Config.cpp`)**:
+    *   Update `Preset` struct to include `float sop_yaw_gain`.
+    *   Add a fluent setter: `Preset& SetSoPYaw(float v)`.
+    *   Update `Config::Save` and `Config::Load` to persist `sop_yaw_gain` to `config.ini`.
+    *   Update `Config::LoadPresets` to initialize this value (default 0.0f).
+
+3.  **Update GUI (`src/GuiLayer.cpp`)**:
+    *   **Tuning Window**: Add a slider for "SoP Yaw (Kick)" in the "Effects" section (Range 0.0 to 2.0). Add a tooltip explaining it provides a cue for rotation onset.
+    *   **Debug Window**: Add a new trace line for "Yaw Kick" in the "FFB Components (Output)" graph (Header A) so users can visualize this specific force contribution.
+
+4.  **Update Documentation**:
+    *   Update `docs/dev_docs/FFB_formulas.md`: Add the Yaw Acceleration component to the "Seat of Pants (SoP) & Oversteer" section formulas.
+
+5.  **Add Unit Test (`tests/test_ffb_engine.cpp`)**:
+    *   Create a test `test_sop_yaw_kick()`.
+    *   Scenario: Zero Lateral G, Zero Steering Force, but Non-Zero Yaw Acceleration (e.g., `mLocalRotAccel.y = 5.0`).
+    *   Assert that the calculated force is non-zero and matches the expected formula.
+
+**Deliverables:**
+1.  Modified `FFBEngine.h`.
+2.  Modified `src/Config.h` and `src/Config.cpp`.
+3.  Modified `src/GuiLayer.cpp`.
+4.  Updated `docs/dev_docs/FFB_formulas.md`.
+5.  Modified `tests/test_ffb_engine.cpp` with the new test case.
+6.  **Verification**: Run the tests (`./run_tests` in the build folder) and ensure `test_sop_yaw_kick` passes.
+```
+
+# File: docs\dev_docs\prompts\v_0.4.17.md
+```markdown
+You will have to work on the files downloaded from this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below. Therefore, if you haven't done it already, clone this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below.
+
+Please initialize this session by following the **Standard Task Workflow** defined in `AGENTS.md`.
+
+1.  **Sync**: Run `git fetch && git reset --hard origin/main` for the LMUFFB repository to ensure you see the latest files.
+1.  **Load Memory**: Read `AGENTS_MEMORY.md` from the root dir of the LMUFFB repository to review build workarounds and architectural insights. 
+2.  **Load Rules**: Read `AGENTS.md` from the root dir of the LMUFFB repository to confirm instructions. 
+
+Once you have reviewed these documents, please proceed with the following task:
+
+**Task: Implement Synthetic Gyroscopic Damping**
+
+**Reference Documents:**
+*   `docs/dev_docs/Yaw, Gyroscopic Damping , Dynamic Weight, Per-Wheel Hydro-Grain, and Adaptive Optimal Slip Angle implementation.md` (Section 4.2 and 8.4).
+*   `src/lmu_sm_interface/InternalsPlugin.hpp` (For steering inputs).
+
+**Context:**
+We need to implement the "Gyroscopic Damping" effect to stabilize the wheel during drifts and prevent oscillations ("tank slappers").
+**Constraint:** Do NOT attempt to implement a DirectInput "Damper" effect. Instead, implement **Synthetic Damping** by calculating a counter-force based on steering velocity and adding it to the main Constant Force output.
+
+**Implementation Requirements:**
+
+1.  **Update `FFBEngine.h`**:
+    *   **New Settings:**
+        *   `float m_gyro_gain = 0.0f;` (Default 0.0).
+        *   `float m_gyro_smoothing = 0.1f;` (To filter the noisy derivative).
+    *   **New State Variables:**
+        *   `double m_prev_steering_angle = 0.0;`
+        *   `double m_steering_velocity_smoothed = 0.0;`
+    *   **Logic in `calculate_force`:**
+        1.  **Calculate Steering Angle:** Convert `data->mUnfilteredSteering` (-1.0 to 1.0) to Radians.
+            *   Use `data->mPhysicalSteeringWheelRange` if available (> 0).
+            *   Fallback: Assume 540 degrees (approx 9.42 rad) if range is 0.
+            *   Formula: `Angle = Input * (Range / 2.0)`.
+        2.  **Calculate Velocity:** `RawVel = (Angle - m_prev_steering_angle) / dt`.
+        3.  **Smooth Velocity:** Apply an Exponential Moving Average (LPF) to `RawVel` using `m_gyro_smoothing` to remove noise spikes.
+        4.  **Calculate Damping Force:**
+            *   Formula: `Force = -1.0 * SmoothedVel * m_gyro_gain * (CarSpeed / 10.0)`.
+            *   *Note:* The force opposes velocity (negative sign). It scales with Car Speed (higher speed = more gyroscopic resistance).
+        5.  **Add to Total:** `total_force += Force`.
+    *   **Snapshot:** Add `ffb_gyro_damping` to `FFBSnapshot` for visualization.
+
+2.  **Update Configuration (`src/Config.h` & `src/Config.cpp`)**:
+    *   Update `Preset` struct to include `float gyro_gain`.
+    *   Add fluent setter: `Preset& SetGyro(float v)`.
+    *   Update Save/Load logic.
+    *   Update `LoadPresets` (Default to 0.0).
+
+3.  **Update GUI (`src/GuiLayer.cpp`)**:
+    *   **Tuning Window:** Add a slider "Gyroscopic Damping" in the "Effects" or "Advanced" section (Range 0.0 to 1.0).
+    *   **Debug Window:** Add a trace for "Gyro Damping" in the "FFB Components" graph.
+
+4.  **Update Documentation**:
+    *   Update `docs/dev_docs/FFB_formulas.md` with the Gyro Damping formula.
+
+5.  **Add Unit Test (`tests/test_ffb_engine.cpp`)**:
+    *   Create `test_gyro_damping()`.
+    *   Scenario: Car moving fast (50 m/s). Steering moves rapidly from 0.0 to 0.1 in one frame.
+    *   Assert: The calculated Gyro Force is **negative** (opposing the movement) and non-zero.
+
+**Deliverables:**
+1.  Modified `FFBEngine.h`.
+2.  Modified `src/Config.h` and `src/Config.cpp`.
+3.  Modified `src/GuiLayer.cpp`.
+4.  Updated `docs/dev_docs/FFB_formulas.md`.
+5.  Modified `tests/test_ffb_engine.cpp`.
+6.  **Verification**: Run tests and ensure `test_gyro_damping` passes.
 ```
 
 # File: docs\python_version\performance_analysis.md
@@ -14256,6 +13731,7 @@ void Config::LoadPresets() {
         .SetSmoothing(0.0f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
         .SetBaseMode(2) // Muted
     );
 
@@ -14291,6 +13767,7 @@ void Config::LoadPresets() {
         .SetSmoothing(0.0f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(1.0f)
+        .SetSoPYaw(0.0f)
     );
 
     // 7. Test: SoP Base Only
@@ -14301,6 +13778,7 @@ void Config::LoadPresets() {
         .SetSmoothing(0.0f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
         .SetBaseMode(2) // Muted
     );
 
@@ -14397,6 +13875,7 @@ void Config::LoadPresets() {
                         else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
                         else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = std::stof(value);
                         else if (key == "rear_align_effect") current_preset.rear_align_effect = std::stof(value);
+                        else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = std::stof(value);
                         else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
                         else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
                     } catch (...) {}
@@ -14446,8 +13925,10 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "bottoming_method=" << engine.m_bottoming_method << "\n";
         file << "scrub_drag_gain=" << engine.m_scrub_drag_gain << "\n";
         file << "rear_align_effect=" << engine.m_rear_align_effect << "\n";
+        file << "sop_yaw_gain=" << engine.m_sop_yaw_gain << "\n";
         file << "steering_shaft_gain=" << engine.m_steering_shaft_gain << "\n";
         file << "base_force_mode=" << engine.m_base_force_mode << "\n";
+        file << "gyro_gain=" << engine.m_gyro_gain << "\n";
         file.close();
         std::cout << "[Config] Saved to " << filename << std::endl;
     } else {
@@ -14501,8 +13982,10 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "bottoming_method") engine.m_bottoming_method = std::stoi(value);
                     else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = std::stof(value);
                     else if (key == "rear_align_effect") engine.m_rear_align_effect = std::stof(value);
+                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = std::stof(value);
                     else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
                     else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
+                    else if (key == "gyro_gain") engine.m_gyro_gain = std::stof(value);
                 } catch (...) {
                     std::cerr << "[Config] Error parsing line: " << line << std::endl;
                 }
@@ -14555,6 +14038,8 @@ struct Preset {
     float scrub_drag_gain = 0.0f;
     
     float rear_align_effect = 1.0f;
+    float sop_yaw_gain = 0.0f; // New v0.4.15
+    float gyro_gain = 0.0f; // New v0.4.17
     
     float steering_shaft_gain = 1.0f;
     int base_force_mode = 0; // 0=Native
@@ -14584,6 +14069,8 @@ struct Preset {
     Preset& SetBottoming(int method) { bottoming_method = method; return *this; }
     Preset& SetScrub(float v) { scrub_drag_gain = v; return *this; }
     Preset& SetRearAlign(float v) { rear_align_effect = v; return *this; }
+    Preset& SetSoPYaw(float v) { sop_yaw_gain = v; return *this; }
+    Preset& SetGyro(float v) { gyro_gain = v; return *this; }
     
     Preset& SetShaftGain(float v) { steering_shaft_gain = v; return *this; }
     Preset& SetBaseMode(int v) { base_force_mode = v; return *this; }
@@ -14611,6 +14098,8 @@ struct Preset {
         engine.m_bottoming_method = bottoming_method;
         engine.m_scrub_drag_gain = scrub_drag_gain;
         engine.m_rear_align_effect = rear_align_effect;
+        engine.m_sop_yaw_gain = sop_yaw_gain;
+        engine.m_gyro_gain = gyro_gain;
         engine.m_steering_shaft_gain = steering_shaft_gain;
         engine.m_base_force_mode = base_force_mode;
     }
@@ -15533,6 +15022,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Text("Effects");
     ImGui::SliderFloat("Understeer (Grip)", &engine.m_understeer_effect, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("SoP (Lateral G)", &engine.m_sop_effect, 0.0f, 2.0f, "%.2f");
+    ImGui::SliderFloat("SoP Yaw (Kick)", &engine.m_sop_yaw_gain, 0.0f, 2.0f, "%.2f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Injects Yaw Acceleration to provide a predictive kick when rotation starts.");
+    ImGui::SliderFloat("Gyroscopic Damping", &engine.m_gyro_gain, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stabilizes the wheel during drifts by opposing rapid steering movements.\nPrevents oscillations (tank slappers).");
     ImGui::SliderFloat("Oversteer Boost", &engine.m_oversteer_boost, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("Rear Align Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, "%.2f");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Controls rear-end counter-steering feedback.\nProvides a distinct cue during oversteer without affecting base SoP.\nIncrease for stronger rear-end feel (0.0 = Off, 1.0 = Default, 2.0 = Max).");
@@ -15761,7 +15254,9 @@ struct RollingBuffer {
 static RollingBuffer plot_total;
 static RollingBuffer plot_base;
 static RollingBuffer plot_sop;
+static RollingBuffer plot_yaw_kick; // New v0.4.15
 static RollingBuffer plot_rear_torque; 
+static RollingBuffer plot_gyro_damping; // New v0.4.17
 static RollingBuffer plot_scrub_drag;
 static RollingBuffer plot_oversteer;
 static RollingBuffer plot_understeer;
@@ -15827,7 +15322,9 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         plot_total.Add(snap.total_output);
         plot_base.Add(snap.base_force);
         plot_sop.Add(snap.sop_force);
+        plot_yaw_kick.Add(snap.ffb_yaw_kick);
         plot_rear_torque.Add(snap.ffb_rear_torque);
+        plot_gyro_damping.Add(snap.ffb_gyro_damping); // Add to plot
         plot_scrub_drag.Add(snap.ffb_scrub_drag);
         
         plot_oversteer.Add(snap.oversteer_boost);
@@ -15911,10 +15408,16 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         
         ImGui::Text("SoP (Base Chassis G)"); ImGui::PlotLines("##SoP", plot_sop.data.data(), (int)plot_sop.data.size(), plot_sop.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Force from Lateral G-Force (Seat of Pants)");
+
+        ImGui::Text("Yaw Kick"); ImGui::PlotLines("##YawKick", plot_yaw_kick.data.data(), (int)plot_yaw_kick.data.size(), plot_yaw_kick.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Force from Yaw Acceleration (Rotation Kick)");
         
         ImGui::Text("Rear Align Torque"); ImGui::PlotLines("##RearT", plot_rear_torque.data.data(), (int)plot_rear_torque.data.size(), plot_rear_torque.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Force from Rear Lateral Force");
         
+        ImGui::Text("Gyro Damping"); ImGui::PlotLines("##Gyro", plot_gyro_damping.data.data(), (int)plot_gyro_damping.data.size(), plot_gyro_damping.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Synthetic damping force");
+
         ImGui::Text("Scrub Drag Force"); ImGui::PlotLines("##Drag", plot_scrub_drag.data.data(), (int)plot_scrub_drag.data.size(), plot_scrub_drag.offset, NULL, -20.0f, 20.0f, ImVec2(0, 40));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Resistance force from sideways tire dragging");
         
@@ -17494,6 +16997,7 @@ add_test(NAME CoreLogicTest COMMAND run_tests)
 #include <string>
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include "../FFBEngine.h"
 #include "../src/lmu_sm_interface/InternalsPlugin.hpp"
 #include "../src/lmu_sm_interface/SharedMemoryInterface.hpp" // Added for GameState testing
@@ -17532,6 +17036,12 @@ void test_rear_force_workaround(); // Forward declaration
 void test_rear_align_effect(); // Forward declaration
 void test_zero_effects_leakage(); // Forward declaration
 void test_base_force_modes(); // Forward declaration
+void test_sop_yaw_kick(); // Forward declaration
+void test_gyro_damping(); // Forward declaration (v0.4.17)
+void test_yaw_accel_smoothing(); // Forward declaration (v0.4.18)
+void test_yaw_accel_convergence(); // Forward declaration (v0.4.18)
+void test_regression_yaw_slide_feedback(); // Forward declaration (v0.4.18)
+
 
 void test_manual_slip_singularity() {
     std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
@@ -17637,6 +17147,53 @@ void test_base_force_modes() {
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] Muted Mode: Got " << force_muted << " Expected 0.0." << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_sop_yaw_kick() {
+    std::cout << "\nTest: SoP Yaw Kick (v0.4.18 Smoothed)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_sop_effect = 0.0f; // Disable Base SoP
+    engine.m_max_torque_ref = 20.0f; // Reference torque for normalization
+    engine.m_gain = 1.0f;
+    // Disable other effects
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_slide_texture_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    
+    // v0.4.18 UPDATE: With Low Pass Filter (alpha=0.1), the yaw acceleration
+    // is smoothed over multiple frames. On the first frame with raw input = 1.0,
+    // the smoothed value will be: 0.0 + 0.1 * (1.0 - 0.0) = 0.1
+    // Formula: force = yaw_smoothed * gain * 5.0
+    // First frame: 0.1 * 1.0 * 5.0 = 0.5 Nm
+    // Norm: 0.5 / 20.0 = 0.025
+    
+    // Input: 1.0 rad/s^2 Yaw Accel
+    data.mLocalRotAccel.y = 1.0;
+    
+    // Ensure no other inputs
+    data.mSteeringShaftTorque = 0.0;
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    
+    double force = engine.calculate_force(&data);
+    
+    // First frame should be ~0.025 (10% of steady-state due to LPF)
+    if (std::abs(force - 0.025) < 0.005) {
+        std::cout << "[PASS] Yaw Kick first frame smoothed correctly (" << force << " ≈ 0.025)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Yaw Kick first frame mismatch. Got " << force << " Expected ~0.025." << std::endl;
         g_tests_failed++;
     }
 }
@@ -19441,6 +18998,274 @@ void test_stress_stability() {
     }
 }
 
+// ========================================
+// v0.4.18 Yaw Acceleration Smoothing Tests
+// ========================================
+
+void test_yaw_accel_smoothing() {
+    std::cout << "\nTest: Yaw Acceleration Smoothing (v0.4.18)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Isolate Yaw Kick effect
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_sop_effect = 0.0f;
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_gain = 1.0f;
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_slide_texture_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_gyro_gain = 0.0f;
+    
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mSteeringShaftTorque = 0.0;
+    
+    // Test 1: Verify smoothing reduces first-frame response
+    // Raw input: 10.0 rad/s^2 (large spike)
+    // Expected smoothed (first frame): 0.0 + 0.1 * (10.0 - 0.0) = 1.0
+    // Force: 1.0 * 1.0 * 5.0 = 5.0 Nm
+    // Normalized: 5.0 / 20.0 = 0.25
+    data.mLocalRotAccel.y = 10.0;
+    
+    double force_frame1 = engine.calculate_force(&data);
+    
+    // Without smoothing, this would be 10.0 * 1.0 * 5.0 / 20.0 = 2.5 (clamped to 1.0)
+    // With smoothing (alpha=0.1), first frame = 0.25
+    if (std::abs(force_frame1 - 0.25) < 0.01) {
+        std::cout << "[PASS] First frame smoothed to 10% of raw input (" << force_frame1 << " ~= 0.25)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] First frame smoothing incorrect. Got " << force_frame1 << " Expected ~0.25." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test 2: Verify state accumulation (second frame)
+    // Smoothed (frame 2): 1.0 + 0.1 * (10.0 - 1.0) = 1.0 + 0.9 = 1.9
+    // Force: 1.9 * 1.0 * 5.0 = 9.5 Nm
+    // Normalized: 9.5 / 20.0 = 0.475
+    double force_frame2 = engine.calculate_force(&data);
+    
+    if (std::abs(force_frame2 - 0.475) < 0.02) {
+        std::cout << "[PASS] Second frame accumulated correctly (" << force_frame2 << " ~= 0.475)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Second frame accumulation incorrect. Got " << force_frame2 << " Expected ~0.475." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test 3: Verify high-frequency noise rejection
+    // Simulate rapid oscillation (noise from Slide Rumble)
+    // Alternate between +5.0 and -5.0 every frame
+    // The smoothed value should remain close to 0 (averaging out the noise)
+    FFBEngine engine2;
+    engine2.m_sop_yaw_gain = 1.0f;
+    engine2.m_sop_effect = 0.0f;
+    engine2.m_max_torque_ref = 20.0f;
+    engine2.m_gain = 1.0f;
+    engine2.m_understeer_effect = 0.0f;
+    engine2.m_lockup_enabled = false;
+    engine2.m_spin_enabled = false;
+    engine2.m_slide_texture_enabled = false;
+    engine2.m_bottoming_enabled = false;
+    engine2.m_scrub_drag_gain = 0.0f;
+    engine2.m_rear_align_effect = 0.0f;
+    engine2.m_gyro_gain = 0.0f;
+    
+    TelemInfoV01 data2;
+    std::memset(&data2, 0, sizeof(data2));
+    data2.mWheel[0].mRideHeight = 0.1;
+    data2.mWheel[1].mRideHeight = 0.1;
+    data2.mSteeringShaftTorque = 0.0;
+    
+    // Run 20 frames of alternating noise
+    double max_force = 0.0;
+    for (int i = 0; i < 20; i++) {
+        data2.mLocalRotAccel.y = (i % 2 == 0) ? 5.0 : -5.0;
+        double force = engine2.calculate_force(&data2);
+        max_force = (std::max)(max_force, std::abs(force));
+    }
+    
+    // With smoothing, the max force should be much smaller than the raw input would produce
+    // Raw would give: 5.0 * 1.0 * 5.0 / 20.0 = 1.25 (clamped to 1.0)
+    // Smoothed should stay well below 0.5
+    if (max_force < 0.5) {
+        std::cout << "[PASS] High-frequency noise rejected (max force " << max_force << " < 0.5)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] High-frequency noise not rejected. Max force: " << max_force << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_yaw_accel_convergence() {
+    std::cout << "\nTest: Yaw Acceleration Convergence (v0.4.18)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_sop_effect = 0.0f;
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_gain = 1.0f;
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_slide_texture_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_gyro_gain = 0.0f;
+    
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mSteeringShaftTorque = 0.0;
+    
+    // Test: Verify convergence to steady-state value
+    // Constant input: 1.0 rad/s^2
+    // Expected steady-state: 1.0 * 1.0 * 5.0 / 20.0 = 0.25
+    data.mLocalRotAccel.y = 1.0;
+    
+    // Run for 50 frames (should converge with alpha=0.1)
+    double force = 0.0;
+    for (int i = 0; i < 50; i++) {
+        force = engine.calculate_force(&data);
+    }
+    
+    // After 50 frames with alpha=0.1, should be very close to steady-state (0.25)
+    // Formula: smoothed = target * (1 - (1-alpha)^n)
+    // After 50 frames: smoothed ~= 1.0 * (1 - 0.9^50) ~= 0.9948
+    // Force: 0.9948 * 1.0 * 5.0 / 20.0 ~= 0.2487
+    if (std::abs(force - 0.25) < 0.01) {
+        std::cout << "[PASS] Converged to steady-state after 50 frames (" << force << " ~= 0.25)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Did not converge. Got " << force << " Expected ~0.25." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test: Verify response to step change
+    // Change input from 1.0 to 0.0 (rotation stops)
+    data.mLocalRotAccel.y = 0.0;
+    
+    // First frame after change
+    double force_after_change = engine.calculate_force(&data);
+    
+    // Smoothed should decay: prev_smoothed + 0.1 * (0.0 - prev_smoothed)
+    // If prev_smoothed ~= 0.9948, new = 0.9948 + 0.1 * (0.0 - 0.9948) = 0.8953
+    // Force: 0.8953 * 1.0 * 5.0 / 20.0 ~= 0.224
+    if (force_after_change < force && force_after_change > 0.2) {
+        std::cout << "[PASS] Smoothly decaying after step change (" << force_after_change << ")." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Decay behavior incorrect. Got " << force_after_change << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_regression_yaw_slide_feedback() {
+    std::cout << "\nTest: Regression - Yaw/Slide Feedback Loop (v0.4.18)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Enable BOTH Yaw Kick and Slide Rumble (the problematic combination)
+    engine.m_sop_yaw_gain = 1.0f;  // Yaw Kick enabled
+    engine.m_slide_texture_enabled = true;  // Slide Rumble enabled
+    engine.m_slide_texture_gain = 1.0f;
+    
+    engine.m_sop_effect = 0.0f;
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_gain = 1.0f;
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_gyro_gain = 0.0f;
+    
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mWheel[0].mTireLoad = 4000.0;
+    data.mWheel[1].mTireLoad = 4000.0;
+    data.mSteeringShaftTorque = 0.0;
+    data.mDeltaTime = 0.0025; // 400Hz
+    
+    // Simulate the bug scenario:
+    // 1. Slide Rumble generates high-frequency vibration (sawtooth wave)
+    // 2. This would cause yaw acceleration to spike (if not smoothed)
+    // 3. Yaw Kick would amplify the spikes
+    // 4. Feedback loop: wheel shakes harder
+    
+    // Set up lateral sliding (triggers Slide Rumble)
+    data.mWheel[0].mLateralPatchVel = 5.0;
+    data.mWheel[1].mLateralPatchVel = 5.0;
+    
+    // Simulate high-frequency yaw acceleration noise (what Slide Rumble would cause)
+    // Alternate between +10 and -10 rad/s^2 (extreme noise)
+    double max_force = 0.0;
+    double sum_force = 0.0;
+    int frames = 50;
+    
+    for (int i = 0; i < frames; i++) {
+        // Simulate noise that would come from vibrations
+        data.mLocalRotAccel.y = (i % 2 == 0) ? 10.0 : -10.0;
+        
+        double force = engine.calculate_force(&data);
+        max_force = (std::max)(max_force, std::abs(force));
+        sum_force += std::abs(force);
+    }
+    
+    double avg_force = sum_force / frames;
+    
+    // CRITICAL TEST: With smoothing, the system should remain stable
+    // Without smoothing (v0.4.16), this would create a feedback loop with forces > 1.0
+    // With smoothing (v0.4.18), max force should stay reasonable (< 1.0, ideally < 0.8)
+    if (max_force < 1.0) {
+        std::cout << "[PASS] No feedback loop detected (max force " << max_force << " < 1.0)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Potential feedback loop! Max force: " << max_force << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Additional check: Average force should be low (noise should cancel out)
+    if (avg_force < 0.5) {
+        std::cout << "[PASS] Average force remains low (avg " << avg_force << " < 0.5)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Average force too high: " << avg_force << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Verify that the smoothing state doesn't explode
+    // Check internal state by running a few more frames with zero input
+    data.mLocalRotAccel.y = 0.0;
+    data.mWheel[0].mLateralPatchVel = 0.0;
+    data.mWheel[1].mLateralPatchVel = 0.0;
+    
+    for (int i = 0; i < 10; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    // After settling, force should decay to near zero
+    double final_force = engine.calculate_force(&data);
+    if (std::abs(final_force) < 0.1) {
+        std::cout << "[PASS] System settled after noise removed (final force " << final_force << ")." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] System did not settle. Final force: " << final_force << std::endl;
+        g_tests_failed++;
+    }
+}
+
 int main() {
     // Regression Tests (v0.4.14)
     test_regression_road_texture_toggle();
@@ -19455,6 +19280,7 @@ int main() {
     test_scrub_drag_fade();
     test_road_texture_teleport();
     test_grip_low_speed();
+    test_sop_yaw_kick();
 
     // Run Regression Tests
     test_zero_input();
@@ -19488,6 +19314,10 @@ int main() {
     test_rear_align_effect();
     test_zero_effects_leakage();
     test_base_force_modes();
+    test_gyro_damping(); // v0.4.17
+    test_yaw_accel_smoothing(); // v0.4.18
+    test_yaw_accel_convergence(); // v0.4.18
+    test_regression_yaw_slide_feedback(); // v0.4.18
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -20000,5 +19830,127 @@ void test_rear_align_effect() {
         g_tests_failed++;
     }
 }
+
+void test_gyro_damping() {
+    std::cout << "\nTest: Gyroscopic Damping (v0.4.17)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup
+    engine.m_gyro_gain = 1.0f;
+    engine.m_gyro_smoothing = 0.1f;
+    engine.m_max_torque_ref = 20.0f; // Reference torque for normalization
+    engine.m_gain = 1.0f;
+    
+    // Disable other effects to isolate gyro damping
+    engine.m_understeer_effect = 0.0f;
+    engine.m_sop_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_slide_texture_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_sop_yaw_gain = 0.0f;
+    
+    // Setup test data
+    data.mLocalVel.z = 50.0; // Car speed (50 m/s)
+    data.mPhysicalSteeringWheelRange = 9.4247f; // 540 degrees
+    data.mDeltaTime = 0.0025; // 400Hz (2.5ms)
+    
+    // Ensure no other inputs
+    data.mSteeringShaftTorque = 0.0;
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mWheel[0].mGripFract = 1.0;
+    data.mWheel[1].mGripFract = 1.0;
+    
+    // Frame 1: Steering at 0.0
+    data.mUnfilteredSteering = 0.0f;
+    engine.calculate_force(&data);
+    
+    // Frame 2: Steering moves to 0.1 (rapid movement to the right)
+    data.mUnfilteredSteering = 0.1f;
+    double force = engine.calculate_force(&data);
+    
+    // Get the snapshot to check gyro force
+    auto batch = engine.GetDebugBatch();
+    if (batch.empty()) {
+        std::cout << "[FAIL] No snapshot." << std::endl;
+        g_tests_failed++;
+        return;
+    }
+    FFBSnapshot snap = batch.back();
+    double gyro_force = snap.ffb_gyro_damping;
+    
+    // Assert 1: Force opposes movement (should be negative for positive steering velocity)
+    // Steering moved from 0.0 to 0.1 (positive direction)
+    // Gyro damping should oppose this (negative force)
+    if (gyro_force < 0.0) {
+        std::cout << "[PASS] Gyro force opposes steering movement (negative: " << gyro_force << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Gyro force should be negative. Got: " << gyro_force << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Assert 2: Force is non-zero (significant)
+    if (std::abs(gyro_force) > 0.001) {
+        std::cout << "[PASS] Gyro force is non-zero (magnitude: " << std::abs(gyro_force) << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Gyro force is too small. Got: " << gyro_force << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test opposite direction
+    // Frame 3: Steering moves back from 0.1 to 0.0 (negative velocity)
+    data.mUnfilteredSteering = 0.0f;
+    engine.calculate_force(&data);
+    
+    batch = engine.GetDebugBatch();
+    if (!batch.empty()) {
+        snap = batch.back();
+        double gyro_force_reverse = snap.ffb_gyro_damping;
+        
+        // Should now be positive (opposing negative steering velocity)
+        if (gyro_force_reverse > 0.0) {
+            std::cout << "[PASS] Gyro force reverses with steering direction (positive: " << gyro_force_reverse << ")" << std::endl;
+            g_tests_passed++;
+        } else {
+            std::cout << "[FAIL] Gyro force should be positive for reverse movement. Got: " << gyro_force_reverse << std::endl;
+            g_tests_failed++;
+        }
+    }
+    
+    // Test speed scaling
+    // At low speed, gyro force should be weaker
+    data.mLocalVel.z = 5.0; // Slow (5 m/s)
+    data.mUnfilteredSteering = 0.0f;
+    engine.calculate_force(&data);
+    
+    data.mUnfilteredSteering = 0.1f;
+    engine.calculate_force(&data);
+    
+    batch = engine.GetDebugBatch();
+    if (!batch.empty()) {
+        snap = batch.back();
+        double gyro_force_slow = snap.ffb_gyro_damping;
+        
+        // Should be weaker than at high speed (scales with car_speed / 10.0)
+        // At 50 m/s: scale = 5.0, At 5 m/s: scale = 0.5
+        // So force should be ~10x weaker
+        if (std::abs(gyro_force_slow) < std::abs(gyro_force) * 0.6) {
+            std::cout << "[PASS] Gyro force scales with speed (slow: " << gyro_force_slow << " vs fast: " << gyro_force << ")" << std::endl;
+            g_tests_passed++;
+        } else {
+            std::cout << "[FAIL] Gyro force should be weaker at low speed. Slow: " << gyro_force_slow << " Fast: " << gyro_force << std::endl;
+            g_tests_failed++;
+        }
+    }
+}
+
+
 
 ```

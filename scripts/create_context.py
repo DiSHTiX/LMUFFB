@@ -112,6 +112,14 @@ def main():
                     print(f"Skipping (drafts): {relpath}")
                     continue
 
+                if 'docs/dev_docs/non project guides' in relpath_normalized:
+                        print(f"Skipping (non project guides): {relpath}")
+                        continue
+
+                if 'docs/bug_reports' in relpath_normalized:
+                    print(f"Skipping (bug reports): {relpath}")
+                    continue
+
                 if relpath_normalized == 'src/stb_image_write.h':
                     print(f"Skipping (excluded explicitly): {relpath}")
                     continue
