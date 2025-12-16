@@ -41,11 +41,11 @@ This is an **experimental early alpha version** of a force feedback application.
 
 ### LMU 1.2+ Support (v0.4.0+)
 
-**Full Telemetry Access**: With **Le Mans Ultimate 1.2** (released December 9th, 2024), the game now includes native shared memory support with complete tire telemetry data. **lmuFFB v0.4.0+** fully supports LMU 1.2's new interface, providing access to:
-- **Tire Load** - Essential for load-sensitive effects
-- **Grip Fraction** - Enables dynamic understeer/oversteer detection
+**Enhanced Telemetry Access**: With **Le Mans Ultimate 1.2** (released December 9th, 2024), the game now includes native shared memory support. **lmuFFB v0.4.0+** fully supports LMU 1.2's new interface, providing access to:
 - **Patch Velocities** - Allows physics-based texture generation
 - **Steering Shaft Torque** - Direct torque measurement for accurate FFB
+
+**Note**: Tire Load and Grip Fraction data are blocked from telemetry due to licensing restrictions. lmuFFB automatically uses estimated values for these parameters (see Known Issues section below).
 
 **No Plugin Required**: Unlike previous versions, LMU 1.2 has built-in shared memory - no external plugins needed!
 
@@ -117,7 +117,7 @@ Your testing and feedback is greatly appreciated! 🙏
 
 ## Known Issues (v0.4.2+)
 
-### LMU 1.2 Missing Telemetry Data (CRITICAL)
+### LMU 1.2 Missing Telemetry Data (Licensing Restriction)
 
 **⚠️ Expected Warnings on Startup:**
 
@@ -125,18 +125,17 @@ When you start lmuFFB with LMU 1.2, you will see console warnings like:
 - `[WARNING] Missing Tire Load data detected`
 - `[WARNING] Missing Grip Fraction data detected`
 
-**This is expected and NOT a bug in lmuFFB.** This is a **bug in LMU 1.2** - the game is currently returning **zero (0) for all tire load and grip fraction values**, even though the shared memory interface includes these fields.
+**This is expected and NOT a bug in lmuFFB or LMU.** This is a **known specification limitation** - LMU is intentionally returning **zero (0) for all tire load and grip fraction values** due to **licensing restrictions** that prevent the release of such data via telemetry, even though the shared memory interface includes these fields.
 
 **Impact:**
 - lmuFFB has **automatic fallback logic** that detects this and uses estimated values instead
 - FFB will still work, but some effects (like load-sensitive textures and grip-based understeer) will use approximations instead of real data
 - You can safely ignore these warnings - they confirm the fallback system is working
 
-**What we need from the community:**
-- **Please help us report this to the LMU developers!** 
-- We need to file a bug report / feature request asking them to populate these telemetry fields with actual values
-- Forum thread: [LMU Forum - lmuFFB](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
-- Once LMU fixes this, lmuFFB will automatically use the real data (no code changes needed)
+**Note:**
+- This is a licensing restriction, not a bug that can be fixed
+- The tire model data is proprietary and cannot be exposed through telemetry
+- lmuFFB's fallback estimations provide good approximations for FFB purposes
 
 ### Other Known Issues
 *   **Telemetry Gaps**: Some users report missing telemetry for Dashboard apps (ERS, Temps). lmuFFB has robust fallbacks (Sanity Checks) that prevent dead FFB effects even if the game fails to report data. See [Telemetry Report](docs/dev_docs/telemetry_availability_report.md).
