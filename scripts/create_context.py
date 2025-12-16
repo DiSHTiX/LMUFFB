@@ -120,6 +120,14 @@ def main():
                     print(f"Skipping (bug reports): {relpath}")
                     continue
 
+                if 'tmp' in relpath_normalized:
+                    print(f"Skipping (tmp): {relpath}")
+                    continue
+
+                if 'tmp/diffs' in relpath_normalized:
+                    print(f"Skipping (tmp/diffs): {relpath}")
+                    continue
+
                 if relpath_normalized == 'src/stb_image_write.h':
                     print(f"Skipping (excluded explicitly): {relpath}")
                     continue
