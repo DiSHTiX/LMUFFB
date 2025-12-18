@@ -4240,3 +4240,93 @@ void test_coordinate_sop_inversion() {
     engine.m_rear_align_effect = 0.0f;
     engine.m_scrub_drag_gain = 0.0f;
     engine.m_slide_texture_enabled =
+
+# Troubleshooting and implementation to support better troubleshooting
+
+Based on the screenshot and the bug report ("pulls in direction of turn"), the issue is almost certainly a **Sign Inversion** (Positive Feedback Loop) in one of the lateral force calculations.
+
+Here is how to diagnose it, the tools needed, and the specific test protocol.
+
+### 1. Can we spot it in the current plots?
+**Barely.** The current plots are "Sparklines" — they show the *shape* of the data but lack the **Zero Reference** and **Numerical Value**.
+*   **The Problem:** In the "FFB Components" column, if the `Scrub Drag Force` line goes "Up", does that mean it's pulling Left or Right? Without a center line or a number (e.g., `+5.0` vs `-5.0`), you cannot definitively say if it is fighting the turn or helping it.
+
+### 2. Required Tooling Improvements (High Priority)
+To diagnose this and future physics bugs, you must add **Numerical Readouts** to the Debug Window.
+
+**Action Item for Developer:**
+Update `GuiLayer.cpp` to display the **Current Value**, **Min**, and **Max** next to every graph title.
+*   *Current:* `[ Scrub Drag Force ]`
+*   *Required:* `[ Scrub Drag Force | Cur: +2.50 | Min: -0.10 | Max: +5.20 ]`
+
+**Why:** This allows you to instantly verify the sign.
+*   *Right Turn:* Steering is Positive (Right).
+*   *Correct FFB:* Should be Negative (Pulling Left/Center).
+*   *Bugged FFB:* Is Positive (Pulling Right/Wall).
+
+### 3. Diagnostic Test Protocol
+
+Since we cannot rely on the current graphs for sign precision, we must use **Isolation Testing** via the "Tuning Window".
+
+**Objective:** Determine which specific effect is inverted: **Scrub Drag** or **Yaw Kick**.
+
+#### **Step 0: Preparation**
+1.  Load the **"Default"** preset.
+2.  **Safety First:** Reduce your physical wheel base strength to **10-20%**. If we create a positive feedback loop, the wheel will try to rip itself out of your hands.
+3.  **In-Game:** Go to a large, open area (e.g., a skidpad or a wide track like Silverstone).
+
+#### **Test A: Isolate "Scrub Drag"**
+*Hypothesis: The friction logic is inverted (pushing the car sideways instead of resisting).*
+
+1.  **Settings (Main Window):**
+    *   **Master Gain:** `1.0`
+    *   **SoP (Lateral G):** `0.0` (Turn OFF)
+    *   **SoP Yaw (Kick):** `0.0` (Turn OFF)
+    *   **Rear Align Torque:** `0.0` (Turn OFF)
+    *   **Scrub Drag Gain:** **`1.0`** (Max it out)
+    *   **Slide Rumble:** `0.0` (Turn OFF to remove noise)
+2.  **Maneuver:**
+    *   Drive at moderate speed (80 km/h).
+    *   Turn the wheel **Right** to initiate a steady turn.
+    *   Induce a slight understeer (turn more than necessary so front tires scrub).
+3.  **Observation:**
+    *   **Correct Behavior:** The wheel should feel "heavy" or "draggy". It should want to return to center.
+    *   **Bug Behavior:** The wheel feels "light" or tries to pull further to the Right (into the turn).
+4.  **Diagnosis:** If the wheel pulls Right, **Scrub Drag is inverted.**
+
+#### **Test B: Isolate "Yaw Kick"**
+*Hypothesis: The rotation acceleration cue is inverted (kicking into the spin).*
+
+1.  **Settings (Main Window):**
+    *   **Master Gain:** `1.0`
+    *   **SoP (Lateral G):** `0.0`
+    *   **Scrub Drag Gain:** `0.0`
+    *   **Rear Align Torque:** `0.0`
+    *   **SoP Yaw (Kick):** **`2.0`** (Max it out)
+2.  **Maneuver:**
+    *   Drive straight at moderate speed.
+    *   Quickly jerk the wheel **Right** and release.
+3.  **Observation:**
+    *   **Correct Behavior:** As the car starts to rotate Right, the wheel should kick **Left** (Counter-steer cue).
+    *   **Bug Behavior:** As the car rotates Right, the wheel kicks **Right** (snaps into the turn).
+4.  **Diagnosis:** If the wheel snaps Right, **Yaw Kick is inverted.**
+
+### 4. Analyzing the "Only Right Turns" Symptom
+
+If the user says "Only Right Turns", it implies a coordinate system mismatch.
+
+*   **rFactor 2 Coordinates:** Left is +X.
+*   **DirectInput Coordinates:** Right is +Force.
+
+If the math is: `Force = LateralVelocity * Gain`
+*   **Left Turn:** Car slides Right (-Vel). Force is Negative (Left). **Correct (Resists).**
+*   **Right Turn:** Car slides Left (+Vel). Force is Positive (Right). **INCORRECT (Assists).**
+
+**Conclusion:** The math likely lacks a sign inversion or a conditional check. The force direction must always oppose the velocity direction.
+
+### 5. Summary of Next Steps for the Agent
+
+1.  **Update GUI:** Add numerical readouts to `GuiLayer.cpp`.
+2.  **Verify Code:** Check `FFBEngine.h` for `Scrub Drag` and `Yaw Kick` calculations. Look for missing `-1.0` multipliers.
+3.  **Fix:** Apply the inversion.
+4.  **Verify:** Run the regression tests.
