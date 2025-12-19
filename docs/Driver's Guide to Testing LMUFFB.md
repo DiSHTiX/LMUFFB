@@ -162,8 +162,6 @@
 
 ---
 
----
-
 ### 8. Corner Entry (Weight Transfer & Loading)
 
 **What is it?** The sensation of the steering wheel getting heavier as you brake and turn in, transferring the car's weight onto the front tires.
