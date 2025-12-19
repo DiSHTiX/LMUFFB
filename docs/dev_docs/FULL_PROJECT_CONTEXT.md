@@ -393,6 +393,11 @@ Build release (Windows)
 Clean re-build release (Windows)
 & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake --build build --config Release --clean-first
 
+Update version and clean re-build (Windows)
+& 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build; cmake --build build --config Release --clean-first
+
+
+
 
 To run the tests:
 
@@ -422,6 +427,51 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [0.4.28] - 2025-12-19
+### Added
+- **New Preset: T300**: Added "T300" preset tuned specifically for Thrustmaster T300RS wheels.
+    - Features high `Max Torque Ref` (100Nm) and aggressive `Understeer Effect` (38.0) to overcome belt friction and provide clear grip loss cues.
+    - `Invert FFB` enabled by default for this preset.
+    - Positioned as preset #2 for easy access.
+
+### Changed
+- **Understeer Range Expansion**: Increased maximum `Understeer Effect` slider range from 10.0 to **50.0** to allow for "Binary Grip Switch" behavior on belt-driven wheels.
+    - **Physics Explanation**: Belt-driven wheels (T300, G29) have internal friction that masks subtle force changes. At high Max Torque Ref values (e.g., 100Nm), the signal is compressed to ~4% of range, making small percentage drops imperceptible.
+    - **Solution**: Values of 20.0-50.0 create a binary effect where grip loss causes an instant drop to zero force, which is strong enough to overcome belt friction.
+    - Updated tooltip to explain: "High values (10-50) create a 'Binary' drop for belt-driven wheels."
+- **Default Values**: Updated default preset values for better out-of-box experience:
+    - `Max Torque Ref`: 40.0 → **60.0 Nm** (lighter default feel, safer for T300/G29 users)
+    - `Understeer Effect`: 1.0 → **2.0** (more pronounced grip drop for better communication)
+
+## [0.4.27] - 2025-12-19
+### Fixed
+- **CRITICAL SAFETY: FFB Mute During Pause/Menu**: Fixed a dangerous bug where the steering wheel would maintain the last force command indefinitely when the game was paused or in menu states.
+    - **Problem**: DirectInput drivers are stateful and hold the last command they receive. If you paused mid-corner while the force was 10Nm, the wheel would keep pulling at 10Nm indefinitely, potentially causing injury or equipment damage.
+    - **Solution**: Restructured the FFB loop logic to explicitly send a **zero force command** whenever the game is not in "Realtime" (driving) mode. Added a `should_output` flag to track whether FFB calculation should be active.
+    - **Impact**: The wheel now immediately releases all tension when you pause the game or enter menus, making the application safe to use in all scenarios.
+    - **Technical Details**: 
+        - Moved force calculation inside a conditional block that checks `in_realtime && playerHasVehicle`
+        - Added explicit zero force assignment when `should_output` is false (lines 86-89 in main.cpp)
+        - Enhanced console logging to show "(FFB Muted)" message when exiting to menu
+    - **User Experience**: Console now logs "[Game] User exited to menu (FFB Muted)" and "[Game] User entered driving session" for clear state visibility.
+
+## [0.4.26] - 2025-12-19
+### Fixed
+- **Debug Window: Crisp Text Rendering**: Fixed blurry text in plot overlays by removing font scaling (was 70% size, now full resolution). All numerical readouts are now sharp and readable.
+- **Debug Window: Missing Readouts**: Added numerical readouts to multi-line plots that were bypassing the `PlotWithStats` helper:
+    - **Calc Load (Front/Rear)**: Now displays `Front: XXX N | Rear: XXX N` above the overlaid cyan/magenta plot.
+    - **Combined Input (Throttle/Brake)**: Now displays `Thr: X.XX | Brk: X.XX` next to the title for the overlaid green/red plot.
+
+### Changed
+- **Tuning Window: Max Torque Ref Range**: Unlocked the lower bound of the `Max Torque Ref` slider from 10.0 Nm to **1.0 Nm** (range now 1.0-100.0 Nm). This provides users with very strong wheels or specific tuning preferences more flexibility for fine-tuning FFB scaling.
+
+## [0.4.25] - 2025-12-19
+### Added
+- **New Guide Presets**: Added isolation presets for advanced effects:
+    - **Guide: SoP Yaw (Kick)**: Isolates the yaw acceleration impulse (mutes base force).
+    - **Guide: Gyroscopic Damping**: Isolates the speed-dependent damping force (mutes base force).
+- **Documentation**: Updated `Driver's Guide to Testing LMUFFB.md` with test procedures for Yaw Kick and Gyro Damping.
 
 ## [0.4.24] - 2025-12-19
 ### Added
@@ -1414,7 +1464,11 @@ public:
         // Apply grip to steering force
         // grip_factor: 1.0 = full force, 0.0 = no force (full understeer)
         // m_understeer_effect: 0.0 = disabled, 1.0 = full effect
-        double grip_factor = 1.0 - ((1.0 - avg_grip) * m_understeer_effect);
+        double grip_loss = (1.0 - avg_grip) * m_understeer_effect;
+        double grip_factor = 1.0 - grip_loss;
+        
+        // FIX: Clamp to 0.0 to prevent negative force (inversion) if effect > 1.0
+        grip_factor = (std::max)(0.0, grip_factor);
         
         // --- BASE FORCE PROCESSING (v0.4.13) ---
         double base_input = 0.0;
@@ -1974,7 +2028,6 @@ void FFBThread() {
     bool vJoyDllLoaded = false;
     if (DynamicVJoy::Get().Load()) {
         vJoyDllLoaded = true;
-        // Version check removed - vJoy is optional, no need to warn users
     } else {
         // vJoy not found - this is fine, DirectInput FFB works without it
         std::cout << "[vJoy] Not found (optional component, not required)" << std::endl;
@@ -1991,8 +2044,6 @@ void FFBThread() {
             // --- CRITICAL SECTION: READ DATA ---
             GameConnector::Get().CopyTelemetry(g_localData);
             
-            double force = 0.0;
-            
             // Check if player is in an active driving session (not in menu/replay)
             bool in_realtime = GameConnector::Get().IsInRealtime();
             static bool was_in_menu = true;
@@ -2000,10 +2051,13 @@ void FFBThread() {
             if (was_in_menu && in_realtime) {
                 std::cout << "[Game] User entered driving session." << std::endl;
             } else if (!was_in_menu && !in_realtime) {
-                std::cout << "[Game] User exited to menu." << std::endl;
+                std::cout << "[Game] User exited to menu (FFB Muted)." << std::endl;
             }
             was_in_menu = !in_realtime;
             
+            double force = 0.0;
+            bool should_output = false;
+
             // Only calculate FFB if actually driving
             if (in_realtime && g_localData.telemetry.playerHasVehicle) {
                 uint8_t idx = g_localData.telemetry.playerVehicleIdx;
@@ -2016,9 +2070,14 @@ void FFBThread() {
                         std::lock_guard<std::mutex> lock(g_engine_mutex);
                         force = g_engine.calculate_force(pPlayerTelemetry);
                     }
+                    should_output = true;
                 }
             }
-            // else: force remains 0.0 (muted in menus)
+            
+            // --- FIX: Explicitly send 0.0 if not driving ---
+            if (!should_output) {
+                force = 0.0;
+            }
 
             // --- DYNAMIC vJoy LOGIC (State Machine) ---
             if (vJoyDllLoaded && DynamicVJoy::Get().Enabled()) { 
@@ -2044,7 +2103,8 @@ void FFBThread() {
                 }
             }
             
-            // Update DirectInput (for FFB)
+            // Update DirectInput (Physical Wheel)
+            // This will now send 0.0 when in menu/paused, releasing the tension.
             DirectInputFFB::Get().UpdateForce(force);
         }
 
@@ -3046,10 +3106,8 @@ void UpdateDirectInputForce(double normalizedForce) {
 **What is it?** The front tires are sliding. The car won't turn as much as you are turning the wheel.
 **The Goal:** The steering should go **LIGHT** (lose weight) to tell you "Stop turning, you have no grip!"
 
-**UI Settings (Isolation):**
-*   **Master Gain:** `1.0`
-*   **Understeer (Grip):** **`1.0`** (Max)
-*   **SoP / Oversteer / Textures:** `0.0` (Turn OFF to feel the pure weight drop)
+**Quick Setup (Preset):**
+*   Load Preset: **"Guide: Understeer (Front Grip)"**
 
 **Car Setup:**
 *   **Brake Bias:** Move forward (e.g., 60%) to overload front tires.
@@ -3071,12 +3129,8 @@ void UpdateDirectInputForce(double normalizedForce) {
 **What is it?** The rear tires are sliding. The back of the car is trying to overtake the front.
 **The Goal:** The wheel should **PULL** against the turn (Counter-Steer). It wants to fix the slide for you.
 
-**UI Settings (Isolation):**
-*   **Master Gain:** `1.0`
-*   **SoP (Lateral G):** `1.0`
-*   **Rear Align Torque:** `1.0`
-*   **Oversteer Boost:** `1.0`
-*   **Understeer / Textures:** `0.0`
+**Quick Setup (Preset):**
+*   Load Preset: **"Guide: Oversteer (Rear Grip)"**
 
 **Car Setup:**
 *   **Traction Control (TC):** **OFF** (Crucial).
@@ -3098,12 +3152,8 @@ void UpdateDirectInputForce(double normalizedForce) {
 **What is it?** The tires are dragging sideways across the asphalt.
 **The Goal:** A "grinding" or "sandpaper" vibration.
 
-**UI Settings (Isolation):**
-*   **Master Gain:** `1.0`
-*   **Slide Rumble:** **Checked**
-*   **Slide Gain:** `1.0`
-*   **Scrub Drag Gain:** `1.0`
-*   **All other effects:** `0.0`
+**Quick Setup (Preset):**
+*   Load Preset: **"Guide: Slide Texture (Scrub)"**
 
 **The Test:**
 1.  Go to a wide runoff area.
@@ -3121,11 +3171,8 @@ void UpdateDirectInputForce(double normalizedForce) {
 **What is it?** You braked too hard. The wheel stopped spinning, but the car is moving. You are burning a flat spot on the tire.
 **The Goal:** A violent, jarring vibration to tell you to release the brake.
 
-**UI Settings (Isolation):**
-*   **Master Gain:** `1.0`
-*   **Progressive Lockup:** **Checked**
-*   **Lockup Gain:** `1.0`
-*   **All other effects:** `0.0`
+**Quick Setup (Preset):**
+*   Load Preset: **"Guide: Braking Lockup"**
 
 **Car Setup:**
 *   **ABS:** **OFF** (Crucial).
@@ -3144,11 +3191,8 @@ void UpdateDirectInputForce(double normalizedForce) {
 **What is it?** You accelerated too hard. The rear wheels are spinning freely (burnout).
 **The Goal:** The steering feels "light" and "floaty" combined with a high-frequency engine-like vibe.
 
-**UI Settings (Isolation):**
-*   **Master Gain:** `1.0`
-*   **Spin Traction Loss:** **Checked**
-*   **Spin Gain:** `1.0`
-*   **All other effects:** `0.0`
+**Quick Setup (Preset):**
+*   Load Preset: **"Guide: Traction Loss (Spin)"**
 
 **Car Setup:**
 *   **TC:** **OFF**.
@@ -3160,7 +3204,147 @@ void UpdateDirectInputForce(double normalizedForce) {
     *   *The Cue:* The steering weight suddenly disappears (Torque Drop). It feels like the car is floating on ice.
     *   *The Vibe:* A high-pitched hum/whine that rises as the RPM/Wheel Speed rises.
 
+
 ---
+
+### 6. SoP Yaw (The Kick)
+
+**What is it?** A predictive impulse based on **Yaw Acceleration** (how fast the car *starts* to rotate). Unlike Lateral G (which is a sustained weight), this is a momentary "kick" or "jolt".
+**The Goal:** To signal the exact moment the rear tires break traction, often before the visual slide is apparent.
+
+**UI Settings (Isolation):**
+*   **Preset:** `Guide: SoP Yaw (Kick)`
+*   **Master Gain:** `1.0`
+*   **SoP Yaw (Kick):** `2.0` (Max)
+*   **Base Force Mode:** `Muted` (Crucial to feel the isolated kick)
+
+**The Test:**
+1.  Drive at moderate speed (3rd gear) on a straight.
+2.  Perform a **Scandinavian Flick**: Turn sharply Left, then immediately whip the wheel Right to destabilize the rear.
+3.  **What to feel:**
+    *   *The Cue:* At the exact moment the car starts to rotate (yaw), you should feel a sharp **jolt** or **tug** in the steering wheel towards the counter-steer direction.
+    *   *Physics Check:* Drive in a steady circle (constant yaw rate). You should feel **nothing**. Now stomp the gas to spin. You should feel the **kick**. (Acceleration vs Velocity).
+
+---
+
+### 7. Gyroscopic Damping (Stability)
+
+**What is it?** A resistance force that opposes rapid steering movements. It simulates the gyroscopic inertia of the spinning front wheels.
+**The Goal:** To prevent "Tank Slappers" (oscillation) and give the steering a sensation of weight/viscosity that scales with speed.
+
+**UI Settings (Isolation):**
+*   **Preset:** `Guide: Gyroscopic Damping`
+*   **Master Gain:** `1.0`
+*   **Gyroscopic Damping:** `1.0` (Max)
+*   **Base Force Mode:** `Muted` (Crucial: The wheel will have no self-aligning torque, only resistance).
+
+**The Test:**
+1.  **Stationary Test:** Sit in the pits (0 km/h). Wiggle the wheel left and right.
+    *   *Result:* It should feel light/easy (No gyro effect).
+2.  **Speed Test:** Drive down the straight at **250 km/h**.
+3.  **The Wiggle:** Wiggle the wheel left and right quickly (small inputs).
+    *   *The Cue:* The wheel should feel **thick**, **heavy**, or **viscous**. It resists your rapid movements.
+    *   *Physics Check:* Turn the wheel *slowly*. It should feel lighter. Turn it *fast*. It should fight you. This velocity-dependent damping is what stabilizes the car.
+
+---
+
+### 8. Corner Entry (Weight Transfer & Loading)
+
+**What is it?** The sensation of the steering wheel getting heavier as you brake and turn in, transferring the car's weight onto the front tires.
+**The Goal:** To confirm that the steering rack force (Base Force) accurately communicates the increased load on the front axle before the limit is reached.
+
+**UI Settings (Isolation):**
+*   **Master Gain:** `1.0`
+*   **Steering Shaft Gain:** `1.0`
+*   **Base Force Mode:** `Native` (Crucial: We need the game's physics alignment torque).
+*   **Understeer Effect:** `0.0` (Disable to feel the raw build-up).
+*   **SoP / Textures:** `0.0`
+
+**The Test:**
+1.  Drive at high speed on a straight.
+2.  Brake hard and turn in smoothly (Trail Braking).
+3.  **What to feel:**
+    *   *The Cue:* The steering weight should **increase** significantly as the nose dives and the car rotates. It should feel "planted" and heavy.
+    *   *Diagnosis:* If the wheel feels light or static during turn-in, the game's base physics might be numb.
+    *   *Fix:* If the game is numb, we currently rely on `SoP (Lateral G)` to add this weight artificially. Try increasing `SoP Effect`.
+
+---
+
+### 9. Mid-Corner Limit (The "Throb")
+
+**What is it?** A specific vibration texture that appears *exactly* when the front tires reach their peak slip angle, just before they start to slide/understeer.
+**The Goal:** To provide a tactile warning that you are at the limit of grip, allowing you to balance the car on the edge.
+
+**UI Settings (Isolation):**
+*   **Master Gain:** `1.0`
+*   **Slide Rumble:** **Checked**
+*   **Slide Gain:** `1.0`
+*   **Understeer Effect:** `0.5` (To feel the weight drop *after* the throb).
+
+**The Test:**
+1.  Take a long, constant-radius corner (e.g., a carousel).
+2.  Gradually increase steering angle until you hear the tires just starting to scrub.
+3.  **What to feel:**
+    *   *The Cue:* A distinct, rhythmic vibration ("Throb" or "Grinding") should start.
+    *   *The Sequence:* Grip (Silent) -> Limit (Throb/Vibration) -> Understeer (Lightness/Silence).
+    *   *Tuning:* If the vibration starts too late (after you are already sliding), lower the `Optimal Slip Angle` threshold in the code (currently fixed at 0.10 rad) or increase `Slide Gain`.
+
+---
+
+### 10. ABS Threshold (The "Rattle")
+
+**What is it?** A pulsing vibration that mimics the ABS pump releasing brake pressure when the wheel is about to lock.
+**The Goal:** To allow the driver to mash the brake pedal and feel exactly where the threshold is without looking at a HUD.
+
+**UI Settings (Isolation):**
+*   **Master Gain:** `1.0`
+*   **Progressive Lockup:** **Checked**
+*   **Lockup Gain:** `1.0`
+*   **Base Force Mode:** `Muted` (To isolate the vibration).
+
+**Car Setup:**
+*   **ABS:** **ON** (Set to a high intervention level).
+
+**The Test:**
+1.  Drive fast.
+2.  Stomp the brake pedal 100%.
+3.  **What to feel:**
+    *   *The Cue:* A rapid, mechanical rattling or pulsing vibration.
+    *   *Physics Check:* Since ABS prevents full lockup, the `Slip Ratio` will oscillate rapidly. The FFB should reflect this with a "Rattle" rather than a continuous "Screech."
+
+---
+
+### Effects currently missing in lmuFFB v0.4.25
+
+Does LMUFFB produce all the effects described in this video `https://www.youtube.com/watch?v=XHSEAMQgN2c`?
+
+**1. The "Brutal Counter-Steer" (SoP/Yaw): ✅ YES**
+*   **Video:** Describes a force that "whips the hand off the wheel" the moment the rear steps out.
+*   **LMUFFB:** We produce this via three combined effects:
+    *   **SoP (Lateral G):** Provides the sustained weight.
+    *   **Rear Aligning Torque:** Provides the geometric counter-steer force (which LMU 1.2 lacks natively).
+    *   **Yaw Kick (`m_sop_yaw_gain`):** Provides the *derivative* "Kick" or "Whip" based on rotational acceleration. This specifically addresses the "immediacy" the author complains is missing in AC Evo.
+
+**2. The "Throb" at the Limit (Texture): ✅ YES**
+*   **Video:** Describes a vibration that indicates the limit before the slide.
+*   **LMUFFB:** We produce this via **Slide Texture**.
+    *   Our implementation uses `mLateralPatchVel` (Scrubbing Speed) and a **Sawtooth Wave**. This creates exactly the "grinding/sandpaper" feel described.
+    *   *Nuance:* The author mentions feeling it *before* the slide. Our effect triggers based on `Slip Angle`. If our threshold (0.10 rad) is too high, it might trigger too late. (See `docs/dev_docs/grip_calculation_and_slip_angle_v0.4.12.md` for discussion on lowering this).
+
+**3. The "ABS Rattle" (Pulsing): ⚠️ PARTIAL / UNCERTAIN**
+*   **Video:** Describes a "pseudo feeling of the ABS pump working."
+*   **LMUFFB:** We have a **Lockup Effect** (`m_lockup_enabled`).
+    *   *Logic:* Triggers when `Slip Ratio < -0.1`.
+    *   *The Gap:* If the car's ABS system is very good, it might keep the slip ratio *above* -0.1 (e.g., at -0.08). In that case, LMUFFB would be silent.
+    *   *Missing Feature:* We do not have a specific "ABS Active" trigger. We rely on the physics result (Slip). If the ABS hides the slip, we hide the vibration. We might need to lower the threshold or read `mBrakePressure` oscillation to simulate the pump directly.
+
+**4. Dynamic Weight Transfer (Longitudinal): ❌ MISSING**
+*   **Video:** Praises AC1 for the feeling of the car getting heavy under braking and light under acceleration.
+*   **LMUFFB:** We currently **Pass-Through** the game's steering torque.
+    *   If LMU's physics engine (like AC Evo in the video) does not provide enough weight transfer in the steering column naturally, LMUFFB does not currently add it.
+    *   *Missing Feature:* **Synthetic Longitudinal Weighting.** We calculate `Load Factor` for textures, but we do *not* use it to scale the `Base Force`.
+    *   *Recommendation:* We should implement `Master_Gain_Dynamic = Master_Gain * (1.0 + (Longitudinal_G * Factor))` to artificially boost weight under braking if the game is too numb.
+
 
 ### 🛠️ Troubleshooting Cheat Sheet
 
@@ -3172,414 +3356,10 @@ void UpdateDirectInputForce(double normalizedForce) {
 | **No Road Texture over curbs** | Suspension frequency mismatch. | Increase `Road Gain`. Ensure `Load Cap` isn't too low. |
 | **Effects feel "Digital" (On/Off)** | Clipping. | Check the "Clipping" bar in Debug window. Reduce `Master Gain` or increase `Max Torque Ref`. |
 
+### References
 
+* `https://www.youtube.com/watch?v=XHSEAMQgN2c&t=655s`
 
-### Additional presets
-
-I will add the 5 new presets corresponding to the "Driver's Guide to Testing LMUFFB" to `src/Config.cpp`. I will also update the `CHANGELOG.md` to reflect this addition.
-
-### 1. Update `src/Config.cpp`
-
-I will append the new "Guide:" presets to the `LoadPresets` function.
-
-```cpp
-#include "Config.h"
-#include <fstream>
-#include <sstream>
-#include <iostream>
-
-bool Config::m_ignore_vjoy_version_warning = false;
-bool Config::m_enable_vjoy = false;
-bool Config::m_output_ffb_to_vjoy = false;
-
-std::vector<Preset> Config::presets;
-
-void Config::LoadPresets() {
-    presets.clear();
-    
-    // 1. Default (Uses the defaults defined in Config.h)
-    presets.push_back(Preset("Default"));
-    
-    // 2. Test: Game Base FFB Only
-    presets.push_back(Preset("Test: Game Base FFB Only")
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetSoPScale(5.0f)
-        .SetSmoothing(0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRearAlign(0.0f)
-    );
-
-    // 3. Test: SoP Only
-    presets.push_back(Preset("Test: SoP Only")
-        .SetUndersteer(0.0f)
-        .SetSoP(1.0f)
-        .SetSoPScale(5.0f)
-        .SetSmoothing(0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRearAlign(0.0f)
-        .SetSoPYaw(0.0f)
-        .SetBaseMode(2) // Muted
-    );
-
-    // 4. Test: Understeer Only
-    presets.push_back(Preset("Test: Understeer Only")
-        .SetUndersteer(1.0f)
-        .SetSoP(0.0f)
-        .SetSoPScale(0.0f)
-        .SetSmoothing(0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRearAlign(0.0f)
-    );
-
-    // 5. Test: Textures Only
-    presets.push_back(Preset("Test: Textures Only")
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetSoPScale(0.0f)
-        .SetSmoothing(0.0f)
-        .SetLockup(true, 1.0f)
-        .SetSpin(true, 1.0f)
-        .SetSlide(true, 1.0f)
-        .SetRoad(true, 1.0f)
-        .SetRearAlign(0.0f)
-        .SetBaseMode(2) // Muted
-    );
-
-    // 6. Test: Rear Align Torque Only
-    presets.push_back(Preset("Test: Rear Align Torque Only")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetSmoothing(0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRearAlign(1.0f)
-        .SetSoPYaw(0.0f)
-    );
-
-    // 7. Test: SoP Base Only
-    presets.push_back(Preset("Test: SoP Base Only")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(1.0f)
-        .SetSmoothing(0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRearAlign(0.0f)
-        .SetSoPYaw(0.0f)
-        .SetBaseMode(2) // Muted
-    );
-
-    // 8. Test: Slide Texture Only
-    presets.push_back(Preset("Test: Slide Texture Only")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetSmoothing(0.0f)
-        .SetSlide(true, 1.0f)
-        .SetRearAlign(0.0f)
-        .SetBaseMode(2) // Muted
-    );
-
-    // 9. Test: No Effects
-    presets.push_back(Preset("Test: No Effects")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetSmoothing(0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRearAlign(0.0f)
-        .SetBaseMode(2) // Muted
-    );
-
-    // --- NEW GUIDE PRESETS (v0.4.23) ---
-
-    // 10. Guide: Understeer (Front Grip Loss)
-    presets.push_back(Preset("Guide: Understeer (Front Grip)")
-        .SetGain(1.0f)
-        .SetUndersteer(1.0f)
-        .SetSoP(0.0f)
-        .SetOversteer(0.0f)
-        .SetRearAlign(0.0f)
-        .SetSoPYaw(0.0f)
-        .SetGyro(0.0f)
-        .SetLockup(false, 0.0f)
-        .SetSpin(false, 0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRoad(false, 0.0f)
-        .SetScrub(0.0f)
-        .SetBaseMode(0) // Native Physics needed to feel the drop
-    );
-
-    // 11. Guide: Oversteer (Rear Grip Loss)
-    presets.push_back(Preset("Guide: Oversteer (Rear Grip)")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(1.0f)
-        .SetSoPScale(20.0f)
-        .SetRearAlign(1.0f)
-        .SetOversteer(1.0f)
-        .SetSoPYaw(0.0f)
-        .SetGyro(0.0f)
-        .SetLockup(false, 0.0f)
-        .SetSpin(false, 0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRoad(false, 0.0f)
-        .SetScrub(0.0f)
-        .SetBaseMode(0) // Native Physics + Boost
-    );
-
-    // 12. Guide: Slide Texture (Scrubbing)
-    presets.push_back(Preset("Guide: Slide Texture (Scrub)")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetOversteer(0.0f)
-        .SetRearAlign(0.0f)
-        .SetSlide(true, 1.0f)
-        .SetScrub(1.0f)
-        .SetLockup(false, 0.0f)
-        .SetSpin(false, 0.0f)
-        .SetRoad(false, 0.0f)
-        .SetBaseMode(2) // Muted for clear texture feel
-    );
-
-    // 13. Guide: Braking Lockup
-    presets.push_back(Preset("Guide: Braking Lockup")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetOversteer(0.0f)
-        .SetRearAlign(0.0f)
-        .SetLockup(true, 1.0f)
-        .SetSpin(false, 0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRoad(false, 0.0f)
-        .SetScrub(0.0f)
-        .SetBaseMode(2) // Muted
-    );
-
-    // 14. Guide: Traction Loss (Wheel Spin)
-    presets.push_back(Preset("Guide: Traction Loss (Spin)")
-        .SetGain(1.0f)
-        .SetUndersteer(0.0f)
-        .SetSoP(0.0f)
-        .SetOversteer(0.0f)
-        .SetRearAlign(0.0f)
-        .SetSpin(true, 1.0f)
-        .SetLockup(false, 0.0f)
-        .SetSlide(false, 0.0f)
-        .SetRoad(false, 0.0f)
-        .SetScrub(0.0f)
-        .SetBaseMode(2) // Muted
-    );
-
-    // --- Parse User Presets from config.ini ---
-    // (Keep the existing parsing logic below, it works fine for file I/O)
-    std::ifstream file("config.ini");
-    if (!file.is_open()) return;
-
-    std::string line;
-    bool in_presets = false;
-    
-    std::string current_preset_name = "";
-    Preset current_preset; // Uses default constructor with default values
-    bool preset_pending = false;
-
-    while (std::getline(file, line)) {
-        // Strip whitespace
-        line.erase(0, line.find_first_not_of(" \t\r\n"));
-        line.erase(line.find_last_not_of(" \t\r\n") + 1);
-        
-        if (line.empty() || line[0] == ';') continue;
-
-        if (line[0] == '[') {
-            if (preset_pending && !current_preset_name.empty()) {
-                current_preset.name = current_preset_name;
-                presets.push_back(current_preset);
-                preset_pending = false;
-            }
-            
-            if (line == "[Presets]") {
-                in_presets = true;
-            } else if (line.rfind("[Preset:", 0) == 0) { 
-                in_presets = false; 
-                size_t end_pos = line.find(']');
-                if (end_pos != std::string::npos) {
-                    current_preset_name = line.substr(8, end_pos - 8);
-                    current_preset = Preset(current_preset_name); // Reset to defaults
-                    preset_pending = true;
-                }
-            } else {
-                in_presets = false;
-            }
-            continue;
-        }
-
-        if (preset_pending) {
-            std::istringstream is_line(line);
-            std::string key;
-            if (std::getline(is_line, key, '=')) {
-                std::string value;
-                if (std::getline(is_line, value)) {
-                    try {
-                        // Map keys to struct members
-                        if (key == "gain") current_preset.gain = std::stof(value);
-                        else if (key == "understeer") current_preset.understeer = std::stof(value);
-                        else if (key == "sop") current_preset.sop = std::stof(value);
-                        else if (key == "sop_scale") current_preset.sop_scale = std::stof(value);
-                        else if (key == "sop_smoothing_factor") current_preset.sop_smoothing = std::stof(value);
-                        else if (key == "min_force") current_preset.min_force = std::stof(value);
-                        else if (key == "oversteer_boost") current_preset.oversteer_boost = std::stof(value);
-                        else if (key == "lockup_enabled") current_preset.lockup_enabled = std::stoi(value);
-                        else if (key == "lockup_gain") current_preset.lockup_gain = std::stof(value);
-                        else if (key == "spin_enabled") current_preset.spin_enabled = std::stoi(value);
-                        else if (key == "spin_gain") current_preset.spin_gain = std::stof(value);
-                        else if (key == "slide_enabled") current_preset.slide_enabled = std::stoi(value);
-                        else if (key == "slide_gain") current_preset.slide_gain = std::stof(value);
-                        else if (key == "road_enabled") current_preset.road_enabled = std::stoi(value);
-                        else if (key == "road_gain") current_preset.road_gain = std::stof(value);
-                        else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
-                        else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
-                        else if (key == "use_manual_slip") current_preset.use_manual_slip = std::stoi(value);
-                        else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
-                        else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = std::stof(value);
-                        else if (key == "rear_align_effect") current_preset.rear_align_effect = std::stof(value);
-                        else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = std::stof(value);
-                        else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
-                        else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
-                        else if (key == "gyro_gain") current_preset.gyro_gain = std::stof(value);
-                    } catch (...) {}
-                }
-            }
-        }
-    }
-    
-    if (preset_pending && !current_preset_name.empty()) {
-        current_preset.name = current_preset_name;
-        presets.push_back(current_preset);
-    }
-}
-
-void Config::ApplyPreset(int index, FFBEngine& engine) {
-    if (index >= 0 && index < presets.size()) {
-        presets[index].Apply(engine);
-        std::cout << "[Config] Applied preset: " << presets[index].name << std::endl;
-    }
-}
-
-void Config::Save(const FFBEngine& engine, const std::string& filename) {
-    std::ofstream file(filename);
-    if (file.is_open()) {
-        file << "ignore_vjoy_version_warning=" << m_ignore_vjoy_version_warning << "\n";
-        file << "enable_vjoy=" << m_enable_vjoy << "\n";
-        file << "output_ffb_to_vjoy=" << m_output_ffb_to_vjoy << "\n";
-        file << "gain=" << engine.m_gain << "\n";
-        file << "sop_smoothing_factor=" << engine.m_sop_smoothing_factor << "\n";
-        file << "sop_scale=" << engine.m_sop_scale << "\n";
-        file << "max_load_factor=" << engine.m_max_load_factor << "\n";
-        file << "understeer=" << engine.m_understeer_effect << "\n";
-        file << "sop=" << engine.m_sop_effect << "\n";
-        file << "min_force=" << engine.m_min_force << "\n";
-        file << "oversteer_boost=" << engine.m_oversteer_boost << "\n";
-        file << "lockup_enabled=" << engine.m_lockup_enabled << "\n";
-        file << "lockup_gain=" << engine.m_lockup_gain << "\n";
-        file << "spin_enabled=" << engine.m_spin_enabled << "\n";
-        file << "spin_gain=" << engine.m_spin_gain << "\n";
-        file << "slide_enabled=" << engine.m_slide_texture_enabled << "\n";
-        file << "slide_gain=" << engine.m_slide_texture_gain << "\n";
-        file << "road_enabled=" << engine.m_road_texture_enabled << "\n";
-        file << "road_gain=" << engine.m_road_texture_gain << "\n";
-        file << "invert_force=" << engine.m_invert_force << "\n";
-        file << "max_torque_ref=" << engine.m_max_torque_ref << "\n";
-        file << "use_manual_slip=" << engine.m_use_manual_slip << "\n";
-        file << "bottoming_method=" << engine.m_bottoming_method << "\n";
-        file << "scrub_drag_gain=" << engine.m_scrub_drag_gain << "\n";
-        file << "rear_align_effect=" << engine.m_rear_align_effect << "\n";
-        file << "sop_yaw_gain=" << engine.m_sop_yaw_gain << "\n";
-        file << "steering_shaft_gain=" << engine.m_steering_shaft_gain << "\n";
-        file << "base_force_mode=" << engine.m_base_force_mode << "\n";
-        file << "gyro_gain=" << engine.m_gyro_gain << "\n";
-        file.close();
-        std::cout << "[Config] Saved to " << filename << std::endl;
-    } else {
-        std::cerr << "[Config] Failed to save to " << filename << std::endl;
-    }
-}
-
-void Config::Load(FFBEngine& engine, const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        std::cout << "[Config] No config found, using defaults." << std::endl;
-        return;
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream is_line(line);
-        std::string key;
-        if (std::getline(is_line, key, '=')) {
-            std::string value;
-            if (std::getline(is_line, value)) {
-                try {
-                    if (key == "ignore_vjoy_version_warning") m_ignore_vjoy_version_warning = std::stoi(value);
-                    else if (key == "enable_vjoy") m_enable_vjoy = std::stoi(value);
-                    else if (key == "output_ffb_to_vjoy") m_output_ffb_to_vjoy = std::stoi(value);
-                    else if (key == "gain") engine.m_gain = std::stof(value);
-                    else if (key == "sop_smoothing_factor") engine.m_sop_smoothing_factor = std::stof(value);
-                    else if (key == "sop_scale") engine.m_sop_scale = std::stof(value);
-                    else if (key == "max_load_factor") engine.m_max_load_factor = std::stof(value);
-                    else if (key == "smoothing") engine.m_sop_smoothing_factor = std::stof(value); // Legacy support
-                    else if (key == "understeer") engine.m_understeer_effect = std::stof(value);
-                    else if (key == "sop") engine.m_sop_effect = std::stof(value);
-                    else if (key == "min_force") engine.m_min_force = std::stof(value);
-                    else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
-                    else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
-                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
-                    else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
-                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
-                    else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
-                    else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
-                    else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);
-                    else if (key == "road_gain") engine.m_road_texture_gain = std::stof(value);
-                    else if (key == "invert_force") engine.m_invert_force = std::stoi(value);
-                    else if (key == "max_torque_ref") engine.m_max_torque_ref = std::stof(value);
-                    else if (key == "use_manual_slip") engine.m_use_manual_slip = std::stoi(value);
-                    else if (key == "bottoming_method") engine.m_bottoming_method = std::stoi(value);
-                    else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = std::stof(value);
-                    else if (key == "rear_align_effect") engine.m_rear_align_effect = std::stof(value);
-                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = std::stof(value);
-                    else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
-                    else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
-                    else if (key == "gyro_gain") engine.m_gyro_gain = std::stof(value);
-                } catch (...) {
-                    std::cerr << "[Config] Error parsing line: " << line << std::endl;
-                }
-            }
-        }
-    }
-    std::cout << "[Config] Loaded from " << filename << std::endl;
-}
-```
-
-### 2. Update `CHANGELOG.md`
-
-```markdown
-## [0.4.24] - 2025-12-19
-### Added
-- **Guide Presets**: Added 5 new built-in presets corresponding to the "Driver's Guide to Testing LMUFFB".
-    - **Guide: Understeer (Front Grip)**: Isolates the grip modulation effect.
-    - **Guide: Oversteer (Rear Grip)**: Isolates SoP and Rear Aligning Torque.
-    - **Guide: Slide Texture (Scrub)**: Isolates the scrubbing vibration (mutes base force).
-    - **Guide: Braking Lockup**: Isolates the lockup vibration (mutes base force).
-    - **Guide: Traction Loss (Spin)**: Isolates the wheel spin vibration (mutes base force).
-    - These presets allow users to quickly configure the app for the specific test scenarios described in the documentation.
-```
-
-### 3. Update `VERSION`
-
-```
-0.4.24
-```
 ```
 
 # File: docs\EXCLUSIVE_ACQUISITION_GUIDE.md
@@ -8692,6 +8472,552 @@ Unit tests in `tests/test_ffb_engine.cpp` have been updated to verify:
 - Original values are preserved.
 
 All tests passed in v0.4.6 build.
+
+```
+
+# File: docs\dev_docs\implement saveable presets.md
+```markdown
+## Question
+
+We need a mechanism to save a preset with a custom name that the user can edit. The preset should be saved in one of the ini files.
+
+
+## Answer
+
+
+This is a great addition for usability. To implement this, we need to:
+
+1.  **Update `Preset` struct**: Add a flag to distinguish between "Built-in" (read-only) and "User" (saveable) presets, and a method to capture the current engine state into a preset.
+2.  **Update `Config::Save`**: Modify the save logic to iterate through the user presets and write them to the `.ini` file.
+3.  **Update `GuiLayer`**: Add a text input and a "Save" button to the UI.
+
+Here is the code.
+
+### 1. Update `src/Config.h`
+
+Add `is_builtin` and `UpdateFromEngine`.
+
+```cpp
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#include "../FFBEngine.h"
+#include <string>
+#include <vector>
+
+struct Preset {
+    std::string name;
+    bool is_builtin = false; // NEW: Track if this is hardcoded or user-created
+    
+    // ... [Existing variables: gain, understeer, etc.] ...
+    float gain = 0.5f;
+    float understeer = 1.0f;
+    float sop = 0.15f;
+    float sop_scale = 20.0f;
+    float sop_smoothing = 0.05f;
+    float min_force = 0.0f;
+    float oversteer_boost = 0.0f;
+    
+    bool lockup_enabled = false;
+    float lockup_gain = 0.5f;
+    
+    bool spin_enabled = false;
+    float spin_gain = 0.5f;
+    
+    bool slide_enabled = true;
+    float slide_gain = 0.5f;
+    
+    bool road_enabled = false;
+    float road_gain = 0.5f;
+    
+    bool invert_force = false;
+    float max_torque_ref = 40.0f;
+    
+    bool use_manual_slip = false;
+    int bottoming_method = 0;
+    float scrub_drag_gain = 0.0f;
+    
+    float rear_align_effect = 1.0f;
+    float sop_yaw_gain = 0.0f;
+    float gyro_gain = 0.0f;
+    
+    float steering_shaft_gain = 1.0f;
+    int base_force_mode = 0;
+
+    // Constructors
+    Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
+    Preset() : name("Unnamed"), is_builtin(false) {}
+
+    // ... [Existing Fluent Setters] ...
+    Preset& SetGain(float v) { gain = v; return *this; }
+    // ... (Keep all existing setters) ...
+    // Add these if missing from previous steps to be safe:
+    Preset& SetUndersteer(float v) { understeer = v; return *this; }
+    Preset& SetSoP(float v) { sop = v; return *this; }
+    Preset& SetSoPScale(float v) { sop_scale = v; return *this; }
+    Preset& SetSmoothing(float v) { sop_smoothing = v; return *this; }
+    Preset& SetMinForce(float v) { min_force = v; return *this; }
+    Preset& SetOversteer(float v) { oversteer_boost = v; return *this; }
+    Preset& SetLockup(bool enabled, float g) { lockup_enabled = enabled; lockup_gain = g; return *this; }
+    Preset& SetSpin(bool enabled, float g) { spin_enabled = enabled; spin_gain = g; return *this; }
+    Preset& SetSlide(bool enabled, float g) { slide_enabled = enabled; slide_gain = g; return *this; }
+    Preset& SetRoad(bool enabled, float g) { road_enabled = enabled; road_gain = g; return *this; }
+    Preset& SetInvert(bool v) { invert_force = v; return *this; }
+    Preset& SetMaxTorque(float v) { max_torque_ref = v; return *this; }
+    Preset& SetManualSlip(bool v) { use_manual_slip = v; return *this; }
+    Preset& SetBottoming(int method) { bottoming_method = method; return *this; }
+    Preset& SetScrub(float v) { scrub_drag_gain = v; return *this; }
+    Preset& SetRearAlign(float v) { rear_align_effect = v; return *this; }
+    Preset& SetSoPYaw(float v) { sop_yaw_gain = v; return *this; }
+    Preset& SetGyro(float v) { gyro_gain = v; return *this; }
+    Preset& SetShaftGain(float v) { steering_shaft_gain = v; return *this; }
+    Preset& SetBaseMode(int v) { base_force_mode = v; return *this; }
+
+    // Apply this preset to an engine instance
+    void Apply(FFBEngine& engine) const {
+        engine.m_gain = gain;
+        engine.m_understeer_effect = understeer;
+        engine.m_sop_effect = sop;
+        engine.m_sop_scale = sop_scale;
+        engine.m_sop_smoothing_factor = sop_smoothing;
+        engine.m_min_force = min_force;
+        engine.m_oversteer_boost = oversteer_boost;
+        engine.m_lockup_enabled = lockup_enabled;
+        engine.m_lockup_gain = lockup_gain;
+        engine.m_spin_enabled = spin_enabled;
+        engine.m_spin_gain = spin_gain;
+        engine.m_slide_texture_enabled = slide_enabled;
+        engine.m_slide_texture_gain = slide_gain;
+        engine.m_road_texture_enabled = road_enabled;
+        engine.m_road_texture_gain = road_gain;
+        engine.m_invert_force = invert_force;
+        engine.m_max_torque_ref = max_torque_ref;
+        engine.m_use_manual_slip = use_manual_slip;
+        engine.m_bottoming_method = bottoming_method;
+        engine.m_scrub_drag_gain = scrub_drag_gain;
+        engine.m_rear_align_effect = rear_align_effect;
+        engine.m_sop_yaw_gain = sop_yaw_gain;
+        engine.m_gyro_gain = gyro_gain;
+        engine.m_steering_shaft_gain = steering_shaft_gain;
+        engine.m_base_force_mode = base_force_mode;
+    }
+
+    // NEW: Capture current engine state into this preset
+    void UpdateFromEngine(const FFBEngine& engine) {
+        gain = engine.m_gain;
+        understeer = engine.m_understeer_effect;
+        sop = engine.m_sop_effect;
+        sop_scale = engine.m_sop_scale;
+        sop_smoothing = engine.m_sop_smoothing_factor;
+        min_force = engine.m_min_force;
+        oversteer_boost = engine.m_oversteer_boost;
+        lockup_enabled = engine.m_lockup_enabled;
+        lockup_gain = engine.m_lockup_gain;
+        spin_enabled = engine.m_spin_enabled;
+        spin_gain = engine.m_spin_gain;
+        slide_enabled = engine.m_slide_texture_enabled;
+        slide_gain = engine.m_slide_texture_gain;
+        road_enabled = engine.m_road_texture_enabled;
+        road_gain = engine.m_road_texture_gain;
+        invert_force = engine.m_invert_force;
+        max_torque_ref = engine.m_max_torque_ref;
+        use_manual_slip = engine.m_use_manual_slip;
+        bottoming_method = engine.m_bottoming_method;
+        scrub_drag_gain = engine.m_scrub_drag_gain;
+        rear_align_effect = engine.m_rear_align_effect;
+        sop_yaw_gain = engine.m_sop_yaw_gain;
+        gyro_gain = engine.m_gyro_gain;
+        steering_shaft_gain = engine.m_steering_shaft_gain;
+        base_force_mode = engine.m_base_force_mode;
+    }
+};
+
+class Config {
+public:
+    static void Save(const FFBEngine& engine, const std::string& filename = "config.ini");
+    static void Load(FFBEngine& engine, const std::string& filename = "config.ini");
+    
+    // Preset Management
+    static std::vector<Preset> presets;
+    static void LoadPresets(); 
+    static void ApplyPreset(int index, FFBEngine& engine);
+    
+    // NEW: Add a user preset
+    static void AddUserPreset(const std::string& name, const FFBEngine& engine);
+
+    static bool m_ignore_vjoy_version_warning;
+    static bool m_enable_vjoy;        
+    static bool m_output_ffb_to_vjoy; 
+};
+
+#endif
+```
+
+### 2. Update `src/Config.cpp`
+
+We need to update `LoadPresets` to mark built-ins, implement `AddUserPreset`, and update `Save` to write the presets to the file.
+
+```cpp
+#include "Config.h"
+#include <fstream>
+#include <sstream>
+#include <iostream>
+
+bool Config::m_ignore_vjoy_version_warning = false;
+bool Config::m_enable_vjoy = false;
+bool Config::m_output_ffb_to_vjoy = false;
+
+std::vector<Preset> Config::presets;
+
+void Config::LoadPresets() {
+    presets.clear();
+    
+    // --- Built-in Presets (Marked as true) ---
+    presets.push_back(Preset("Default", true));
+
+    presets.push_back(Preset("T300", true)
+        .SetGain(1.0f).SetShaftGain(1.0f).SetMinForce(0.0f).SetMaxTorque(100.0f)
+        .SetInvert(true).SetUndersteer(38.0f).SetSoP(0.0f).SetOversteer(0.0f)
+        .SetRearAlign(0.0f).SetSoPYaw(0.0f).SetGyro(0.0f).SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f).SetSlide(false, 0.0f).SetRoad(false, 0.0f)
+        .SetScrub(0.0f).SetBaseMode(0)
+    );
+    
+    presets.push_back(Preset("Test: Game Base FFB Only", true)
+        .SetUndersteer(0.0f).SetSoP(0.0f).SetSoPScale(5.0f).SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f).SetRearAlign(0.0f)
+    );
+
+    presets.push_back(Preset("Test: SoP Only", true)
+        .SetUndersteer(0.0f).SetSoP(1.0f).SetSoPScale(5.0f).SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f).SetRearAlign(0.0f).SetSoPYaw(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Test: Understeer Only", true)
+        .SetUndersteer(1.0f).SetSoP(0.0f).SetSoPScale(0.0f).SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f).SetRearAlign(0.0f)
+    );
+
+    presets.push_back(Preset("Test: Textures Only", true)
+        .SetUndersteer(0.0f).SetSoP(0.0f).SetSoPScale(0.0f).SetSmoothing(0.0f)
+        .SetLockup(true, 1.0f).SetSpin(true, 1.0f).SetSlide(true, 1.0f)
+        .SetRoad(true, 1.0f).SetRearAlign(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Test: Rear Align Torque Only", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f).SetRearAlign(1.0f).SetSoPYaw(0.0f)
+    );
+
+    presets.push_back(Preset("Test: SoP Base Only", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(1.0f).SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f).SetRearAlign(0.0f).SetSoPYaw(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Test: Slide Texture Only", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetSmoothing(0.0f)
+        .SetSlide(true, 1.0f).SetRearAlign(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Test: No Effects", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetSmoothing(0.0f)
+        .SetSlide(false, 0.0f).SetRearAlign(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Guide: Understeer (Front Grip)", true)
+        .SetGain(1.0f).SetUndersteer(1.0f).SetSoP(0.0f).SetOversteer(0.0f)
+        .SetRearAlign(0.0f).SetSoPYaw(0.0f).SetGyro(0.0f).SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f).SetSlide(false, 0.0f).SetRoad(false, 0.0f)
+        .SetScrub(0.0f).SetBaseMode(0)
+    );
+
+    presets.push_back(Preset("Guide: Oversteer (Rear Grip)", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(1.0f).SetSoPScale(20.0f)
+        .SetRearAlign(1.0f).SetOversteer(1.0f).SetSoPYaw(0.0f).SetGyro(0.0f)
+        .SetLockup(false, 0.0f).SetSpin(false, 0.0f).SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f).SetScrub(0.0f).SetBaseMode(0)
+    );
+
+    presets.push_back(Preset("Guide: Slide Texture (Scrub)", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetOversteer(0.0f)
+        .SetRearAlign(0.0f).SetSlide(true, 1.0f).SetScrub(1.0f)
+        .SetLockup(false, 0.0f).SetSpin(false, 0.0f).SetRoad(false, 0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Guide: Braking Lockup", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetOversteer(0.0f)
+        .SetRearAlign(0.0f).SetLockup(true, 1.0f).SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f).SetRoad(false, 0.0f).SetScrub(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Guide: Traction Loss (Spin)", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetOversteer(0.0f)
+        .SetRearAlign(0.0f).SetSpin(true, 1.0f).SetLockup(false, 0.0f)
+        .SetSlide(false, 0.0f).SetRoad(false, 0.0f).SetScrub(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Guide: SoP Yaw (Kick)", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetOversteer(0.0f)
+        .SetRearAlign(0.0f).SetSoPYaw(2.0f).SetGyro(0.0f).SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f).SetSlide(false, 0.0f).SetRoad(false, 0.0f)
+        .SetScrub(0.0f).SetBaseMode(2)
+    );
+
+    presets.push_back(Preset("Guide: Gyroscopic Damping", true)
+        .SetGain(1.0f).SetUndersteer(0.0f).SetSoP(0.0f).SetOversteer(0.0f)
+        .SetRearAlign(0.0f).SetSoPYaw(0.0f).SetGyro(1.0f).SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f).SetSlide(false, 0.0f).SetRoad(false, 0.0f)
+        .SetScrub(0.0f).SetBaseMode(2)
+    );
+
+    // --- Parse User Presets from config.ini ---
+    std::ifstream file("config.ini");
+    if (!file.is_open()) return;
+
+    std::string line;
+    bool in_presets = false;
+    
+    std::string current_preset_name = "";
+    Preset current_preset; 
+    bool preset_pending = false;
+
+    while (std::getline(file, line)) {
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+        
+        if (line.empty() || line[0] == ';') continue;
+
+        if (line[0] == '[') {
+            if (preset_pending && !current_preset_name.empty()) {
+                current_preset.name = current_preset_name;
+                current_preset.is_builtin = false; // User preset
+                presets.push_back(current_preset);
+                preset_pending = false;
+            }
+            
+            if (line == "[Presets]") {
+                in_presets = true;
+            } else if (line.rfind("[Preset:", 0) == 0) { 
+                in_presets = false; 
+                size_t end_pos = line.find(']');
+                if (end_pos != std::string::npos) {
+                    current_preset_name = line.substr(8, end_pos - 8);
+                    current_preset = Preset(current_preset_name, false); // Reset to defaults, not builtin
+                    preset_pending = true;
+                }
+            } else {
+                in_presets = false;
+            }
+            continue;
+        }
+
+        if (preset_pending) {
+            std::istringstream is_line(line);
+            std::string key;
+            if (std::getline(is_line, key, '=')) {
+                std::string value;
+                if (std::getline(is_line, value)) {
+                    try {
+                        if (key == "gain") current_preset.gain = std::stof(value);
+                        else if (key == "understeer") current_preset.understeer = std::stof(value);
+                        else if (key == "sop") current_preset.sop = std::stof(value);
+                        else if (key == "sop_scale") current_preset.sop_scale = std::stof(value);
+                        else if (key == "sop_smoothing_factor") current_preset.sop_smoothing = std::stof(value);
+                        else if (key == "min_force") current_preset.min_force = std::stof(value);
+                        else if (key == "oversteer_boost") current_preset.oversteer_boost = std::stof(value);
+                        else if (key == "lockup_enabled") current_preset.lockup_enabled = std::stoi(value);
+                        else if (key == "lockup_gain") current_preset.lockup_gain = std::stof(value);
+                        else if (key == "spin_enabled") current_preset.spin_enabled = std::stoi(value);
+                        else if (key == "spin_gain") current_preset.spin_gain = std::stof(value);
+                        else if (key == "slide_enabled") current_preset.slide_enabled = std::stoi(value);
+                        else if (key == "slide_gain") current_preset.slide_gain = std::stof(value);
+                        else if (key == "road_enabled") current_preset.road_enabled = std::stoi(value);
+                        else if (key == "road_gain") current_preset.road_gain = std::stof(value);
+                        else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
+                        else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
+                        else if (key == "use_manual_slip") current_preset.use_manual_slip = std::stoi(value);
+                        else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
+                        else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = std::stof(value);
+                        else if (key == "rear_align_effect") current_preset.rear_align_effect = std::stof(value);
+                        else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = std::stof(value);
+                        else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
+                        else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
+                        else if (key == "gyro_gain") current_preset.gyro_gain = std::stof(value);
+                    } catch (...) {}
+                }
+            }
+        }
+    }
+    
+    if (preset_pending && !current_preset_name.empty()) {
+        current_preset.name = current_preset_name;
+        current_preset.is_builtin = false;
+        presets.push_back(current_preset);
+    }
+}
+
+void Config::AddUserPreset(const std::string& name, const FFBEngine& engine) {
+    // Check if name exists and overwrite, or add new
+    bool found = false;
+    for (auto& p : presets) {
+        if (p.name == name && !p.is_builtin) {
+            p.UpdateFromEngine(engine);
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        Preset p(name, false);
+        p.UpdateFromEngine(engine);
+        presets.push_back(p);
+    }
+    
+    // Save immediately to persist
+    Save(engine);
+}
+
+void Config::ApplyPreset(int index, FFBEngine& engine) {
+    if (index >= 0 && index < presets.size()) {
+        presets[index].Apply(engine);
+        std::cout << "[Config] Applied preset: " << presets[index].name << std::endl;
+    }
+}
+
+void Config::Save(const FFBEngine& engine, const std::string& filename) {
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        // 1. Global Settings
+        file << "ignore_vjoy_version_warning=" << m_ignore_vjoy_version_warning << "\n";
+        file << "enable_vjoy=" << m_enable_vjoy << "\n";
+        file << "output_ffb_to_vjoy=" << m_output_ffb_to_vjoy << "\n";
+        
+        // 2. Current Engine State (Active Config)
+        file << "gain=" << engine.m_gain << "\n";
+        file << "sop_smoothing_factor=" << engine.m_sop_smoothing_factor << "\n";
+        file << "sop_scale=" << engine.m_sop_scale << "\n";
+        file << "max_load_factor=" << engine.m_max_load_factor << "\n";
+        file << "understeer=" << engine.m_understeer_effect << "\n";
+        file << "sop=" << engine.m_sop_effect << "\n";
+        file << "min_force=" << engine.m_min_force << "\n";
+        file << "oversteer_boost=" << engine.m_oversteer_boost << "\n";
+        file << "lockup_enabled=" << engine.m_lockup_enabled << "\n";
+        file << "lockup_gain=" << engine.m_lockup_gain << "\n";
+        file << "spin_enabled=" << engine.m_spin_enabled << "\n";
+        file << "spin_gain=" << engine.m_spin_gain << "\n";
+        file << "slide_enabled=" << engine.m_slide_texture_enabled << "\n";
+        file << "slide_gain=" << engine.m_slide_texture_gain << "\n";
+        file << "road_enabled=" << engine.m_road_texture_enabled << "\n";
+        file << "road_gain=" << engine.m_road_texture_gain << "\n";
+        file << "invert_force=" << engine.m_invert_force << "\n";
+        file << "max_torque_ref=" << engine.m_max_torque_ref << "\n";
+        file << "use_manual_slip=" << engine.m_use_manual_slip << "\n";
+        file << "bottoming_method=" << engine.m_bottoming_method << "\n";
+        file << "scrub_drag_gain=" << engine.m_scrub_drag_gain << "\n";
+        file << "rear_align_effect=" << engine.m_rear_align_effect << "\n";
+        file << "sop_yaw_gain=" << engine.m_sop_yaw_gain << "\n";
+        file << "steering_shaft_gain=" << engine.m_steering_shaft_gain << "\n";
+        file << "base_force_mode=" << engine.m_base_force_mode << "\n";
+        file << "gyro_gain=" << engine.m_gyro_gain << "\n";
+        
+        // 3. User Presets
+        file << "\n[Presets]\n";
+        for (const auto& p : presets) {
+            if (!p.is_builtin) {
+                file << "[Preset:" << p.name << "]\n";
+                file << "gain=" << p.gain << "\n";
+                file << "understeer=" << p.understeer << "\n";
+                file << "sop=" << p.sop << "\n";
+                file << "sop_scale=" << p.sop_scale << "\n";
+                file << "sop_smoothing_factor=" << p.sop_smoothing << "\n";
+                file << "min_force=" << p.min_force << "\n";
+                file << "oversteer_boost=" << p.oversteer_boost << "\n";
+                file << "lockup_enabled=" << p.lockup_enabled << "\n";
+                file << "lockup_gain=" << p.lockup_gain << "\n";
+                file << "spin_enabled=" << p.spin_enabled << "\n";
+                file << "spin_gain=" << p.spin_gain << "\n";
+                file << "slide_enabled=" << p.slide_enabled << "\n";
+                file << "slide_gain=" << p.slide_gain << "\n";
+                file << "road_enabled=" << p.road_enabled << "\n";
+                file << "road_gain=" << p.road_gain << "\n";
+                file << "invert_force=" << p.invert_force << "\n";
+                file << "max_torque_ref=" << p.max_torque_ref << "\n";
+                file << "use_manual_slip=" << p.use_manual_slip << "\n";
+                file << "bottoming_method=" << p.bottoming_method << "\n";
+                file << "scrub_drag_gain=" << p.scrub_drag_gain << "\n";
+                file << "rear_align_effect=" << p.rear_align_effect << "\n";
+                file << "sop_yaw_gain=" << p.sop_yaw_gain << "\n";
+                file << "steering_shaft_gain=" << p.steering_shaft_gain << "\n";
+                file << "base_force_mode=" << p.base_force_mode << "\n";
+                file << "gyro_gain=" << p.gyro_gain << "\n";
+                file << "\n";
+            }
+        }
+
+        file.close();
+        std::cout << "[Config] Saved to " << filename << std::endl;
+    } else {
+        std::cerr << "[Config] Failed to save to " << filename << std::endl;
+    }
+}
+
+// Load function remains the same
+```
+
+### 3. Update `src/GuiLayer.cpp`
+
+Add the UI controls for saving a new preset.
+
+```cpp
+// ... inside DrawTuningWindow ...
+
+    // --- PRESET LOGIC WITH DIRTY STATE ---
+    static int selected_preset = 0;
+    if (Config::presets.empty()) {
+        Config::LoadPresets();
+    }
+    
+    const char* preview_value = (selected_preset >= 0 && selected_preset < Config::presets.size()) 
+                                ? Config::presets[selected_preset].name.c_str() 
+                                : "Custom";
+    
+    if (ImGui::BeginCombo("Load Preset", preview_value)) {
+        for (int i = 0; i < Config::presets.size(); i++) {
+            bool is_selected = (selected_preset == i);
+            // Optional: Color code built-in vs user presets?
+            if (ImGui::Selectable(Config::presets[i].name.c_str(), is_selected)) {
+                selected_preset = i;
+                Config::ApplyPreset(i, engine);
+            }
+            if (is_selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    
+    // NEW: Save As Preset UI
+    static char new_preset_name[64] = "";
+    ImGui::InputText("##NewPresetName", new_preset_name, 64);
+    ImGui::SameLine();
+    if (ImGui::Button("Save as New Preset")) {
+        if (strlen(new_preset_name) > 0) {
+            Config::AddUserPreset(std::string(new_preset_name), engine);
+            // Auto-select the new preset
+            for (int i = 0; i < Config::presets.size(); i++) {
+                if (Config::presets[i].name == std::string(new_preset_name)) {
+                    selected_preset = i;
+                    break;
+                }
+            }
+            // Clear buffer
+            new_preset_name[0] = '\0';
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save current settings as a new custom preset.");
+
+    ImGui::Separator();
+    
+    // ... [Rest of the file] ...
+```
 
 ```
 
@@ -16182,7 +16508,30 @@ void Config::LoadPresets() {
     // 1. Default (Uses the defaults defined in Config.h)
     presets.push_back(Preset("Default"));
     
-    // 2. Test: Game Base FFB Only
+    // 2. T300 (User Tuned)
+    // Tuned for Thrustmaster T300RS with 100Nm Reference.
+    // Boosts effects by ~10x to compensate for the high reference.
+    presets.push_back(Preset("T300")
+        .SetGain(1.0f)
+        .SetShaftGain(1.0f)
+        .SetMinForce(0.0f)
+        .SetMaxTorque(100.0f)    // High ref to prevent clipping
+        .SetInvert(true)
+        .SetUndersteer(38.0f)    // Grip Drop
+        .SetSoP(5.0f)            // Lateral G (Weight)
+        .SetRearAlign(15.0f)     // Counter-Steer Torque (The "Pull")
+        .SetOversteer(2.0f)      // Boost when rear slips
+        .SetSoPYaw(5.0f)         // Kick on rotation start
+        .SetGyro(0.0f)
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetBaseMode(0)
+    );
+    
+    // 3. Test: Game Base FFB Only
     presets.push_back(Preset("Test: Game Base FFB Only")
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -16192,7 +16541,7 @@ void Config::LoadPresets() {
         .SetRearAlign(0.0f)
     );
 
-    // 3. Test: SoP Only
+    // 4. Test: SoP Only
     presets.push_back(Preset("Test: SoP Only")
         .SetUndersteer(0.0f)
         .SetSoP(1.0f)
@@ -16204,7 +16553,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 4. Test: Understeer Only
+    // 5. Test: Understeer Only
     presets.push_back(Preset("Test: Understeer Only")
         .SetUndersteer(1.0f)
         .SetSoP(0.0f)
@@ -16214,7 +16563,7 @@ void Config::LoadPresets() {
         .SetRearAlign(0.0f)
     );
 
-    // 5. Test: Textures Only
+    // 6. Test: Textures Only
     presets.push_back(Preset("Test: Textures Only")
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -16228,7 +16577,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 6. Test: Rear Align Torque Only
+    // 7. Test: Rear Align Torque Only
     presets.push_back(Preset("Test: Rear Align Torque Only")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16239,7 +16588,7 @@ void Config::LoadPresets() {
         .SetSoPYaw(0.0f)
     );
 
-    // 7. Test: SoP Base Only
+    // 8. Test: SoP Base Only
     presets.push_back(Preset("Test: SoP Base Only")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16251,7 +16600,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 8. Test: Slide Texture Only
+    // 9. Test: Slide Texture Only
     presets.push_back(Preset("Test: Slide Texture Only")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16262,7 +16611,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 9. Test: No Effects
+    // 10. Test: No Effects
     presets.push_back(Preset("Test: No Effects")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16275,7 +16624,7 @@ void Config::LoadPresets() {
 
     // --- NEW GUIDE PRESETS (v0.4.24) ---
 
-    // 10. Guide: Understeer (Front Grip Loss)
+    // 11. Guide: Understeer (Front Grip Loss)
     presets.push_back(Preset("Guide: Understeer (Front Grip)")
         .SetGain(1.0f)
         .SetUndersteer(1.0f)
@@ -16292,7 +16641,7 @@ void Config::LoadPresets() {
         .SetBaseMode(0) // Native Physics needed to feel the drop
     );
 
-    // 11. Guide: Oversteer (Rear Grip Loss)
+    // 12. Guide: Oversteer (Rear Grip Loss)
     presets.push_back(Preset("Guide: Oversteer (Rear Grip)")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16310,7 +16659,7 @@ void Config::LoadPresets() {
         .SetBaseMode(0) // Native Physics + Boost
     );
 
-    // 12. Guide: Slide Texture (Scrubbing)
+    // 13. Guide: Slide Texture (Scrubbing)
     presets.push_back(Preset("Guide: Slide Texture (Scrub)")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16325,7 +16674,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted for clear texture feel
     );
 
-    // 13. Guide: Braking Lockup
+    // 14. Guide: Braking Lockup
     presets.push_back(Preset("Guide: Braking Lockup")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16340,7 +16689,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 14. Guide: Traction Loss (Wheel Spin)
+    // 15. Guide: Traction Loss (Wheel Spin)
     presets.push_back(Preset("Guide: Traction Loss (Spin)")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -16353,6 +16702,40 @@ void Config::LoadPresets() {
         .SetRoad(false, 0.0f)
         .SetScrub(0.0f)
         .SetBaseMode(2) // Muted
+    );
+
+     // 16. Guide: SoP Yaw (Kick)
+    presets.push_back(Preset("Guide: SoP Yaw (Kick)")
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(2.0f) // Max gain to make the impulse obvious
+        .SetGyro(0.0f)
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetBaseMode(2) // Muted: Feel only the rotation impulse
+    );
+
+    // 17. Guide: Gyroscopic Damping
+    presets.push_back(Preset("Guide: Gyroscopic Damping")
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
+        .SetGyro(1.0f) // Max damping
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetBaseMode(2) // Muted: Feel only the resistance to movement
     );
 
     // --- Parse User Presets from config.ini ---
@@ -16562,7 +16945,7 @@ struct Preset {
     
     // 1. Define Defaults inline (Matches "Default" preset logic)
     float gain = 0.5f;
-    float understeer = 1.0f;
+    float understeer = 2.0f;
     float sop = 0.15f;
     float sop_scale = 20.0f;
     float sop_smoothing = 0.05f;
@@ -16582,7 +16965,7 @@ struct Preset {
     float road_gain = 0.5f;
     
     bool invert_force = false;
-    float max_torque_ref = 40.0f;
+    float max_torque_ref = 60.0f;
     
     bool use_manual_slip = false;
     int bottoming_method = 0;
@@ -17554,13 +17937,18 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
     ImGui::Separator();
 
-    // --- PRESETS ---
+    // --- PRESETS WITH DIRTY STATE TRACKING ---
     static int selected_preset = 0;
     if (Config::presets.empty()) {
         Config::LoadPresets();
     }
     
-    if (ImGui::BeginCombo("Load Preset", Config::presets[selected_preset].name.c_str())) {
+    // Determine display name: Preset Name or "Custom"
+    const char* preview_value = (selected_preset >= 0 && selected_preset < Config::presets.size()) 
+                                ? Config::presets[selected_preset].name.c_str() 
+                                : "Custom";
+    
+    if (ImGui::BeginCombo("Load Preset", preview_value)) {
         for (int i = 0; i < Config::presets.size(); i++) {
             bool is_selected = (selected_preset == i);
             if (ImGui::Selectable(Config::presets[i].name.c_str(), is_selected)) {
@@ -17575,87 +17963,108 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
     ImGui::Separator();
     
-    ImGui::SliderFloat("Master Gain", &engine.m_gain, 0.0f, 2.0f, "%.2f");
-    ImGui::SliderFloat("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 1.0f, "%.2f");
+    // Helper Lambdas to detect changes and mark as "Custom"
+    auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f") {
+        if (ImGui::SliderFloat(label, v, min, max, fmt)) {
+            selected_preset = -1; // Mark as Custom
+        }
+    };
+    
+    auto BoolSetting = [&](const char* label, bool* v) {
+        if (ImGui::Checkbox(label, v)) {
+            selected_preset = -1;
+        }
+    };
+    
+    auto IntSetting = [&](const char* label, int* v, const char* const items[], int items_count) {
+        if (ImGui::Combo(label, v, items, items_count)) {
+            selected_preset = -1;
+        }
+    };
+    
+    FloatSetting("Master Gain", &engine.m_gain, 0.0f, 2.0f);
+    FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 1.0f);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Attenuates raw game force without affecting telemetry.\nUse this instead of Master Gain if other effects are too weak.");
-    ImGui::SliderFloat("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f");
+    FloatSetting("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f");
     // New Max Torque Ref Slider (v0.4.4)
-    ImGui::SliderFloat("Max Torque Ref (Nm)", &engine.m_max_torque_ref, 10.0f, 100.0f, "%.1f Nm");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The torque value that equals 100%% FFB output.\nIncrease this if FFB is too strong at Gain 1.0.\nTypical values: 20-40 Nm.");
+    FloatSetting("Max Torque Ref (Nm)", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The torque value that equals 100%% FFB output.\nIncrease this to WEAKEN the FFB (make it lighter).\nFor T300/G29, try 40-100 Nm.");
 
     if (ImGui::TreeNode("Advanced Tuning")) {
         // Base Force Mode (v0.4.13)
         const char* base_modes[] = { "Native (Physics)", "Synthetic (Constant)", "Muted (Off)" };
-        ImGui::Combo("Base Force Mode", &engine.m_base_force_mode, base_modes, IM_ARRAYSIZE(base_modes));
+        IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, IM_ARRAYSIZE(base_modes));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Debug tool to isolate effects.\nNative: Raw physics.\nSynthetic: Constant force to tune Grip drop-off.\nMuted: Zero base force.");
 
-        ImGui::SliderFloat("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f (1=Raw)");
-        ImGui::SliderFloat("SoP Scale", &engine.m_sop_scale, 0.0f, 200.0f, "%.1f");
-        ImGui::SliderFloat("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.1fx");
+        FloatSetting("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f (1=Raw)");
+        FloatSetting("SoP Scale", &engine.m_sop_scale, 0.0f, 200.0f, "%.1f");
+        FloatSetting("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.1fx");
         ImGui::TreePop();
     }
 
     ImGui::Separator();
     ImGui::Text("Effects");
-    ImGui::SliderFloat("Understeer (Grip)", &engine.m_understeer_effect, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("SoP (Lateral G)", &engine.m_sop_effect, 0.0f, 2.0f, "%.2f");
-    ImGui::SliderFloat("SoP Yaw (Kick)", &engine.m_sop_yaw_gain, 0.0f, 2.0f, "%.2f");
+    FloatSetting("Understeer (Grip)", &engine.m_understeer_effect, 0.0f, 50.0f);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Strength of the force drop when grip is lost.\nValues > 1.0 exaggerate the effect.\nHigh values (10-50) create a 'Binary' drop for belt-driven wheels.");
+    FloatSetting("SoP (Lateral G)", &engine.m_sop_effect, 0.0f, 20.0f);
+    FloatSetting("SoP Yaw (Kick)", &engine.m_sop_yaw_gain, 0.0f, 20.0f);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Injects Yaw Acceleration to provide a predictive kick when rotation starts.");
-    ImGui::SliderFloat("Gyroscopic Damping", &engine.m_gyro_gain, 0.0f, 1.0f, "%.2f");
+    FloatSetting("Gyroscopic Damping", &engine.m_gyro_gain, 0.0f, 1.0f);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stabilizes the wheel during drifts by opposing rapid steering movements.\nPrevents oscillations (tank slappers).");
-    ImGui::SliderFloat("Oversteer Boost", &engine.m_oversteer_boost, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Rear Align Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, "%.2f");
+    FloatSetting("Oversteer Boost", &engine.m_oversteer_boost, 0.0f, 20.0f);
+    FloatSetting("Rear Align Torque", &engine.m_rear_align_effect, 0.0f, 20.0f);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Controls rear-end counter-steering feedback.\nProvides a distinct cue during oversteer without affecting base SoP.\nIncrease for stronger rear-end feel (0.0 = Off, 1.0 = Default, 2.0 = Max).");
 
 
     ImGui::Separator();
     ImGui::Text("Haptics (Dynamic)");
-    ImGui::Checkbox("Progressive Lockup", &engine.m_lockup_enabled);
+    BoolSetting("Progressive Lockup", &engine.m_lockup_enabled);
     if (engine.m_lockup_enabled) {
-        ImGui::SameLine(); ImGui::SliderFloat("##Lockup", &engine.m_lockup_gain, 0.0f, 1.0f, "Gain: %.2f");
+        ImGui::SameLine(); FloatSetting("##Lockup", &engine.m_lockup_gain, 0.0f, 1.0f, "Gain: %.2f");
     }
     
-    ImGui::Checkbox("Spin Traction Loss", &engine.m_spin_enabled);
+    BoolSetting("Spin Traction Loss", &engine.m_spin_enabled);
     if (engine.m_spin_enabled) {
-        ImGui::SameLine(); ImGui::SliderFloat("##Spin", &engine.m_spin_gain, 0.0f, 1.0f, "Gain: %.2f");
+        ImGui::SameLine(); FloatSetting("##Spin", &engine.m_spin_gain, 0.0f, 1.0f, "Gain: %.2f");
     }
     
     // v0.4.5: Manual Slip Calculation Toggle
-    ImGui::Checkbox("Use Manual Slip Calc", &engine.m_use_manual_slip);
+    BoolSetting("Use Manual Slip Calc", &engine.m_use_manual_slip);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Calculates Slip Ratio from Wheel Speed vs Car Speed instead of game telemetry.\nUseful if game slip data is broken or zero.");
 
     ImGui::Separator();
     ImGui::Text("Textures");
-    ImGui::Checkbox("Slide Rumble", &engine.m_slide_texture_enabled);
+    BoolSetting("Slide Rumble", &engine.m_slide_texture_enabled);
     if (engine.m_slide_texture_enabled) {
         ImGui::Indent();
-        ImGui::SliderFloat("Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f);
+        FloatSetting("Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f);
         ImGui::Unindent();
     }
-    ImGui::Checkbox("Road Details", &engine.m_road_texture_enabled);
+    BoolSetting("Road Details", &engine.m_road_texture_enabled);
     if (engine.m_road_texture_enabled) {
         ImGui::Indent();
-        ImGui::SliderFloat("Road Gain", &engine.m_road_texture_gain, 0.0f, 5.0f);
+        FloatSetting("Road Gain", &engine.m_road_texture_gain, 0.0f, 5.0f);
         ImGui::Unindent();
     }
     
     // v0.4.5: Scrub Drag Effect
-    ImGui::SliderFloat("Scrub Drag Gain", &engine.m_scrub_drag_gain, 0.0f, 1.0f, "%.2f");
+    FloatSetting("Scrub Drag Gain", &engine.m_scrub_drag_gain, 0.0f, 1.0f);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Adds resistance when sliding sideways (tire dragging).");
     
     // v0.4.5: Bottoming Method
     const char* bottoming_modes[] = { "Method A: Scraping", "Method B: Susp. Spike" };
-    ImGui::Combo("Bottoming Logic", &engine.m_bottoming_method, bottoming_modes, IM_ARRAYSIZE(bottoming_modes));
+    IntSetting("Bottoming Logic", &engine.m_bottoming_method, bottoming_modes, IM_ARRAYSIZE(bottoming_modes));
 
     ImGui::Separator();
     ImGui::Text("Output");
     
     // Invert Force (v0.4.4)
-    ImGui::Checkbox("Invert FFB Signal", &engine.m_invert_force); 
+    BoolSetting("Invert FFB Signal", &engine.m_invert_force); 
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Check this if the wheel pulls away from center instead of aligning.");
 
     // vJoy Monitoring (Safety critical)
     if (ImGui::Checkbox("Monitor FFB on vJoy (Axis X)", &Config::m_output_ffb_to_vjoy)) {
+        selected_preset = -1; // Mark as custom
         // Warn user if enabling
         if (Config::m_output_ffb_to_vjoy) {
             MessageBoxA(NULL, "WARNING: Enabling this will output the FFB signal to vJoy Axis X.\n\n"
@@ -17696,6 +18105,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         engine.m_scrub_drag_gain = 0.0f;
         engine.m_bottoming_method = 0;
         engine.m_use_manual_slip = false;
+        selected_preset = -1; // Mark as custom/reset
     }
     
     ImGui::Separator();
@@ -17890,7 +18300,7 @@ inline void PlotWithStats(const char* label, const RollingBuffer& buffer,
     
     // Use current font but scaled down (Small Print)
     ImFont* font = ImGui::GetFont();
-    float font_size = ImGui::GetFontSize() * 0.70f; // 70% size
+    float font_size = ImGui::GetFontSize(); // Full resolution
     
     ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
     
@@ -18127,18 +18537,28 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         // Group: Loads
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Loads]");
         
-        ImGui::Text("Calc Load (Front/Rear)");
+        // --- Manually draw stats for the Multi-line Load Graph ---
+        float cur_f = plot_calc_front_load.GetCurrent();
+        float cur_r = plot_calc_rear_load.GetCurrent();
+        char load_label[128];
+        snprintf(load_label, sizeof(load_label), "Front: %.0f N | Rear: %.0f N", cur_f, cur_r);
+        ImGui::Text("%s", load_label);
+        // ---------------------------------------------------------
+
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
         ImGui::PlotLines("##CLoadF", plot_calc_front_load.data.data(), (int)plot_calc_front_load.data.size(), plot_calc_front_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
         ImGui::PopStyleColor();
+        
         // Reset Cursor to draw on top
         ImVec2 pos_load = ImGui::GetItemRectMin();
         ImGui::SetCursorScreenPos(pos_load);
+        
         // Draw Rear (Magenta) - Transparent Background
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0)); 
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
         ImGui::PlotLines("##CLoadR", plot_calc_rear_load.data.data(), (int)plot_calc_rear_load.data.size(), plot_calc_rear_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
         ImGui::PopStyleColor(2);
+        
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cyan: Front, Magenta: Rear");
         
         ImGui::NextColumn();
@@ -18187,6 +18607,16 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
                       "Driver wheel position -1 to 1");
         
         ImGui::Text("Combined Input");
+        
+        // --- Manually draw stats for Input ---
+        float thr = plot_raw_throttle.GetCurrent();
+        float brk = plot_raw_brake.GetCurrent();
+        char input_label[128];
+        snprintf(input_label, sizeof(input_label), "Thr: %.2f | Brk: %.2f", thr, brk);
+        ImGui::SameLine(); 
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "(%s)", input_label);
+        // -------------------------------------
+
         ImVec2 pos = ImGui::GetCursorScreenPos();
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 0.0f, 1.0f)); // Red for Brake
         ImGui::PlotLines("##BrkComb", plot_raw_brake.data.data(), (int)plot_raw_brake.data.size(), plot_raw_brake.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
