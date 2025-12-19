@@ -160,8 +160,105 @@
     *   *The Cue:* The wheel should feel **thick**, **heavy**, or **viscous**. It resists your rapid movements.
     *   *Physics Check:* Turn the wheel *slowly*. It should feel lighter. Turn it *fast*. It should fight you. This velocity-dependent damping is what stabilizes the car.
 
+---
+
+### 8. Corner Entry (Weight Transfer & Loading)
+
+**What is it?** The sensation of the steering wheel getting heavier as you brake and turn in, transferring the car's weight onto the front tires.
+**The Goal:** To confirm that the steering rack force (Base Force) accurately communicates the increased load on the front axle before the limit is reached.
+
+**UI Settings (Isolation):**
+*   **Master Gain:** `1.0`
+*   **Steering Shaft Gain:** `1.0`
+*   **Base Force Mode:** `Native` (Crucial: We need the game's physics alignment torque).
+*   **Understeer Effect:** `0.0` (Disable to feel the raw build-up).
+*   **SoP / Textures:** `0.0`
+
+**The Test:**
+1.  Drive at high speed on a straight.
+2.  Brake hard and turn in smoothly (Trail Braking).
+3.  **What to feel:**
+    *   *The Cue:* The steering weight should **increase** significantly as the nose dives and the car rotates. It should feel "planted" and heavy.
+    *   *Diagnosis:* If the wheel feels light or static during turn-in, the game's base physics might be numb.
+    *   *Fix:* If the game is numb, we currently rely on `SoP (Lateral G)` to add this weight artificially. Try increasing `SoP Effect`.
 
 ---
+
+### 9. Mid-Corner Limit (The "Throb")
+
+**What is it?** A specific vibration texture that appears *exactly* when the front tires reach their peak slip angle, just before they start to slide/understeer.
+**The Goal:** To provide a tactile warning that you are at the limit of grip, allowing you to balance the car on the edge.
+
+**UI Settings (Isolation):**
+*   **Master Gain:** `1.0`
+*   **Slide Rumble:** **Checked**
+*   **Slide Gain:** `1.0`
+*   **Understeer Effect:** `0.5` (To feel the weight drop *after* the throb).
+
+**The Test:**
+1.  Take a long, constant-radius corner (e.g., a carousel).
+2.  Gradually increase steering angle until you hear the tires just starting to scrub.
+3.  **What to feel:**
+    *   *The Cue:* A distinct, rhythmic vibration ("Throb" or "Grinding") should start.
+    *   *The Sequence:* Grip (Silent) -> Limit (Throb/Vibration) -> Understeer (Lightness/Silence).
+    *   *Tuning:* If the vibration starts too late (after you are already sliding), lower the `Optimal Slip Angle` threshold in the code (currently fixed at 0.10 rad) or increase `Slide Gain`.
+
+---
+
+### 10. ABS Threshold (The "Rattle")
+
+**What is it?** A pulsing vibration that mimics the ABS pump releasing brake pressure when the wheel is about to lock.
+**The Goal:** To allow the driver to mash the brake pedal and feel exactly where the threshold is without looking at a HUD.
+
+**UI Settings (Isolation):**
+*   **Master Gain:** `1.0`
+*   **Progressive Lockup:** **Checked**
+*   **Lockup Gain:** `1.0`
+*   **Base Force Mode:** `Muted` (To isolate the vibration).
+
+**Car Setup:**
+*   **ABS:** **ON** (Set to a high intervention level).
+
+**The Test:**
+1.  Drive fast.
+2.  Stomp the brake pedal 100%.
+3.  **What to feel:**
+    *   *The Cue:* A rapid, mechanical rattling or pulsing vibration.
+    *   *Physics Check:* Since ABS prevents full lockup, the `Slip Ratio` will oscillate rapidly. The FFB should reflect this with a "Rattle" rather than a continuous "Screech."
+
+---
+
+### Effects currently missing in lmuFFB v0.4.25
+
+Does LMUFFB produce all the effects described in this video `https://www.youtube.com/watch?v=XHSEAMQgN2c`?
+
+**1. The "Brutal Counter-Steer" (SoP/Yaw): ✅ YES**
+*   **Video:** Describes a force that "whips the hand off the wheel" the moment the rear steps out.
+*   **LMUFFB:** We produce this via three combined effects:
+    *   **SoP (Lateral G):** Provides the sustained weight.
+    *   **Rear Aligning Torque:** Provides the geometric counter-steer force (which LMU 1.2 lacks natively).
+    *   **Yaw Kick (`m_sop_yaw_gain`):** Provides the *derivative* "Kick" or "Whip" based on rotational acceleration. This specifically addresses the "immediacy" the author complains is missing in AC Evo.
+
+**2. The "Throb" at the Limit (Texture): ✅ YES**
+*   **Video:** Describes a vibration that indicates the limit before the slide.
+*   **LMUFFB:** We produce this via **Slide Texture**.
+    *   Our implementation uses `mLateralPatchVel` (Scrubbing Speed) and a **Sawtooth Wave**. This creates exactly the "grinding/sandpaper" feel described.
+    *   *Nuance:* The author mentions feeling it *before* the slide. Our effect triggers based on `Slip Angle`. If our threshold (0.10 rad) is too high, it might trigger too late. (See `docs/dev_docs/grip_calculation_and_slip_angle_v0.4.12.md` for discussion on lowering this).
+
+**3. The "ABS Rattle" (Pulsing): ⚠️ PARTIAL / UNCERTAIN**
+*   **Video:** Describes a "pseudo feeling of the ABS pump working."
+*   **LMUFFB:** We have a **Lockup Effect** (`m_lockup_enabled`).
+    *   *Logic:* Triggers when `Slip Ratio < -0.1`.
+    *   *The Gap:* If the car's ABS system is very good, it might keep the slip ratio *above* -0.1 (e.g., at -0.08). In that case, LMUFFB would be silent.
+    *   *Missing Feature:* We do not have a specific "ABS Active" trigger. We rely on the physics result (Slip). If the ABS hides the slip, we hide the vibration. We might need to lower the threshold or read `mBrakePressure` oscillation to simulate the pump directly.
+
+**4. Dynamic Weight Transfer (Longitudinal): ❌ MISSING**
+*   **Video:** Praises AC1 for the feeling of the car getting heavy under braking and light under acceleration.
+*   **LMUFFB:** We currently **Pass-Through** the game's steering torque.
+    *   If LMU's physics engine (like AC Evo in the video) does not provide enough weight transfer in the steering column naturally, LMUFFB does not currently add it.
+    *   *Missing Feature:* **Synthetic Longitudinal Weighting.** We calculate `Load Factor` for textures, but we do *not* use it to scale the `Base Force`.
+    *   *Recommendation:* We should implement `Master_Gain_Dynamic = Master_Gain * (1.0 + (Longitudinal_G * Factor))` to artificially boost weight under braking if the game is too numb.
+
 
 ### 🛠️ Troubleshooting Cheat Sheet
 
@@ -173,3 +270,6 @@
 | **No Road Texture over curbs** | Suspension frequency mismatch. | Increase `Road Gain`. Ensure `Load Cap` isn't too low. |
 | **Effects feel "Digital" (On/Off)** | Clipping. | Check the "Clipping" bar in Debug window. Reduce `Master Gain` or increase `Max Torque Ref`. |
 
+### References
+
+* `https://www.youtube.com/watch?v=XHSEAMQgN2c&t=655s`
