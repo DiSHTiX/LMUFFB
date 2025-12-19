@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.29] - 2025-12-20
+### Added
+- **Saveable Custom Presets**: Users can now save their custom FFB configurations as named presets that persist across sessions.
+    - Added text input field and "Save as New Preset" button in the GUI
+    - Presets are saved to `config.ini` under `[Presets]` section
+    - User presets appear in the preset dropdown alongside built-in presets
+    - Overwriting existing user presets is supported (built-in presets are protected)
+    - Auto-selects newly created preset after saving
+    - **Implementation**: Added `is_builtin` flag to distinguish built-in from user presets, `UpdateFromEngine()` method to capture current settings, and `AddUserPreset()` method to manage user presets
+
+- **Dirty State Tracking**: Preset dropdown now displays "Custom" when any setting is modified.
+    - Implemented helper lambdas (`FloatSetting`, `BoolSetting`, `IntSetting`) that automatically detect changes
+    - Prevents confusion about which preset is actually active
+    - The moment any slider or checkbox is touched, the display switches to "Custom"
+    - Loading a preset resets the state to show the preset name
+
+### Changed
+- **Oversteer Effect Range Expansion**: Unlocked slider ranges for oversteer-related effects to compensate for high `Max Torque Ref` values on belt-driven wheels:
+    - **SoP (Lateral G)**: 2.0 → **20.0** (10x increase)
+    - **SoP Yaw (Kick)**: 2.0 → **20.0** (10x increase)
+    - **Oversteer Boost**: 1.0 → **20.0** (20x increase)
+    - **Rear Align Torque**: 2.0 → **20.0** (10x increase)
+    - **Rationale**: With `Max Torque Ref` at 100Nm (for T300), signals are compressed to ~4% of range. Default effect values (0.15-2.0) produce forces of only 0.3-4.0 Nm, which belt friction (~0.2 Nm) masks. The 10-20x multipliers compensate for this compression.
+
+- **T300 Preset Enhancement**: Updated the T300 preset with boosted oversteer values for a complete, balanced FFB experience:
+    - **SoP (Lateral G)**: 0.0 → **5.0** (feel lateral weight transfer)
+    - **Rear Align Torque**: 0.0 → **15.0** (strong counter-steer pull during oversteer)
+    - **Oversteer Boost**: 0.0 → **2.0** (amplification during rear slip)
+    - **SoP Yaw (Kick)**: 0.0 → **5.0** (predictive rotation cue)
+    - The T300 preset now provides both understeer detection (38.0) and oversteer detection (15.0) with properly scaled forces
+
+### Technical Details
+- **Config.h**: Added `is_builtin` flag, updated constructors, added `UpdateFromEngine()` and `AddUserPreset()` methods
+- **Config.cpp**: Marked all 17 built-in presets with `is_builtin = true`, implemented user preset loading/saving logic, added `gyro_gain` parsing
+- **GuiLayer.cpp**: Added preset save UI, implemented dirty state tracking with helper lambdas
+
 ## [0.4.28] - 2025-12-19
 ### Added
 - **New Preset: T300**: Added "T300" preset tuned specifically for Thrustmaster T300RS wheels.

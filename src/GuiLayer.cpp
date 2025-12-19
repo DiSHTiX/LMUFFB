@@ -308,6 +308,26 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Quickly load predefined settings for testing or driving.");
+    
+    // NEW: Save As Preset UI
+    static char new_preset_name[64] = "";
+    ImGui::InputText("##NewPresetName", new_preset_name, 64);
+    ImGui::SameLine();
+    if (ImGui::Button("Save as New Preset")) {
+        if (strlen(new_preset_name) > 0) {
+            Config::AddUserPreset(std::string(new_preset_name), engine);
+            // Auto-select the new preset
+            for (int i = 0; i < Config::presets.size(); i++) {
+                if (Config::presets[i].name == std::string(new_preset_name)) {
+                    selected_preset = i;
+                    break;
+                }
+            }
+            // Clear buffer
+            new_preset_name[0] = '\0';
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save current settings as a new custom preset.");
 
     ImGui::Separator();
     

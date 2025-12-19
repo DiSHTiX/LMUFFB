@@ -13,12 +13,12 @@ void Config::LoadPresets() {
     presets.clear();
     
     // 1. Default (Uses the defaults defined in Config.h)
-    presets.push_back(Preset("Default"));
+    presets.push_back(Preset("Default", true));
     
     // 2. T300 (User Tuned)
     // Tuned for Thrustmaster T300RS with 100Nm Reference.
     // Boosts effects by ~10x to compensate for the high reference.
-    presets.push_back(Preset("T300")
+    presets.push_back(Preset("T300", true)
         .SetGain(1.0f)
         .SetShaftGain(1.0f)
         .SetMinForce(0.0f)
@@ -39,7 +39,7 @@ void Config::LoadPresets() {
     );
     
     // 3. Test: Game Base FFB Only
-    presets.push_back(Preset("Test: Game Base FFB Only")
+    presets.push_back(Preset("Test: Game Base FFB Only", true)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
         .SetSoPScale(5.0f)
@@ -49,7 +49,7 @@ void Config::LoadPresets() {
     );
 
     // 4. Test: SoP Only
-    presets.push_back(Preset("Test: SoP Only")
+    presets.push_back(Preset("Test: SoP Only", true)
         .SetUndersteer(0.0f)
         .SetSoP(1.0f)
         .SetSoPScale(5.0f)
@@ -61,7 +61,7 @@ void Config::LoadPresets() {
     );
 
     // 5. Test: Understeer Only
-    presets.push_back(Preset("Test: Understeer Only")
+    presets.push_back(Preset("Test: Understeer Only", true)
         .SetUndersteer(1.0f)
         .SetSoP(0.0f)
         .SetSoPScale(0.0f)
@@ -71,7 +71,7 @@ void Config::LoadPresets() {
     );
 
     // 6. Test: Textures Only
-    presets.push_back(Preset("Test: Textures Only")
+    presets.push_back(Preset("Test: Textures Only", true)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
         .SetSoPScale(0.0f)
@@ -85,7 +85,7 @@ void Config::LoadPresets() {
     );
 
     // 7. Test: Rear Align Torque Only
-    presets.push_back(Preset("Test: Rear Align Torque Only")
+    presets.push_back(Preset("Test: Rear Align Torque Only", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -96,7 +96,7 @@ void Config::LoadPresets() {
     );
 
     // 8. Test: SoP Base Only
-    presets.push_back(Preset("Test: SoP Base Only")
+    presets.push_back(Preset("Test: SoP Base Only", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(1.0f)
@@ -108,7 +108,7 @@ void Config::LoadPresets() {
     );
 
     // 9. Test: Slide Texture Only
-    presets.push_back(Preset("Test: Slide Texture Only")
+    presets.push_back(Preset("Test: Slide Texture Only", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -119,7 +119,7 @@ void Config::LoadPresets() {
     );
 
     // 10. Test: No Effects
-    presets.push_back(Preset("Test: No Effects")
+    presets.push_back(Preset("Test: No Effects", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -132,7 +132,7 @@ void Config::LoadPresets() {
     // --- NEW GUIDE PRESETS (v0.4.24) ---
 
     // 11. Guide: Understeer (Front Grip Loss)
-    presets.push_back(Preset("Guide: Understeer (Front Grip)")
+    presets.push_back(Preset("Guide: Understeer (Front Grip)", true)
         .SetGain(1.0f)
         .SetUndersteer(1.0f)
         .SetSoP(0.0f)
@@ -149,7 +149,7 @@ void Config::LoadPresets() {
     );
 
     // 12. Guide: Oversteer (Rear Grip Loss)
-    presets.push_back(Preset("Guide: Oversteer (Rear Grip)")
+    presets.push_back(Preset("Guide: Oversteer (Rear Grip)", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(1.0f)
@@ -167,7 +167,7 @@ void Config::LoadPresets() {
     );
 
     // 13. Guide: Slide Texture (Scrubbing)
-    presets.push_back(Preset("Guide: Slide Texture (Scrub)")
+    presets.push_back(Preset("Guide: Slide Texture (Scrub)", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -182,7 +182,7 @@ void Config::LoadPresets() {
     );
 
     // 14. Guide: Braking Lockup
-    presets.push_back(Preset("Guide: Braking Lockup")
+    presets.push_back(Preset("Guide: Braking Lockup", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -197,7 +197,7 @@ void Config::LoadPresets() {
     );
 
     // 15. Guide: Traction Loss (Wheel Spin)
-    presets.push_back(Preset("Guide: Traction Loss (Spin)")
+    presets.push_back(Preset("Guide: Traction Loss (Spin)", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -212,7 +212,7 @@ void Config::LoadPresets() {
     );
 
      // 16. Guide: SoP Yaw (Kick)
-    presets.push_back(Preset("Guide: SoP Yaw (Kick)")
+    presets.push_back(Preset("Guide: SoP Yaw (Kick)", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -229,7 +229,7 @@ void Config::LoadPresets() {
     );
 
     // 17. Guide: Gyroscopic Damping
-    presets.push_back(Preset("Guide: Gyroscopic Damping")
+    presets.push_back(Preset("Guide: Gyroscopic Damping", true)
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -267,6 +267,7 @@ void Config::LoadPresets() {
         if (line[0] == '[') {
             if (preset_pending && !current_preset_name.empty()) {
                 current_preset.name = current_preset_name;
+                current_preset.is_builtin = false; // User preset
                 presets.push_back(current_preset);
                 preset_pending = false;
             }
@@ -278,7 +279,7 @@ void Config::LoadPresets() {
                 size_t end_pos = line.find(']');
                 if (end_pos != std::string::npos) {
                     current_preset_name = line.substr(8, end_pos - 8);
-                    current_preset = Preset(current_preset_name); // Reset to defaults
+                    current_preset = Preset(current_preset_name, false); // Reset to defaults, not builtin
                     preset_pending = true;
                 }
             } else {
@@ -319,6 +320,7 @@ void Config::LoadPresets() {
                         else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = std::stof(value);
                         else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
                         else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
+                        else if (key == "gyro_gain") current_preset.gyro_gain = std::stof(value);
                     } catch (...) {}
                 }
             }
@@ -327,6 +329,7 @@ void Config::LoadPresets() {
     
     if (preset_pending && !current_preset_name.empty()) {
         current_preset.name = current_preset_name;
+        current_preset.is_builtin = false;
         presets.push_back(current_preset);
     }
 }
@@ -336,6 +339,27 @@ void Config::ApplyPreset(int index, FFBEngine& engine) {
         presets[index].Apply(engine);
         std::cout << "[Config] Applied preset: " << presets[index].name << std::endl;
     }
+}
+
+void Config::AddUserPreset(const std::string& name, const FFBEngine& engine) {
+    // Check if name exists and overwrite, or add new
+    bool found = false;
+    for (auto& p : presets) {
+        if (p.name == name && !p.is_builtin) {
+            p.UpdateFromEngine(engine);
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        Preset p(name, false);
+        p.UpdateFromEngine(engine);
+        presets.push_back(p);
+    }
+    
+    // Save immediately to persist
+    Save(engine);
 }
 
 void Config::Save(const FFBEngine& engine, const std::string& filename) {
@@ -370,6 +394,41 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "steering_shaft_gain=" << engine.m_steering_shaft_gain << "\n";
         file << "base_force_mode=" << engine.m_base_force_mode << "\n";
         file << "gyro_gain=" << engine.m_gyro_gain << "\n";
+        
+        // 3. User Presets
+        file << "\n[Presets]\n";
+        for (const auto& p : presets) {
+            if (!p.is_builtin) {
+                file << "[Preset:" << p.name << "]\n";
+                file << "gain=" << p.gain << "\n";
+                file << "understeer=" << p.understeer << "\n";
+                file << "sop=" << p.sop << "\n";
+                file << "sop_scale=" << p.sop_scale << "\n";
+                file << "sop_smoothing_factor=" << p.sop_smoothing << "\n";
+                file << "min_force=" << p.min_force << "\n";
+                file << "oversteer_boost=" << p.oversteer_boost << "\n";
+                file << "lockup_enabled=" << p.lockup_enabled << "\n";
+                file << "lockup_gain=" << p.lockup_gain << "\n";
+                file << "spin_enabled=" << p.spin_enabled << "\n";
+                file << "spin_gain=" << p.spin_gain << "\n";
+                file << "slide_enabled=" << p.slide_enabled << "\n";
+                file << "slide_gain=" << p.slide_gain << "\n";
+                file << "road_enabled=" << p.road_enabled << "\n";
+                file << "road_gain=" << p.road_gain << "\n";
+                file << "invert_force=" << p.invert_force << "\n";
+                file << "max_torque_ref=" << p.max_torque_ref << "\n";
+                file << "use_manual_slip=" << p.use_manual_slip << "\n";
+                file << "bottoming_method=" << p.bottoming_method << "\n";
+                file << "scrub_drag_gain=" << p.scrub_drag_gain << "\n";
+                file << "rear_align_effect=" << p.rear_align_effect << "\n";
+                file << "sop_yaw_gain=" << p.sop_yaw_gain << "\n";
+                file << "steering_shaft_gain=" << p.steering_shaft_gain << "\n";
+                file << "base_force_mode=" << p.base_force_mode << "\n";
+                file << "gyro_gain=" << p.gyro_gain << "\n";
+                file << "\n";
+            }
+        }
+        
         file.close();
         std::cout << "[Config] Saved to " << filename << std::endl;
     } else {

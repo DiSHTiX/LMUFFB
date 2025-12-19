@@ -7,6 +7,7 @@
 
 struct Preset {
     std::string name;
+    bool is_builtin = false; // NEW: Track if this is hardcoded or user-created
     
     // 1. Define Defaults inline (Matches "Default" preset logic)
     float gain = 0.5f;
@@ -43,9 +44,9 @@ struct Preset {
     float steering_shaft_gain = 1.0f;
     int base_force_mode = 0; // 0=Native
 
-    // 2. Constructor
-    Preset(std::string n) : name(n) {}
-    Preset() : name("Unnamed") {} // Default constructor for file loading
+    // 2. Constructors
+    Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
+    Preset() : name("Unnamed"), is_builtin(false) {} // Default constructor for file loading
 
     // 3. Fluent Setters (The "Python Dictionary" feel)
     Preset& SetGain(float v) { gain = v; return *this; }
@@ -102,6 +103,35 @@ struct Preset {
         engine.m_steering_shaft_gain = steering_shaft_gain;
         engine.m_base_force_mode = base_force_mode;
     }
+
+    // NEW: Capture current engine state into this preset
+    void UpdateFromEngine(const FFBEngine& engine) {
+        gain = engine.m_gain;
+        understeer = engine.m_understeer_effect;
+        sop = engine.m_sop_effect;
+        sop_scale = engine.m_sop_scale;
+        sop_smoothing = engine.m_sop_smoothing_factor;
+        min_force = engine.m_min_force;
+        oversteer_boost = engine.m_oversteer_boost;
+        lockup_enabled = engine.m_lockup_enabled;
+        lockup_gain = engine.m_lockup_gain;
+        spin_enabled = engine.m_spin_enabled;
+        spin_gain = engine.m_spin_gain;
+        slide_enabled = engine.m_slide_texture_enabled;
+        slide_gain = engine.m_slide_texture_gain;
+        road_enabled = engine.m_road_texture_enabled;
+        road_gain = engine.m_road_texture_gain;
+        invert_force = engine.m_invert_force;
+        max_torque_ref = engine.m_max_torque_ref;
+        use_manual_slip = engine.m_use_manual_slip;
+        bottoming_method = engine.m_bottoming_method;
+        scrub_drag_gain = engine.m_scrub_drag_gain;
+        rear_align_effect = engine.m_rear_align_effect;
+        sop_yaw_gain = engine.m_sop_yaw_gain;
+        gyro_gain = engine.m_gyro_gain;
+        steering_shaft_gain = engine.m_steering_shaft_gain;
+        base_force_mode = engine.m_base_force_mode;
+    }
 };
 
 class Config {
@@ -113,6 +143,9 @@ public:
     static std::vector<Preset> presets;
     static void LoadPresets(); // Populates presets vector
     static void ApplyPreset(int index, FFBEngine& engine);
+    
+    // NEW: Add a user preset
+    static void AddUserPreset(const std::string& name, const FFBEngine& engine);
 
     // Global App Settings (not part of FFB Physics)
     static bool m_ignore_vjoy_version_warning;
