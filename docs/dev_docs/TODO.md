@@ -1026,6 +1026,10 @@ make plots more compacts after adding min, max and current in the title. Conside
 
 ## Troubleshooting 23
 
+reviee this video: https://www.youtube.com/watch?v=XHSEAMQgN2c
+do the same tests in LMUFFB
+see if we have all the effects discussed in the video
+
 see if we can auto detect if game ffb is active, and show a warning
 
 we don't have anymore the plot for _avg deflection_ (I think it was removed when we reorganized the plots to group them in more intuitive way)
