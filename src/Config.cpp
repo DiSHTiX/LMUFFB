@@ -15,7 +15,30 @@ void Config::LoadPresets() {
     // 1. Default (Uses the defaults defined in Config.h)
     presets.push_back(Preset("Default"));
     
-    // 2. Test: Game Base FFB Only
+    // 2. T300 (User Tuned)
+    // Tuned for Thrustmaster T300RS. 
+    // High Max Torque Ref (100Nm) + High Understeer (38.0) to overcome belt friction.
+    presets.push_back(Preset("T300")
+        .SetGain(1.0f)
+        .SetShaftGain(1.0f)
+        .SetMinForce(0.0f)       // As per screenshot
+        .SetMaxTorque(100.0f)    // High ref to prevent clipping
+        .SetInvert(true)         // T300 needs inversion in this app
+        .SetUndersteer(38.0f)    // Aggressive drop to feel grip loss
+        .SetSoP(0.0f)            // Isolated for now
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
+        .SetGyro(0.0f)
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetBaseMode(0)          // Native Physics
+    );
+    
+    // 3. Test: Game Base FFB Only
     presets.push_back(Preset("Test: Game Base FFB Only")
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -25,7 +48,7 @@ void Config::LoadPresets() {
         .SetRearAlign(0.0f)
     );
 
-    // 3. Test: SoP Only
+    // 4. Test: SoP Only
     presets.push_back(Preset("Test: SoP Only")
         .SetUndersteer(0.0f)
         .SetSoP(1.0f)
@@ -37,7 +60,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 4. Test: Understeer Only
+    // 5. Test: Understeer Only
     presets.push_back(Preset("Test: Understeer Only")
         .SetUndersteer(1.0f)
         .SetSoP(0.0f)
@@ -47,7 +70,7 @@ void Config::LoadPresets() {
         .SetRearAlign(0.0f)
     );
 
-    // 5. Test: Textures Only
+    // 6. Test: Textures Only
     presets.push_back(Preset("Test: Textures Only")
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
@@ -61,7 +84,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 6. Test: Rear Align Torque Only
+    // 7. Test: Rear Align Torque Only
     presets.push_back(Preset("Test: Rear Align Torque Only")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -72,7 +95,7 @@ void Config::LoadPresets() {
         .SetSoPYaw(0.0f)
     );
 
-    // 7. Test: SoP Base Only
+    // 8. Test: SoP Base Only
     presets.push_back(Preset("Test: SoP Base Only")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -84,7 +107,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 8. Test: Slide Texture Only
+    // 9. Test: Slide Texture Only
     presets.push_back(Preset("Test: Slide Texture Only")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -95,7 +118,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 9. Test: No Effects
+    // 10. Test: No Effects
     presets.push_back(Preset("Test: No Effects")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -108,7 +131,7 @@ void Config::LoadPresets() {
 
     // --- NEW GUIDE PRESETS (v0.4.24) ---
 
-    // 10. Guide: Understeer (Front Grip Loss)
+    // 11. Guide: Understeer (Front Grip Loss)
     presets.push_back(Preset("Guide: Understeer (Front Grip)")
         .SetGain(1.0f)
         .SetUndersteer(1.0f)
@@ -125,7 +148,7 @@ void Config::LoadPresets() {
         .SetBaseMode(0) // Native Physics needed to feel the drop
     );
 
-    // 11. Guide: Oversteer (Rear Grip Loss)
+    // 12. Guide: Oversteer (Rear Grip Loss)
     presets.push_back(Preset("Guide: Oversteer (Rear Grip)")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -143,7 +166,7 @@ void Config::LoadPresets() {
         .SetBaseMode(0) // Native Physics + Boost
     );
 
-    // 12. Guide: Slide Texture (Scrubbing)
+    // 13. Guide: Slide Texture (Scrubbing)
     presets.push_back(Preset("Guide: Slide Texture (Scrub)")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -158,7 +181,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted for clear texture feel
     );
 
-    // 13. Guide: Braking Lockup
+    // 14. Guide: Braking Lockup
     presets.push_back(Preset("Guide: Braking Lockup")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -173,7 +196,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-    // 14. Guide: Traction Loss (Wheel Spin)
+    // 15. Guide: Traction Loss (Wheel Spin)
     presets.push_back(Preset("Guide: Traction Loss (Spin)")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -188,7 +211,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted
     );
 
-     // 15. Guide: SoP Yaw (Kick)
+     // 16. Guide: SoP Yaw (Kick)
     presets.push_back(Preset("Guide: SoP Yaw (Kick)")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
@@ -205,7 +228,7 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted: Feel only the rotation impulse
     );
 
-    // 16. Guide: Gyroscopic Damping
+    // 17. Guide: Gyroscopic Damping
     presets.push_back(Preset("Guide: Gyroscopic Damping")
         .SetGain(1.0f)
         .SetUndersteer(0.0f)

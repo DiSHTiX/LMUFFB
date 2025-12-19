@@ -547,7 +547,11 @@ public:
         // Apply grip to steering force
         // grip_factor: 1.0 = full force, 0.0 = no force (full understeer)
         // m_understeer_effect: 0.0 = disabled, 1.0 = full effect
-        double grip_factor = 1.0 - ((1.0 - avg_grip) * m_understeer_effect);
+        double grip_loss = (1.0 - avg_grip) * m_understeer_effect;
+        double grip_factor = 1.0 - grip_loss;
+        
+        // FIX: Clamp to 0.0 to prevent negative force (inversion) if effect > 1.0
+        grip_factor = (std::max)(0.0, grip_factor);
         
         // --- BASE FORCE PROCESSING (v0.4.13) ---
         double base_input = 0.0;

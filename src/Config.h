@@ -10,7 +10,7 @@ struct Preset {
     
     // 1. Define Defaults inline (Matches "Default" preset logic)
     float gain = 0.5f;
-    float understeer = 1.0f;
+    float understeer = 2.0f;
     float sop = 0.15f;
     float sop_scale = 20.0f;
     float sop_smoothing = 0.05f;
@@ -30,7 +30,7 @@ struct Preset {
     float road_gain = 0.5f;
     
     bool invert_force = false;
-    float max_torque_ref = 40.0f;
+    float max_torque_ref = 60.0f;
     
     bool use_manual_slip = false;
     int bottoming_method = 0;

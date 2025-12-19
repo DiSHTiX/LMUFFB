@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.28] - 2025-12-19
+### Added
+- **New Preset: T300**: Added "T300" preset tuned specifically for Thrustmaster T300RS wheels.
+    - Features high `Max Torque Ref` (100Nm) and aggressive `Understeer Effect` (38.0) to overcome belt friction and provide clear grip loss cues.
+    - `Invert FFB` enabled by default for this preset.
+    - Positioned as preset #2 for easy access.
+
+### Changed
+- **Understeer Range Expansion**: Increased maximum `Understeer Effect` slider range from 10.0 to **50.0** to allow for "Binary Grip Switch" behavior on belt-driven wheels.
+    - **Physics Explanation**: Belt-driven wheels (T300, G29) have internal friction that masks subtle force changes. At high Max Torque Ref values (e.g., 100Nm), the signal is compressed to ~4% of range, making small percentage drops imperceptible.
+    - **Solution**: Values of 20.0-50.0 create a binary effect where grip loss causes an instant drop to zero force, which is strong enough to overcome belt friction.
+    - Updated tooltip to explain: "High values (10-50) create a 'Binary' drop for belt-driven wheels."
+- **Default Values**: Updated default preset values for better out-of-box experience:
+    - `Max Torque Ref`: 40.0 → **60.0 Nm** (lighter default feel, safer for T300/G29 users)
+    - `Understeer Effect`: 1.0 → **2.0** (more pronounced grip drop for better communication)
+
 ## [0.4.27] - 2025-12-19
 ### Fixed
 - **CRITICAL SAFETY: FFB Mute During Pause/Menu**: Fixed a dangerous bug where the steering wheel would maintain the last force command indefinitely when the game was paused or in menu states.
