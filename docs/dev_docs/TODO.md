@@ -1028,6 +1028,25 @@ make plots more compacts after adding min, max and current in the title. Conside
 
 see if we can auto detect if game ffb is active, and show a warning
 
+we don't have anymore the plot for _avg deflection_ (I think it was removed when we reorganized the plots to group them in more intuitive way)
+avg deflection: is it for all 4 tires? Specify in the variable name and / or plot title.
+
+Coaching: how to feel each specific effect. Find car, setup, and track combinations (particular corners), that are ideal to feel a particular effect.
+Get instructions in what to do while driving to induce a specific car physics dynamic that produces a certain effect on the FFB.
+At the same time, use the settings that most highligh a particular effect (isolating it from other effect whenever possible).
+Make this guide suitable for Belt driven wheels (eg. T300) and gear driven wheels (eg. G29).
+Note: added guide about this: docs\Driver's Guide to Testing LMUFFB.md
+
+
+test lmuFFB with rF2, with the cars that support giving out grip information and other channels that are blocked for DLC cars.
+See, for this "open" ffb cars, if our fomulas that approximate grip, load, and other values are accurate enough.
+
+
+Reorganize the sliders in the main window gui. They should be grouped by component of the FFB formula, and each component should have its own section, with a main slider, and additional settings like smoothing, caps, coefficients, etc.
+This would make it more intuitive, and easier to find the right slider to adjust.
+
+refactor GUI so that non windows components can be tested on linux. MVC pattern. See doc on this: docs\dev_docs\linux_testing_feasibility_report.md
+
 in main window gui: rename "Use Manual Slip Calc" to "Use Manual Front Slip Ratio Calc"
 
 in FFB Analysis window:
@@ -1038,20 +1057,6 @@ Add a plot for our _manual slip calc_
 Add a plots both for raw game value for slip, and for _manual slip calc_ , so we can compare them and see if they are identical or at least similar in shape.
 compare "Calc Front Slip Ratio" and "Game Front Slip Ratio" to see how accurate the manual calc is.
 
-we don't have anymore the plot for _avg deflection_ (I think it was removed when we reorganized the plots to group them in more intuitive way)
-avg deflection: is it for all 4 tires? Specify in the variable name and / or plot title.
-
-test lmuFFB with rF2, with the cars that support giving out grip information and other channels that are blocked for DLC cars.
-See, for this "open" ffb cars, if our fomulas that approximate grip, load, and other values are accurate enough.
-
-Coaching: how to feel each specific effect. Find car, setup, and track combinations (particular corners), that are ideal to feel a particular effect.
-Get instructions in what to do while driving to induce a specific car physics dynamic that produces a certain effect on the FFB.
-At the same time, use the settings that most highligh a particular effect (isolating it from other effect whenever possible).
-Make this guide suitable for Belt driven wheels (eg. T300) and gear driven wheels (eg. G29).
-Note: added guide about this as a markdown document.
-
-Reorganize the sliders in the main window gui. They should be grouped by component of the FFB formula, and each component should have its own section, with a main slider, and additional settings like smoothing, caps, coefficients, etc.
-This would make it more intuitive, and easier to find the right slider to adjust.
 
 Review again the options in the main window, and verify that we have a settings to adjust and isolate each component of the FFB formulas. Newly introduced effects might be more customizable.
 
