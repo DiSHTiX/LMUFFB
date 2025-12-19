@@ -228,6 +228,38 @@
 
 ---
 
+### Effects currently missing in lmuFFB v0.4.25
+
+Does LMUFFB produce all the effects described in this video `https://www.youtube.com/watch?v=XHSEAMQgN2c`?
+
+**1. The "Brutal Counter-Steer" (SoP/Yaw): ✅ YES**
+*   **Video:** Describes a force that "whips the hand off the wheel" the moment the rear steps out.
+*   **LMUFFB:** We produce this via three combined effects:
+    *   **SoP (Lateral G):** Provides the sustained weight.
+    *   **Rear Aligning Torque:** Provides the geometric counter-steer force (which LMU 1.2 lacks natively).
+    *   **Yaw Kick (`m_sop_yaw_gain`):** Provides the *derivative* "Kick" or "Whip" based on rotational acceleration. This specifically addresses the "immediacy" the author complains is missing in AC Evo.
+
+**2. The "Throb" at the Limit (Texture): ✅ YES**
+*   **Video:** Describes a vibration that indicates the limit before the slide.
+*   **LMUFFB:** We produce this via **Slide Texture**.
+    *   Our implementation uses `mLateralPatchVel` (Scrubbing Speed) and a **Sawtooth Wave**. This creates exactly the "grinding/sandpaper" feel described.
+    *   *Nuance:* The author mentions feeling it *before* the slide. Our effect triggers based on `Slip Angle`. If our threshold (0.10 rad) is too high, it might trigger too late. (See `docs/dev_docs/grip_calculation_and_slip_angle_v0.4.12.md` for discussion on lowering this).
+
+**3. The "ABS Rattle" (Pulsing): ⚠️ PARTIAL / UNCERTAIN**
+*   **Video:** Describes a "pseudo feeling of the ABS pump working."
+*   **LMUFFB:** We have a **Lockup Effect** (`m_lockup_enabled`).
+    *   *Logic:* Triggers when `Slip Ratio < -0.1`.
+    *   *The Gap:* If the car's ABS system is very good, it might keep the slip ratio *above* -0.1 (e.g., at -0.08). In that case, LMUFFB would be silent.
+    *   *Missing Feature:* We do not have a specific "ABS Active" trigger. We rely on the physics result (Slip). If the ABS hides the slip, we hide the vibration. We might need to lower the threshold or read `mBrakePressure` oscillation to simulate the pump directly.
+
+**4. Dynamic Weight Transfer (Longitudinal): ❌ MISSING**
+*   **Video:** Praises AC1 for the feeling of the car getting heavy under braking and light under acceleration.
+*   **LMUFFB:** We currently **Pass-Through** the game's steering torque.
+    *   If LMU's physics engine (like AC Evo in the video) does not provide enough weight transfer in the steering column naturally, LMUFFB does not currently add it.
+    *   *Missing Feature:* **Synthetic Longitudinal Weighting.** We calculate `Load Factor` for textures, but we do *not* use it to scale the `Base Force`.
+    *   *Recommendation:* We should implement `Master_Gain_Dynamic = Master_Gain * (1.0 + (Longitudinal_G * Factor))` to artificially boost weight under braking if the game is too numb.
+
+
 ### 🛠️ Troubleshooting Cheat Sheet
 
 | Symptom | Diagnosis | Fix |
