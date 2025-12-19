@@ -32,12 +32,17 @@ This document provides the Standard Operating Procedures (SOP), context, and con
 *   **Requirement**: You **must** add or update C++ unit tests for every logic change or new feature.
 *   **Location**: Add test cases to `tests/test_ffb_engine.cpp`.
 *   **Verification**: You **must** compile and run the tests to prove your code works.
-    *   *Command*:
+    *   *Command (Linux)*:
         ```bash
         mkdir -p build_tests && cd build_tests
         cmake ../tests
         cmake --build .
         ./run_tests
+        ```
+    *   *Command (Windows - PowerShell)*:
+        ```powershell
+        & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cl /EHsc /std:c++17 /I.. tests\test_ffb_engine.cpp src\Config.cpp /Fe:tests\test_ffb_engine.exe
+        .\tests\test_ffb_engine.exe
         ```
     *   *Constraint*: Do not submit code if `run_tests` fails.
 

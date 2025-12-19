@@ -56,7 +56,7 @@ void test_regression_no_positive_feedback(); // Forward declaration (v0.4.19)
 
 
 
-void test_manual_slip_singularity() {
+static void test_manual_slip_singularity() {
     std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -90,7 +90,7 @@ void test_manual_slip_singularity() {
     }
 }
 
-void test_base_force_modes() {
+static void test_base_force_modes() {
     std::cout << "\nTest: Base Force Modes & Gain (v0.4.13)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -164,7 +164,7 @@ void test_base_force_modes() {
     }
 }
 
-void test_sop_yaw_kick() {
+static void test_sop_yaw_kick() {
     std::cout << "\nTest: SoP Yaw Kick (v0.4.18 Smoothed)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -212,7 +212,7 @@ void test_sop_yaw_kick() {
     }
 }
 
-void test_scrub_drag_fade() {
+static void test_scrub_drag_fade() {
     std::cout << "\nTest: Scrub Drag Fade-In" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -252,7 +252,7 @@ void test_scrub_drag_fade() {
     }
 }
 
-void test_road_texture_teleport() {
+static void test_road_texture_teleport() {
     std::cout << "\nTest: Road Texture Teleport (Delta Clamp)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -299,7 +299,7 @@ void test_road_texture_teleport() {
     }
 }
 
-void test_grip_low_speed() {
+static void test_grip_low_speed() {
     std::cout << "\nTest: Grip Approximation Low Speed Cutoff" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -349,7 +349,7 @@ void test_grip_low_speed() {
 }
 
 
-void test_zero_input() {
+static void test_zero_input() {
     std::cout << "\nTest: Zero Input" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -372,7 +372,7 @@ void test_zero_input() {
     ASSERT_NEAR(force, 0.0, 0.001);
 }
 
-void test_grip_modulation() {
+static void test_grip_modulation() {
     std::cout << "\nTest: Grip Modulation (Understeer)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -408,7 +408,7 @@ void test_grip_modulation() {
     ASSERT_NEAR(force_half, 0.25, 0.001);
 }
 
-void test_sop_effect() {
+static void test_sop_effect() {
     std::cout << "\nTest: SoP Effect" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -445,7 +445,7 @@ void test_sop_effect() {
     ASSERT_NEAR(force, -0.125, 0.001);
 }
 
-void test_min_force() {
+static void test_min_force() {
     std::cout << "\nTest: Min Force" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -481,7 +481,7 @@ void test_min_force() {
     ASSERT_NEAR(force, 0.10, 0.001);
 }
 
-void test_progressive_lockup() {
+static void test_progressive_lockup() {
     std::cout << "\nTest: Progressive Lockup" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -544,7 +544,7 @@ void test_progressive_lockup() {
     g_tests_passed++;
 }
 
-void test_slide_texture() {
+static void test_slide_texture() {
     std::cout << "\nTest: Slide Texture" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -580,7 +580,7 @@ void test_slide_texture() {
     }
 }
 
-void test_dynamic_tuning() {
+static void test_dynamic_tuning() {
     std::cout << "\nTest: Dynamic Tuning (GUI Simulation)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -627,7 +627,7 @@ void test_dynamic_tuning() {
     g_tests_passed++;
 }
 
-void test_suspension_bottoming() {
+static void test_suspension_bottoming() {
     std::cout << "\nTest: Suspension Bottoming (Fix Verification)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -685,7 +685,7 @@ void test_suspension_bottoming() {
     }
 }
 
-void test_oversteer_boost() {
+static void test_oversteer_boost() {
     std::cout << "\nTest: Oversteer Boost (Rear Grip Loss)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -740,7 +740,7 @@ void test_oversteer_boost() {
     ASSERT_NEAR(force, -1.0, 0.05);  // v0.4.19: Expect negative (left pull)
 }
 
-void test_phase_wraparound() {
+static void test_phase_wraparound() {
     std::cout << "\nTest: Phase Wraparound (Anti-Click)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -794,7 +794,7 @@ void test_phase_wraparound() {
     }
 }
 
-void test_road_texture_state_persistence() {
+static void test_road_texture_state_persistence() {
     std::cout << "\nTest: Road Texture State Persistence" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -839,7 +839,7 @@ void test_road_texture_state_persistence() {
     }
 }
 
-void test_multi_effect_interaction() {
+static void test_multi_effect_interaction() {
     std::cout << "\nTest: Multi-Effect Interaction (Lockup + Spin)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -899,7 +899,7 @@ void test_multi_effect_interaction() {
     }
 }
 
-void test_load_factor_edge_cases() {
+static void test_load_factor_edge_cases() {
     std::cout << "\nTest: Load Factor Edge Cases" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -949,7 +949,7 @@ void test_load_factor_edge_cases() {
     }
 }
 
-void test_spin_torque_drop_interaction() {
+static void test_spin_torque_drop_interaction() {
     std::cout << "\nTest: Spin Torque Drop with SoP" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1017,7 +1017,7 @@ void test_spin_torque_drop_interaction() {
     }
 }
 
-void test_rear_grip_fallback() {
+static void test_rear_grip_fallback() {
     std::cout << "\nTest: Rear Grip Fallback (v0.4.5)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1098,7 +1098,7 @@ void test_rear_grip_fallback() {
 
 // --- NEW SANITY CHECK TESTS ---
 
-void test_sanity_checks() {
+static void test_sanity_checks() {
     std::cout << "\nTest: Telemetry Sanity Checks" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1263,7 +1263,7 @@ void test_sanity_checks() {
     }
 }
 
-void test_hysteresis_logic() {
+static void test_hysteresis_logic() {
     std::cout << "\nTest: Hysteresis Logic (Missing Data)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1337,7 +1337,7 @@ void test_hysteresis_logic() {
     }
 }
 
-void test_presets() {
+static void test_presets() {
     std::cout << "\nTest: Configuration Presets" << std::endl;
     
     // Setup
@@ -1384,7 +1384,7 @@ void test_presets() {
 
 // --- NEW TESTS FROM REPORT v0.4.2 ---
 
-void test_config_persistence() {
+static void test_config_persistence() {
     std::cout << "\nTest: Config Save/Load Persistence" << std::endl;
     
     std::string test_file = "test_config.ini";
@@ -1420,7 +1420,7 @@ void test_config_persistence() {
     std::remove(test_file.c_str());
 }
 
-void test_channel_stats() {
+static void test_channel_stats() {
     std::cout << "\nTest: Channel Stats Logic" << std::endl;
     
     ChannelStats stats;
@@ -1454,7 +1454,7 @@ void test_channel_stats() {
     ASSERT_NEAR(stats.Avg(), 0.0, 0.001); // Handle divide by zero check
 }
 
-void test_game_state_logic() {
+static void test_game_state_logic() {
     std::cout << "\nTest: Game State Logic (Mock)" << std::endl;
     
     // Mock Layout
@@ -1515,7 +1515,7 @@ void test_game_state_logic() {
     }
 }
 
-void test_smoothing_step_response() {
+static void test_smoothing_step_response() {
     std::cout << "\nTest: SoP Smoothing Step Response" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1572,7 +1572,7 @@ void test_smoothing_step_response() {
     }
 }
 
-void test_manual_slip_calculation() {
+static void test_manual_slip_calculation() {
     std::cout << "\nTest: Manual Slip Calculation" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1635,7 +1635,7 @@ void test_manual_slip_calculation() {
     }
 }
 
-void test_universal_bottoming() {
+static void test_universal_bottoming() {
     std::cout << "\nTest: Universal Bottoming" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1691,7 +1691,7 @@ void test_universal_bottoming() {
     }
 }
 
-void test_preset_initialization() {
+static void test_preset_initialization() {
     std::cout << "\nTest: Preset Initialization (v0.4.5 Regression)" << std::endl;
     
     // REGRESSION TEST: Verify all built-in presets properly initialize v0.4.5 fields
@@ -1780,7 +1780,7 @@ void test_preset_initialization() {
     }
 }
 
-void test_regression_road_texture_toggle() {
+static void test_regression_road_texture_toggle() {
     std::cout << "\nTest: Regression - Road Texture Toggle Spike" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1839,7 +1839,7 @@ void test_regression_road_texture_toggle() {
     }
 }
 
-void test_regression_bottoming_switch() {
+static void test_regression_bottoming_switch() {
     std::cout << "\nTest: Regression - Bottoming Method Switch Spike" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1882,7 +1882,7 @@ void test_regression_bottoming_switch() {
     }
 }
 
-void test_regression_rear_torque_lpf() {
+static void test_regression_rear_torque_lpf() {
     std::cout << "\nTest: Regression - Rear Torque LPF Continuity" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -1943,7 +1943,7 @@ void test_regression_rear_torque_lpf() {
     }
 }
 
-void test_stress_stability() {
+static void test_stress_stability() {
     std::cout << "\nTest: Stress Stability (Fuzzing)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2011,7 +2011,7 @@ void test_stress_stability() {
 // v0.4.18 Yaw Acceleration Smoothing Tests
 // ========================================
 
-void test_yaw_accel_smoothing() {
+static void test_yaw_accel_smoothing() {
     std::cout << "\nTest: Yaw Acceleration Smoothing (v0.4.18)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2113,7 +2113,7 @@ void test_yaw_accel_smoothing() {
     }
 }
 
-void test_yaw_accel_convergence() {
+static void test_yaw_accel_convergence() {
     std::cout << "\nTest: Yaw Acceleration Convergence (v0.4.18)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2182,7 +2182,7 @@ void test_yaw_accel_convergence() {
     }
 }
 
-void test_regression_yaw_slide_feedback() {
+static void test_regression_yaw_slide_feedback() {
     std::cout << "\nTest: Regression - Yaw/Slide Feedback Loop (v0.4.18)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2347,7 +2347,7 @@ int main() {
     return g_tests_failed > 0 ? 1 : 0;
 }
 
-void test_snapshot_data_integrity() {
+static void test_snapshot_data_integrity() {
     std::cout << "\nTest: Snapshot Data Integrity (v0.4.7)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2481,7 +2481,7 @@ void test_snapshot_data_integrity() {
     }
 }
 
-void test_zero_effects_leakage() {
+static void test_zero_effects_leakage() {
     std::cout << "\nTest: Zero Effects Leakage (No Ghost Forces)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2555,7 +2555,7 @@ void test_zero_effects_leakage() {
     }
 }
 
-void test_snapshot_data_v049() {
+static void test_snapshot_data_v049() {
     std::cout << "\nTest: Snapshot Data v0.4.9 (Rear Physics)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2632,7 +2632,7 @@ void test_snapshot_data_v049() {
     }
 }
 
-void test_rear_force_workaround() {
+static void test_rear_force_workaround() {
     // ========================================
     // Test: Rear Force Workaround (v0.4.10)
     // ========================================
@@ -2796,7 +2796,7 @@ void test_rear_force_workaround() {
     }
 }
 
-void test_rear_align_effect() {
+static void test_rear_align_effect() {
     std::cout << "\nTest: Rear Align Effect Decoupling (v0.4.11)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2892,7 +2892,7 @@ void test_rear_align_effect() {
     }
 }
 
-void test_sop_yaw_kick_direction() {
+static void test_sop_yaw_kick_direction() {
     std::cout << "\nTest: SoP Yaw Kick Direction (v0.4.20)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -2918,7 +2918,7 @@ void test_sop_yaw_kick_direction() {
     }
 }
 
-void test_gyro_damping() {
+static void test_gyro_damping() {
     std::cout << "\nTest: Gyroscopic Damping (v0.4.17)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -3046,7 +3046,7 @@ void test_gyro_damping() {
 // The game uses a left-handed system (+X = left), while DirectInput uses standard (+X = right).
 // Without proper inversions, FFB effects fight the physics instead of helping.
 
-void test_coordinate_sop_inversion() {
+static void test_coordinate_sop_inversion() {
     std::cout << "\nTest: Coordinate System - SoP Inversion (v0.4.19)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -3119,7 +3119,7 @@ void test_coordinate_sop_inversion() {
     }
 }
 
-void test_coordinate_rear_torque_inversion() {
+static void test_coordinate_rear_torque_inversion() {
     std::cout << "\nTest: Coordinate System - Rear Torque Inversion (v0.4.19)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -3208,7 +3208,7 @@ void test_coordinate_rear_torque_inversion() {
     }
 }
 
-void test_coordinate_scrub_drag_direction() {
+static void test_coordinate_scrub_drag_direction() {
     std::cout << "\nTest: Coordinate System - Scrub Drag Direction (v0.4.19/v0.4.20)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -3272,7 +3272,7 @@ void test_coordinate_scrub_drag_direction() {
     }
 }
 
-void test_coordinate_debug_slip_angle_sign() {
+static void test_coordinate_debug_slip_angle_sign() {
     std::cout << "\nTest: Coordinate System - Debug Slip Angle Sign (v0.4.19)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
@@ -3384,7 +3384,7 @@ void test_coordinate_debug_slip_angle_sign() {
     }
 }
 
-void test_regression_no_positive_feedback() {
+static void test_regression_no_positive_feedback() {
     std::cout << "\nTest: Regression - No Positive Feedback Loop (v0.4.19)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
