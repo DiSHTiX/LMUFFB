@@ -120,6 +120,10 @@ def main():
                         print(f"Skipping (non project guides): {relpath}")
                         continue
 
+                if 'docs/dev_docs/prompts' in relpath_normalized:
+                        print(f"Skipping (prompts): {relpath}")
+                        continue
+
                 if 'docs/bug_reports' in relpath_normalized:
                     print(f"Skipping (bug reports): {relpath}")
                     continue
