@@ -1060,9 +1060,13 @@ compare "Calc Front Slip Ratio" and "Game Front Slip Ratio" to see how accurate 
 
 Review again the options in the main window, and verify that we have a settings to adjust and isolate each component of the FFB formulas. Newly introduced effects might be more customizable.
 
-Note: these seems gone in latest version of lmuFFB. Previous note: Test strange "delayed" spikes in the wheel, after a spin or slide. Which effect is causing them? Retest this after v0.4.19, since many fixes were done.
+Note: these issues seems gone in latest version of lmuFFB. Previous note: Test strange "delayed" spikes in the wheel, after a spin or slide. Which effect is causing them? Retest this after v0.4.19, since many fixes were done.
+
+after base app FFB signal functions as expected and no major issues (spikes, oscillations, FFB inversions) implement additional FFB features described in doc docs\dev_docs\Yaw, Gyroscopic Damping , Dynamic Weight, Per-Wheel Hydro-Grain, and Adaptive Optimal Slip Angle implementation.md
 
 add the settings for which slip angle is ideal for grip. Now it is 0.10, but it could be lower. There is a doc for this. docs\dev_docs\grip_calculation_and_slip_angle_v0.4.12.md
+
+
 
 #### Other
 Notes on FFB math formulas and plot visualization
