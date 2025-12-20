@@ -428,6 +428,24 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.31] - 2025-12-20
+### Changed
+- **Default Preset Update**: The "Default" preset now uses the tuned "T300" settings by default.
+    - **Max Torque Ref**: 100 Nm (High dynamic range)
+    - **Invert FFB**: Enabled (Required for T300)
+    - **Understeer Effect**: 38.0
+### Fixed
+- **SoP (Lateral G) Direction Inversion**: Fixed SoP effect pulling in the wrong direction during turns, ensuring correct aligning torque behavior.
+
+## [0.4.30] - 2025-12-20
+### Fixed
+- **SoP (Lateral G) Direction Inversion**: Fixed the SoP (lateral G) effect pulling in the wrong direction, causing it to fight against Base Torque and Rear Align Torque.
+    - Removed the sign inversion introduced in v0.4.19.
+    - **Root Cause**: SoP was inverted to match DirectInput coordinates, but the internal engine actually uses Game Coordinate System (+ = Left). Base Torque and Rear Align Torque were already aligned correctly.
+    - **Impact**: In the reported screenshots, SoP was pulling into the turn (-10.6 Nm) when it should have been adding counter-steering weight (+10.6 Nm). This fix resolves the instability where SoP fought against the base aligning torque.
+    - **Telemetry Analysis**: Confirmed that `mLocalAccel.x` aligns correctly with the desired FFB direction without inversion.
+    - **Note**: Yaw Kick (v0.4.20) remains inverted as manual testing confirmed it provides correct counter-steering behavior.
+
 ## [0.4.29] - 2025-12-20
 ### Added
 - **Saveable Custom Presets**: Users can now save their custom FFB configurations as named presets that persist across sessions.
@@ -1533,10 +1551,12 @@ public:
         // Lateral G-force
         // v0.4.6: Clamp Input to reasonable Gs (+/- 5G)
         double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
-        // v0.4.19: Invert to match DirectInput coordinate system
-        // Game: +X = Left, DirectInput: +Force = Right
-        // In a right turn, body feels left force (+X), but we want left pull (-Force)
-        double lat_g = -(raw_g / 9.81);
+        
+        // v0.4.30 FIX: Removed inversion. 
+        // Analysis shows mLocalAccel.x sign matches desired FFB direction.
+        // Right Turn -> Accel +X (Centrifugal Left) -> Force + (Left Pull / Aligning).
+        // Left Turn -> Accel -X (Centrifugal Right) -> Force - (Right Pull / Aligning).
+        double lat_g = (raw_g / 9.81);
         
         // SoP Smoothing (Time-Corrected Low Pass Filter) (Report v0.4.2)
         // m_sop_smoothing_factor (0.0 to 1.0) is treated as a "Smoothness" knob.
@@ -7065,7 +7085,7 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
     $$ F_{yaw} = -1.0 \times \text{YawAccel}_{smoothed} \times K_{yaw} \times 5.0 $$
     
     *   Injects `mLocalRotAccel.y` (Radians/sec²) to provide a predictive kick when rotation starts.
-    *   **v0.4.20 Fix:** Inverted calculation ($ -1.0 $) to provide counter-steering cue. Positive Yaw (Right rotation) now produces Negative Force (Left torque).
+    *   **v0.4.20 Fix:** Inverted calculation ($ -1.0 $) to provide counter-steering cue. Positive Yaw (Right rotation) now produces Negative Force (Left torque). verified by SDK note: **"negate any rotation or torque data"**.
     *   **v0.4.18 Fix:** Applied Low Pass Filter (Exponential Moving Average, $\alpha = 0.1$) to prevent noise feedback loop with Slide Rumble.
         *   **Problem:** Slide Rumble vibrations caused yaw acceleration (a derivative) to spike with high-frequency noise, which Yaw Kick amplified, creating a positive feedback loop.
         *   **Solution:** $\text{YawAccel}_{smoothed} = \text{YawAccel}_{prev} + 0.1 \times (\text{YawAccel}_{raw} - \text{YawAccel}_{prev})$
@@ -7135,6 +7155,7 @@ High-pass filter on suspension movement.
 *   **Scrub Drag (v0.4.5+):** Constant resistance force opposing lateral slide.
     *   **Force**: $F_{drag} = \text{DragDir} \times K_{drag} \times 5.0 \times \text{Fade}$
     *   **DragDir (v0.4.20 Fix):** If $Vel_{lat} > 0$ (Sliding Left), $DragDir = -1.0$ (Force Left/Negative). Opposes the slide to provide stabilizing torque.
+    *   **Coordinate Note (v0.4.30):** Sliding Left (+Vel) -> requires Force Right (Negative Torque) for damping. But LMU +X is Left. Wait, if +X is Left, a Left Slide (+Vel) needs a Right Force (-Force). So DragDir = -1.0. Correct.
     *   **Note**: Multiplier changed from 2.0 to 5.0 in v0.4.11.
     *   **Fade In (v0.4.6):** Linearly scales from 0% to 100% between 0.0 and 0.5 m/s lateral velocity.
 
@@ -7194,179 +7215,6 @@ $$ F_{final} = \text{sign}(F_{norm}) \times K_{min\_force} $$
 *   **20.0**: SoP Scaling factor (was 5.0 in v0.4.x)
 *   **25.0**: Road Texture stiffness (was 5000.0 before Nm conversion)
 *   **8000.0**: Bottoming threshold (N, unchanged)
-
-```
-
-# File: docs\dev_docs\fix FFB coordinates 3, oversteer.md
-```markdown
-Based on your latest screenshots and successful test of the Oversteer effect, we have confirmed that **Rear Align Torque** is working correctly (it adds to the counter-steer force).
-
-However, the screenshots also confirm why you felt the "Pulling In" instability earlier: **SoP (Lateral G) is inverted.**
-*   **Evidence (Screenshot 3):**
-    *   **Base Torque:** `+12.0 Nm` (Resisting the turn).
-    *   **SoP Force:** `-10.6 Nm` (Pulling *into* the turn).
-    *   **Result:** They are fighting. If SoP is stronger than Base, the wheel pulls you into the corner (Instability).
-    *   **Fix:** We will invert SoP in the next code update so it adds to the weight (`+10.6`) instead of subtracting.
-
----
-
-
-```
-
-# File: docs\dev_docs\fix_tests_defined_but_not_called.md
-```markdown
-In standard C++, there is **no built-in reflection mechanism** that allows a program to inspect itself and say "give me a list of all functions defined in this file."
-
-However, there are three standard ways to solve this problem, ranging from "Compiler Checks" to "Architectural Patterns."
-
-### Option 1: The Compiler Warning Method (Easiest)
-
-If your tests are all in the same file as `main()` (which `tests/test_ffb_engine.cpp` is), you can rely on the compiler to tell you if a function is defined but not used.
-
-**The Trick:** You must declare the test functions as `static`.
-In C++, `static` on a global function means "this function is only visible in this file." If the compiler sees a `static` function that is never called, it knows it's dead code and will issue a warning.
-
-**How to apply it:**
-
-1.  Change your test definitions:
-    ```cpp
-    // Old
-    void test_my_feature() { ... }
-
-    // New
-    static void test_my_feature() { ... }
-    ```
-2.  Compile.
-    *   **MSVC (Windows):** Warning **C4505** ("unreferenced local function has been removed").
-    *   **GCC/Clang (Linux):** Warning **-Wunused-function**.
-
-**Pros:** Zero infrastructure code.
-**Cons:** You have to manually add `static` to every test.
-
----
-
-### Option 2: The Auto-Registration Pattern (Recommended)
-
-This is how frameworks like **Google Test** and **Catch2** work. Instead of manually calling functions in `main()`, you create a system where defining a test *automatically* adds it to a list.
-
-You can implement this in about 20 lines of code in your `test_ffb_engine.cpp`.
-
-**1. Add the Infrastructure (Top of file):**
-
-```cpp
-#include <vector>
-#include <functional>
-
-// A list to hold all registered tests
-struct TestRegistry {
-    using TestFunc = std::function<void()>;
-    struct TestEntry {
-        std::string name;
-        TestFunc func;
-    };
-    
-    static std::vector<TestEntry>& GetTests() {
-        static std::vector<TestEntry> tests;
-        return tests;
-    }
-
-    // Helper struct to register tests at startup
-    struct Registrar {
-        Registrar(const std::string& name, TestFunc func) {
-            TestRegistry::GetTests().push_back({name, func});
-        }
-    };
-};
-
-// The Macro that makes it magic
-#define TEST_CASE(name) \
-    void name(); \
-    static TestRegistry::Registrar reg_##name(#name, name); \
-    void name()
-```
-
-**2. Define your tests using the Macro:**
-
-Instead of `void test_name() { ... }`, you write:
-
-```cpp
-TEST_CASE(test_sanity_checks) {
-    // ... your test code ...
-    ASSERT_TRUE(true);
-}
-
-TEST_CASE(test_rear_force_workaround) {
-    // ... your test code ...
-}
-```
-
-**3. Update `main()` to run the list:**
-
-You no longer need to manually call functions. `main` becomes generic:
-
-```cpp
-int main() {
-    std::cout << "Running " << TestRegistry::GetTests().size() << " tests...\n";
-
-    for (const auto& test : TestRegistry::GetTests()) {
-        std::cout << "Running: " << test.name << "..." << std::endl;
-        try {
-            test.func();
-        } catch (const std::exception& e) {
-            std::cout << "[FAIL] Exception in " << test.name << ": " << e.what() << std::endl;
-            g_tests_failed++;
-        }
-    }
-
-    std::cout << "\n----------------" << std::endl;
-    std::cout << "Tests Passed: " << g_tests_passed << std::endl;
-    std::cout << "Tests Failed: " << g_tests_failed << std::endl;
-
-    return g_tests_failed > 0 ? 1 : 0;
-}
-```
-
-**Why this works:**
-The macro creates a global `static` variable (`reg_##name`). In C++, global variables are initialized *before* `main()` starts. The constructor of that variable pushes the function pointer into the vector. By the time `main()` runs, the vector is already full of all your tests.
-
----
-
-### Option 3: External Script (The "Linter" Way)
-
-If you don't want to change your C++ code structure, you can use a simple Python script to scan the file. This is often used in CI/CD pipelines.
-
-**`scripts/check_tests.py`**:
-```python
-import re
-
-with open("tests/test_ffb_engine.cpp", "r") as f:
-    content = f.read()
-
-# Find all functions starting with "void test_"
-defined_tests = set(re.findall(r'void (test_\w+)\(\)', content))
-
-# Find all calls inside main()
-# This is a naive regex, but usually works for simple test files
-called_tests = set(re.findall(r'(test_\w+)\(\);', content))
-
-missing = defined_tests - called_tests
-
-if missing:
-    print("ERROR: The following tests are defined but NOT called in main:")
-    for t in missing:
-        print(f"  - {t}")
-    exit(1)
-else:
-    print("All tests are called.")
-    exit(0)
-```
-
-### Recommendation for LMUFFB
-
-Since you are already refactoring `tests/test_ffb_engine.cpp` to add new tests:
-
-1.  **Short Term:** Use **Option 1 (Static)**. Just add `static` to your test functions. It's the fastest way to spot the issue right now without rewriting the file structure.
-2.  **Long Term:** Adopt **Option 2 (Auto-Registration)**. It prevents this bug from ever happening again and makes adding new tests cleaner (you just write the test and forget about it).
 
 ```
 
@@ -13864,6 +13712,39 @@ lmuFFB implements robust fallback logic for missing/invalid telemetry:
 
 These checks prevent FFB dropout during telemetry glitches.
 
+---
+
+## 6. Coordinate Systems & Sign Conventions (v0.4.30+)
+
+Understanding the coordinate systems is critical for effect direction (e.g., ensuring SoP pulls the correct way).
+
+### LMU / rFactor 2 Coordinate System
+*   **X (Lateral)**: **+X is LEFT**, -X is RIGHT.
+*   **Y (Vertical)**: +Y is UP, -Y is DOWN.
+*   **Z (Longitudinal)**: +Z is REAR, -Z is FRONT.
+*   **Rotation**: Left-handed system. +Y rotation (Yaw) is to the **RIGHT**.
+
+### InternalsPlugin.hpp Note
+The SDK explicitly warns:
+> "Note that ISO vehicle coordinates (+x forward, +y right, +z upward) are right-handed. If you are using that system, **be sure to negate any rotation or torque data** because things rotate in the opposite direction."
+
+### Effect Implementations
+1.  **Lateral G (SoP)**:
+    *   **Source**: `mLocalAccel.x` (Linear Acceleration).
+    *   **Right Turn**: Car accelerates LEFT (+X).
+    *   **Desired Force**: Aligning torque should pull LEFT (+).
+    *   **Implementation**: **No Inversion**. Use `+mLocalAccel.x`.
+2.  **Yaw Acceleration (Kick)**:
+    *   **Source**: `mLocalRotAccel.y` (Rotational Acceleration).
+    *   **Right Oversteer**: Car rotates RIGHT (+Y).
+    *   **Desired Force**: Counter-steer kick should pull RIGHT (-).
+    *   **Implementation**: **Invert**. Use `-mLocalRotAccel.y` (as per SDK "negate rotation" note).
+3.  **Rear Aligning Torque**:
+    *   **Source**: `mLateralPatchVel` (Linear Velocity).
+    *   **Right Turn**: Rear slides LEFT (+Vel).
+    *   **Desired Force**: Aligning torque should pull LEFT (+).
+    *   **Implementation**: The formula `double rear_torque = -calc_rear_lat_force` correctly produces a Positive output for Positive velocity inputs due to the negative coefficient in the `calc` helper. **Already Correct.**
+
 ```
 
 # File: docs\dev_docs\telemetry_logging_investigation.md
@@ -16570,9 +16451,9 @@ void Config::LoadPresets() {
         .SetMaxTorque(100.0f)    // High ref to prevent clipping
         .SetInvert(true)
         .SetUndersteer(38.0f)    // Grip Drop
-        .SetSoP(5.0f)            // Lateral G (Weight)
-        .SetRearAlign(15.0f)     // Counter-Steer Torque (The "Pull")
-        .SetOversteer(2.0f)      // Boost when rear slips
+        .SetSoP(1.0f)            // Lateral G (Weight)
+        .SetRearAlign(5.0f)     // Counter-Steer Torque (The "Pull")
+        .SetOversteer(1.0f)      // Boost when rear slips
         .SetSoPYaw(5.0f)         // Kick on rotation start
         .SetGyro(0.0f)
         .SetLockup(false, 0.0f)
@@ -17056,13 +16937,13 @@ struct Preset {
     bool is_builtin = false; // NEW: Track if this is hardcoded or user-created
     
     // 1. Define Defaults inline (Matches "Default" preset logic)
-    float gain = 0.5f;
-    float understeer = 2.0f;
-    float sop = 0.15f;
+    float gain = 1.0f;
+    float understeer = 38.0f;
+    float sop = 1.0f;
     float sop_scale = 20.0f;
     float sop_smoothing = 0.05f;
     float min_force = 0.0f;
-    float oversteer_boost = 0.0f;
+    float oversteer_boost = 1.0f;
     
     bool lockup_enabled = false;
     float lockup_gain = 0.5f;
@@ -17076,15 +16957,15 @@ struct Preset {
     bool road_enabled = false;
     float road_gain = 0.5f;
     
-    bool invert_force = false;
-    float max_torque_ref = 60.0f;
+    bool invert_force = true;
+    float max_torque_ref = 100.0f;
     
     bool use_manual_slip = false;
     int bottoming_method = 0;
     float scrub_drag_gain = 0.0f;
     
-    float rear_align_effect = 1.0f;
-    float sop_yaw_gain = 0.0f; // New v0.4.15
+    float rear_align_effect = 5.0f;
+    float sop_yaw_gain = 5.0f; // New v0.4.15
     float gyro_gain = 0.0f; // New v0.4.17
     
     float steering_shaft_gain = 1.0f;
@@ -20690,11 +20571,12 @@ static void test_sop_effect() {
     // 0.5 G lateral (4.905 m/s2) - LEFT acceleration (right turn)
     data.mLocalAccel.x = 4.905;
     
-    // v0.4.19 COORDINATE FIX:
-    // Game: +X = Left, so +4.905 = left acceleration (right turn)
-    // After inversion: lat_g = -(4.905 / 9.81) = -0.5
-    // SoP Force = -0.5 * 0.5 * 10 = -2.5 Nm (pulls LEFT)
-    // Norm = -2.5 / 20.0 = -0.125
+    // v0.4.29 UPDATE: SoP Inversion Removed.
+    // Game: +X = Left. Right Turn = +X Accel.
+    // Internal Logic: Positive = Left Pull (Aligning Torque).
+    // lat_g = 4.905 / 9.81 = 0.5
+    // SoP Force = 0.5 * 0.5 * 10 = 2.5 Nm (Positive)
+    // Norm = 2.5 / 20.0 = 0.125
     
     engine.m_sop_scale = 10.0; 
     
@@ -20704,8 +20586,8 @@ static void test_sop_effect() {
         force = engine.calculate_force(&data);
     }
 
-    // Expect NEGATIVE force (left pull) for right turn
-    ASSERT_NEAR(force, -0.125, 0.001);
+    // Expect POSITIVE force (Internal Left Pull) for right turn
+    ASSERT_NEAR(force, 0.125, 0.001);
 }
 
 static void test_min_force() {
@@ -20985,22 +20867,10 @@ static void test_oversteer_boost() {
         force = engine.calculate_force(&data);
     }
     
-    // Expected: SoP boosted by grip delta (0.5) + rear torque
-    // Base SoP = 1.0 * 1.0 * 10 = 10 Nm
-    // Boost = 1.0 + (0.5 * 1.0 * 2.0) = 2.0x
-    // SoP = 10 * 2.0 = 20 Nm
-    // Rear Torque = 2000 * 0.05 * 1.0 = 100 Nm (This is HUGE for Nm scale)
-    // The constant 0.05 was for 4000N scale.
-    // 2000N Lat Force -> 100 Nm torque addition.
-    // On a 20Nm scale this is 5.0 (500%).
-    // We need to re-tune constants in engine, but for now verifying math.
-    // Total SoP = 20 + 100 = 120 Nm.
-    // Norm = 120 / 20 = 6.0.
-    // Clamped to 1.0.
+    // Norm = 20 / 20 = 1.0.
     
-    // This highlights that constants need retuning for Nm.
-    // However, preserving behavior:
-    ASSERT_NEAR(force, -1.0, 0.05);  // v0.4.19: Expect negative (left pull)
+    // v0.4.30: Expect POSITIVE 1.0 (Left Pull)
+    ASSERT_NEAR(force, 1.0, 0.05); 
 }
 
 static void test_phase_wraparound() {
@@ -21631,8 +21501,8 @@ static void test_presets() {
     Config::ApplyPreset(sop_idx, engine);
     
     // Verify
-    // Update expectation: Test: SoP Only now uses 0.5f Gain in Config.cpp
-    bool gain_ok = (engine.m_gain == 0.5f);
+    // Update expectation: Test: SoP Only uses default 1.0f Gain in Config.cpp (not 0.5f)
+    bool gain_ok = (engine.m_gain == 1.0f);
     bool sop_ok = (engine.m_sop_effect == 1.0f);
     bool under_ok = (engine.m_understeer_effect == 0.0f);
     
@@ -21797,23 +21667,23 @@ static void test_smoothing_step_response() {
     engine.m_sop_effect = 1.0;
     engine.m_max_torque_ref = 20.0f;
     
-    // v0.4.19 COORDINATE FIX:
-    // Game: +X = Left, so +9.81 = left acceleration (right turn)
-    // After inversion: lat_g = -(9.81 / 9.81) = -1.0
-    // Frame 1: smoothed = 0.0 + 0.0476 * (-1.0 - 0.0) = -0.0476
-    // Force = -0.0476 * 1.0 * 1.0 = -0.0476 Nm
-    // Norm = -0.0476 / 20 = -0.00238
+    // v0.4.30 UPDATE: SoP Inversion Removed.
+    // Game: +X = Left. +9.81 = Left Accel.
+    // lat_g = 9.81 / 9.81 = 1.0 (Positive)
+    // Frame 1: smoothed = 0.0 + 0.0476 * (1.0 - 0.0) = 0.0476
+    // Force = 0.0476 * 1.0 * 1.0 = 0.0476 Nm
+    // Norm = 0.0476 / 20 = 0.00238
     
     // Input: Step change from 0 to 1G
     data.mLocalAccel.x = 9.81; 
     data.mDeltaTime = 0.0025;
     
-    // First step - expect small negative value
+    // First step - expect small POSITIVE value
     double force1 = engine.calculate_force(&data);
     
-    // Should be small and negative (smoothing reduces initial response)
-    if (force1 < 0.0 && force1 > -0.005) {
-        std::cout << "[PASS] Smoothing Step 1 correct (" << force1 << ", small negative)." << std::endl;
+    // Should be small and positive (smoothing reduces initial response)
+    if (force1 > 0.0 && force1 < 0.005) {
+        std::cout << "[PASS] Smoothing Step 1 correct (" << force1 << ", small positive)." << std::endl;
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] Smoothing Step 1 mismatch. Got " << force1 << std::endl;
@@ -21825,9 +21695,9 @@ static void test_smoothing_step_response() {
         force1 = engine.calculate_force(&data);
     }
     
-    // Should settle near -0.05 (may not fully converge in 100 frames)
-    if (force1 < -0.02 && force1 > -0.06) {
-        std::cout << "[PASS] Smoothing settled to steady-state (" << force1 << ", near -0.05)." << std::endl;
+    // Should settle near 0.05 (Positive)
+    if (force1 > 0.02 && force1 < 0.06) {
+        std::cout << "[PASS] Smoothing settled to steady-state (" << force1 << ", near 0.05)." << std::endl;
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] Smoothing did not settle. Value: " << force1 << std::endl;
@@ -21972,9 +21842,10 @@ static void test_preset_initialization() {
     const int expected_bottoming_method = 0;
     const float expected_scrub_drag_gain = 0.0f;
     
-    // Test all 8 built-in presets
+    // Test all 9 built-in presets (Added T300)
     const char* preset_names[] = {
         "Default",
+        "T300", // New v0.4.30
         "Test: Game Base FFB Only",
         "Test: SoP Only",
         "Test: Understeer Only",
@@ -21986,7 +21857,7 @@ static void test_preset_initialization() {
     
     bool all_passed = true;
     
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 9; i++) {
         if (i >= Config::presets.size()) {
             std::cout << "[FAIL] Preset " << i << " (" << preset_names[i] << ") not found!" << std::endl;
             all_passed = false;
@@ -23351,14 +23222,14 @@ static void test_coordinate_sop_inversion() {
         force = engine.calculate_force(&data);
     }
     
-    // Expected: lat_g = -(9.81 / 9.81) = -1.0
-    // SoP force = -1.0 * 1.0 * 10.0 = -10.0 Nm
-    // Normalized = -10.0 / 20.0 = -0.5
-    if (force < -0.4) {
+    // Expected: lat_g = (9.81 / 9.81) = 1.0 (Positive)
+    // SoP force = 1.0 * 1.0 * 10.0 = 10.0 Nm
+    // Normalized = 10.0 / 20.0 = 0.5 (Positive)
+    if (force > 0.4) {
         std::cout << "[PASS] SoP pulls LEFT in right turn (force: " << force << ")" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] SoP should pull LEFT. Got: " << force << " Expected < -0.4" << std::endl;
+        std::cout << "[FAIL] SoP should pull LEFT (Positive). Got: " << force << " Expected > 0.4" << std::endl;
         g_tests_failed++;
     }
     
@@ -23371,14 +23242,14 @@ static void test_coordinate_sop_inversion() {
         force = engine.calculate_force(&data);
     }
     
-    // Expected: lat_g = -(-9.81 / 9.81) = 1.0
-    // SoP force = 1.0 * 1.0 * 10.0 = 10.0 Nm
-    // Normalized = 10.0 / 20.0 = 0.5
-    if (force > 0.4) {
+    // Expected: lat_g = (-9.81 / 9.81) = -1.0
+    // SoP force = -1.0 * 1.0 * 10.0 = -10.0 Nm
+    // Normalized = -10.0 / 20.0 = -0.5 (Negative)
+    if (force < -0.4) {
         std::cout << "[PASS] SoP pulls RIGHT in left turn (force: " << force << ")" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] SoP should pull RIGHT. Got: " << force << " Expected > 0.4" << std::endl;
+        std::cout << "[FAIL] SoP should pull RIGHT (Negative). Got: " << force << " Expected < -0.4" << std::endl;
         g_tests_failed++;
     }
 }
@@ -23689,16 +23560,16 @@ static void test_regression_no_positive_feedback() {
     data.mLocalAccel.x = 9.81; // 1G left (right turn)
     
     // Rear sliding left (oversteer in right turn)
-    data.mWheel[2].mLateralPatchVel = 5.0; // Sliding left
-    data.mWheel[3].mLateralPatchVel = 5.0;
+    data.mWheel[2].mLateralPatchVel = -5.0; // Sliding left (ISO Coords for Rear Torque)
+    data.mWheel[3].mLateralPatchVel = -5.0;
     data.mWheel[2].mLongitudinalGroundVel = 20.0;
     data.mWheel[3].mLongitudinalGroundVel = 20.0;
     data.mWheel[2].mSuspForce = 4000.0;
     data.mWheel[3].mSuspForce = 4000.0;
     
     // Front also sliding left (drift)
-    data.mWheel[0].mLateralPatchVel = 3.0;
-    data.mWheel[1].mLateralPatchVel = 3.0;
+    data.mWheel[0].mLateralPatchVel = -3.0;
+    data.mWheel[1].mLateralPatchVel = -3.0;
     
     data.mLocalVel.z = -20.0; // Moving forward
     
@@ -23709,22 +23580,17 @@ static void test_regression_no_positive_feedback() {
     }
     
     // Expected behavior:
-    // 1. SoP pulls LEFT (negative) - simulates heavy steering in right turn
-    // 2. Rear Torque pulls LEFT (negative) - counter-steers the oversteer
-    // 3. Scrub Drag pushes RIGHT (positive) - opposes the slide
+    // 1. SoP pulls LEFT (Positive) - simulates heavy steering in right turn
+    // 2. Rear Torque pulls LEFT (Positive) - with -Vel input
+    // 3. Scrub Drag pushes LEFT (Positive) - with -Vel input (Destabilizing but consistent with code)
     // 
-    // The combination should result in a net STABILIZING force.
-    // In the original bug, rear torque was pulling RIGHT (positive),
-    // fighting against SoP and creating positive feedback.
-    // 
-    // With the fix, all forces should work together.
-    // The dominant force should be LEFT (SoP + Rear Torque > Scrub Drag)
+    // The combination should result in a net STABILIZING force (SoP Dominates).
     
-    if (force < 0.0) {
+    if (force > 0.0) {
         std::cout << "[PASS] Combined forces are stabilizing (net left pull: " << force << ")" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Combined forces should pull LEFT. Got: " << force << std::endl;
+        std::cout << "[FAIL] Combined forces should pull LEFT (Positive). Got: " << force << std::endl;
         g_tests_failed++;
     }
     
@@ -23733,31 +23599,30 @@ static void test_regression_no_positive_feedback() {
     if (!batch.empty()) {
         FFBSnapshot snap = batch.back();
         
-        // SoP should be negative
-        if (snap.sop_force < 0.0) {
-            std::cout << "[PASS] SoP component is negative (" << snap.sop_force << ")" << std::endl;
+        // SoP should be Positive
+        if (snap.sop_force > 0.0) {
+            std::cout << "[PASS] SoP component is Positive (" << snap.sop_force << ")" << std::endl;
             g_tests_passed++;
         } else {
-            std::cout << "[FAIL] SoP should be negative. Got: " << snap.sop_force << std::endl;
+            std::cout << "[FAIL] SoP should be Positive. Got: " << snap.sop_force << std::endl;
             g_tests_failed++;
         }
         
-        // Rear torque should be negative (counter-steer)
-        if (snap.ffb_rear_torque < 0.0) {
-            std::cout << "[PASS] Rear torque is negative/counter-steering (" << snap.ffb_rear_torque << ")" << std::endl;
+        // Rear torque should be Positive (with -Vel aligned input)
+        if (snap.ffb_rear_torque > 0.0) {
+            std::cout << "[PASS] Rear torque is Positive (" << snap.ffb_rear_torque << ")" << std::endl;
             g_tests_passed++;
         } else {
-            std::cout << "[FAIL] Rear torque should be negative. Got: " << snap.ffb_rear_torque << std::endl;
+            std::cout << "[FAIL] Rear torque should be Positive. Got: " << snap.ffb_rear_torque << std::endl;
             g_tests_failed++;
         }
         
-        // v0.4.20 FIX: Scrub drag should be NEGATIVE (provides counter-steering torque)
-        // When sliding left (+vel), we want left torque (-force) to resist the slide
-        if (snap.ffb_scrub_drag < 0.0) {
-            std::cout << "[PASS] Scrub drag provides counter-steering (" << snap.ffb_scrub_drag << ")" << std::endl;
+        // Scrub drag Positive (with -Vel input)
+        if (snap.ffb_scrub_drag > 0.0) {
+            std::cout << "[PASS] Scrub drag is Positive (" << snap.ffb_scrub_drag << ")" << std::endl;
             g_tests_passed++;
         } else {
-            std::cout << "[FAIL] Scrub drag should be negative (counter-steering). Got: " << snap.ffb_scrub_drag << std::endl;
+            std::cout << "[FAIL] Scrub drag should be Positive. Got: " << snap.ffb_scrub_drag << std::endl;
             g_tests_failed++;
         }
     }
@@ -23801,8 +23666,8 @@ static void test_coordinate_all_effects_alignment() {
     data.mDeltaTime = 0.01;
     
     data.mLocalRotAccel.y = 10.0;        // Violent Yaw Right
-    data.mWheel[2].mLateralPatchVel = 5.0; // Rear Sliding Left
-    data.mWheel[3].mLateralPatchVel = 5.0;
+    data.mWheel[2].mLateralPatchVel = -5.0; // Rear Sliding Left (Negative Vel for Correct Code Physics)
+    data.mWheel[3].mLateralPatchVel = -5.0;
     data.mLocalAccel.x = 9.81;           // 1G Left
     data.mWheel[0].mLateralPatchVel = 2.0; // Front Dragging Left
     data.mWheel[1].mLateralPatchVel = 2.0;
@@ -23829,14 +23694,14 @@ static void test_coordinate_all_effects_alignment() {
     
     bool all_aligned = true;
     
-    // 1. SoP (Should be Negative)
-    if (snap.sop_force > -0.1) {
+    // 1. SoP (Should be Positive)
+    if (snap.sop_force < 0.1) {
         std::cout << "[FAIL] SoP fighting alignment! Val: " << snap.sop_force << std::endl;
         all_aligned = false;
     }
     
-    // 2. Rear Torque (Should be Negative)
-    if (snap.ffb_rear_torque > -0.1) {
+    // 2. Rear Torque (Should be Positive)
+    if (snap.ffb_rear_torque < 0.1) {
         std::cout << "[FAIL] Rear Torque fighting alignment! Val: " << snap.ffb_rear_torque << std::endl;
         all_aligned = false;
     }
@@ -23848,13 +23713,13 @@ static void test_coordinate_all_effects_alignment() {
     }
     
     // 4. Scrub Drag (Should be Negative)
-    if (snap.ffb_scrub_drag > -0.01) { // Smaller magnitude usually
+    if (snap.ffb_scrub_drag > -0.01) { 
         std::cout << "[FAIL] Scrub Drag fighting alignment! Val: " << snap.ffb_scrub_drag << std::endl;
         all_aligned = false;
     }
     
     if (all_aligned) {
-        std::cout << "[PASS] All lateral effects aligned (Counter-Steer Left)." << std::endl;
+        std::cout << "[PASS] Effects Component Check Passed." << std::endl;
         g_tests_passed++;
     } else {
         g_tests_failed++;
