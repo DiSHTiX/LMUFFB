@@ -773,9 +773,9 @@ public:
                 // Example: 300kmh (83m/s) -> ~80Hz. 50kmh (13m/s) -> ~20Hz.
                 double freq = 10.0 + (car_speed_ms * 1.5); 
 
-                // PHASE ACCUMULATION
+                // PHASE ACCUMULATION (FIXED)
                 m_lockup_phase += freq * dt * TWO_PI;
-                if (m_lockup_phase > TWO_PI) m_lockup_phase -= TWO_PI;
+                m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI); // Wrap correctly
 
                 double amp = severity * m_lockup_gain * 4.0; // Scaled for Nm (was 800)
                 lockup_rumble = std::sin(m_lockup_phase) * amp;
@@ -809,9 +809,9 @@ public:
                 // Cap frequency to prevent ultrasonic feeling on high speed burnouts
                 if (freq > 80.0) freq = 80.0;
 
-                // PHASE ACCUMULATION
+                // PHASE ACCUMULATION (FIXED)
                 m_spin_phase += freq * dt * TWO_PI;
-                if (m_spin_phase > TWO_PI) m_spin_phase -= TWO_PI;
+                m_spin_phase = std::fmod(m_spin_phase, TWO_PI); // Wrap correctly
 
                 // Amplitude
                 double amp = severity * m_spin_gain * 2.5; // Scaled for Nm (was 500)
@@ -836,8 +836,10 @@ public:
                 double freq = 40.0 + (avg_lat_vel * 17.0);
                 if (freq > 250.0) freq = 250.0;
 
+                // PHASE ACCUMULATION (CRITICAL FIX)
+                // Use fmod to handle large dt spikes safely
                 m_slide_phase += freq * dt * TWO_PI;
-                if (m_slide_phase > TWO_PI) m_slide_phase -= TWO_PI;
+                m_slide_phase = std::fmod(m_slide_phase, TWO_PI);
 
                 // Sawtooth wave
                 double sawtooth = (m_slide_phase / TWO_PI) * 2.0 - 1.0;
@@ -934,9 +936,9 @@ public:
                 // FIX: Use a 50Hz "Crunch" oscillation instead of directional DC offset
                 double freq = 50.0; 
                 
-                // Phase Integration
+                // Phase Integration (FIXED)
                 m_bottoming_phase += freq * dt * TWO_PI;
-                if (m_bottoming_phase > TWO_PI) m_bottoming_phase -= TWO_PI;
+                m_bottoming_phase = std::fmod(m_bottoming_phase, TWO_PI); // Wrap correctly
 
                 // Generate vibration (Sine wave)
                 // This creates a heavy shudder regardless of steering direction

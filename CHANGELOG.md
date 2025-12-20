@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.33] - 2025-12-20
+### Fixed
+- **CRITICAL: Oscillator Phase Explosion Fix**: Fixed a major bug where dynamic effects (Slide Texture, Progressive Lockup, Wheel Spin, and Suspension Bottoming) would produce massive constant forces or "flatlined" signals during frame stutters or telemetry lag.
+    - **Root Cause**: The phase accumulation logic used a simple `if` check for wrapping (`if (phase > TWO_PI) phase -= TWO_PI`), which failed if the phase jumped by more than $2\pi$ in a single step (e.g., during a 50ms stutter at high frequencies). This caused the phase to grow indefinitely, leading the sawtooth/sine formulas to output impossible values.
+    - **Fix**: Replaced simple check with `std::fmod(phase, TWO_PI)` for all oscillators to ensure robust wrapping regardless of the time step size.
+    - **Impact**: Resolves the "Slide Texture strong pull" bug, ensuring a consistent vibration feel even during system hitches.
+    - **Regression Test**: Added `test_regression_phase_explosion` to the test suite to simulate high delta-time stutters and verify phase wrapping integrity.
+
 ## [0.4.32] - 2025-12-20
 ### Changed
 - **System-Wide T300 Standardization**: The "T300" tuning is now the project-wide baseline for all force-related defaults.

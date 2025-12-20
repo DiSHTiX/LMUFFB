@@ -54,6 +54,7 @@ void test_coordinate_scrub_drag_direction(); // Forward declaration (v0.4.19)
 void test_coordinate_debug_slip_angle_sign(); // Forward declaration (v0.4.19)
 void test_regression_no_positive_feedback(); // Forward declaration (v0.4.19)
 void test_coordinate_all_effects_alignment(); // Forward declaration (v0.4.21)
+void test_regression_phase_explosion(); // Forward declaration (Regression)
 
 
 
@@ -2348,6 +2349,7 @@ int main() {
     test_coordinate_debug_slip_angle_sign();
     test_regression_no_positive_feedback();
     test_coordinate_all_effects_alignment(); // v0.4.21
+    test_regression_phase_explosion(); // Regression
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -3603,6 +3605,52 @@ static void test_coordinate_all_effects_alignment() {
     
     if (all_aligned) {
         std::cout << "[PASS] Effects Component Check Passed." << std::endl;
+        g_tests_passed++;
+    } else {
+        g_tests_failed++;
+    }
+}
+
+static void test_regression_phase_explosion() {
+    std::cout << "\nTest: Regression - Phase Explosion (Slide Texture Fix)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+
+    // Enable Slide Texture
+    engine.m_slide_texture_enabled = true;
+    engine.m_slide_texture_gain = 1.0f;
+    // Disable others
+    engine.m_sop_effect = 0.0f;
+    engine.m_road_texture_enabled = false;
+
+    // Setup inputs for Slide Texture
+    // Condition: avg_lat_vel > 0.5
+    data.mWheel[0].mLateralPatchVel = 5.0; // High slip speed -> High freq
+    data.mWheel[1].mLateralPatchVel = 5.0;
+    
+    // Need some load factor
+    data.mWheel[0].mTireLoad = 4000.0;
+    data.mWheel[1].mTireLoad = 4000.0;
+    
+    // SIMULATE A STUTTER (Large Delta Time)
+    // 50ms (0.05s) -> 125Hz effect -> 6.25 cycles -> Phase ~39 rad
+    data.mDeltaTime = 0.05; 
+    
+    // Run multiple frames
+    bool failed = false;
+    for (int i=0; i<10; i++) {
+        engine.calculate_force(&data);
+        // Check public phase member
+        // Should be [0, 2PI] i.e., [0, ~6.28]
+        if (engine.m_slide_phase < -0.001 || engine.m_slide_phase > 6.30) {
+             std::cout << "[FAIL] Frame " << i << ": Phase out of bounds: " << engine.m_slide_phase << std::endl;
+             failed = true;
+        }
+    }
+    
+    if (!failed) {
+        std::cout << "[PASS] Phase wrapped correctly during stutter." << std::endl;
         g_tests_passed++;
     } else {
         g_tests_failed++;
