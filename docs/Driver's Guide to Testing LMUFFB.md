@@ -70,27 +70,30 @@
 
 ### 3. Slide Texture (Scrubbing)
 
-**What is it?** The tires are dragging sideways across the asphalt.
+**What is it?** The front tires are dragging sideways across the asphalt (Understeer Scrub).
 **The Goal:** A "grinding" or "sandpaper" vibration.
 
 **Quick Setup (Preset):**
 *   Load Preset: **"Guide: Slide Texture (Scrub)"**
+*   *Note:* If using a high `Max Torque Ref` (>40 Nm), set **Slide Gain** to maximum (2.0).
 
 **Extreme Car Setup:**
-*   **Traction Control (TC):** **OFF**.
-*   **Tire Pressures:** **Maximum** (Highest allowed). Hard, inflated tires slide easier and transmit vibration more sharply than soft tires.
-*   **Differential Preload:** **Maximum**. A locked differential forces the tires to scrub and drag sideways during tight turns.
-*   **Suspension:** **Stiffest (Max)** on both Front and Rear to reduce mechanical grip and induce sliding immediately.
+*   **Front Downforce (Splitter):** **Minimum**. Less aero load on the front helps induce understeer.
+*   **Front Tire Pressures:** **Maximum**. Balloons the tire to reduce the contact patch.
+*   **Front Springs & ARB:** **Maximum Stiffness**. Overloads the front tires immediately.
+*   **Rear Springs & ARB:** **Soft**. Keeps the rear planted so the car pushes instead of spinning.
 
 **The Test:**
-1.  Go to a wide runoff area.
-2.  Turn the wheel fully to one side and accelerate to do a "donut" or a heavy understeer plow.
-3.  **What to feel:**
-    *   *The Cue:* A distinct, gritty vibration.
-    *   *Physics Check:* The vibration pitch (frequency) should get **higher** as you slide faster.
-        *   Slow slide = "Grrr-grrr" (Low rumble).
-        *   Fast slide = "Zzzzzzz" (High buzz).
-
+1.  Find a wide runoff area (e.g., Paul Ricard).
+2.  Accelerate to a moderate speed (**80 - 100 km/h**).
+3.  **The "Plow" Maneuver:**
+    *   Turn the steering wheel **90 to 180 degrees** rapidly.
+    *   **Do not brake.** Keep the throttle constant or lift slightly.
+    *   The car should refuse to turn and "plow" straight ahead while the wheels are turned.
+4.  **What to feel:**
+    *   *The Cue:* As the car plows, you should feel a gritty vibration in the rim.
+    *   *Physics Check:* Look at the **"Avg Front Lat PatchVel"** graph in the Telemetry window. It must exceed **0.5** for the effect to activate.
+    *   *Dynamics:* The vibration should stop instantly if you straighten the wheel (regain grip) or slow down enough for the tires to bite.
 ---
 
 ### 4. Braking Lockup
@@ -288,6 +291,31 @@ Does LMUFFB produce all the effects described in this video `https://www.youtube
     *   *Missing Feature:* **Synthetic Longitudinal Weighting.** We calculate `Load Factor` for textures, but we do *not* use it to scale the `Base Force`.
     *   *Recommendation:* We should implement `Master_Gain_Dynamic = Master_Gain * (1.0 + (Longitudinal_G * Factor))` to artificially boost weight under braking if the game is too numb.
 
+### Legacy Tests
+
+#### 3. Slide Texture (Scrubbing)
+
+**What is it?** The tires are dragging sideways across the asphalt.
+**The Goal:** A "grinding" or "sandpaper" vibration.
+
+**Quick Setup (Preset):**
+*   Load Preset: **"Guide: Slide Texture (Scrub)"**
+
+**Extreme Car Setup:**
+*   **Traction Control (TC):** **OFF**.
+*   **Tire Pressures:** **Maximum** (Highest allowed). Hard, inflated tires slide easier and transmit vibration more sharply than soft tires.
+*   **Differential Preload:** **Maximum**. A locked differential forces the tires to scrub and drag sideways during tight turns.
+*   **Suspension:** **Stiffest (Max)** on both Front and Rear to reduce mechanical grip and induce sliding immediately.
+
+**The Test:**
+1.  Go to a wide runoff area.
+2.  Turn the wheel fully to one side and accelerate to do a "donut" or a heavy understeer plow.
+3.  **What to feel:**
+    *   *The Cue:* A distinct, gritty vibration.
+    *   *Physics Check:* The vibration pitch (frequency) should get **higher** as you slide faster.
+        *   Slow slide = "Grrr-grrr" (Low rumble).
+        *   Fast slide = "Zzzzzzz" (High buzz).
+
 
 ### 🛠️ Troubleshooting Cheat Sheet
 
@@ -302,3 +330,4 @@ Does LMUFFB produce all the effects described in this video `https://www.youtube
 ### References
 
 * `https://www.youtube.com/watch?v=XHSEAMQgN2c&t=655s`
+
