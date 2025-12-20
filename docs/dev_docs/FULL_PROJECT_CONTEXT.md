@@ -1533,10 +1533,12 @@ public:
         // Lateral G-force
         // v0.4.6: Clamp Input to reasonable Gs (+/- 5G)
         double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
-        // v0.4.19: Invert to match DirectInput coordinate system
-        // Game: +X = Left, DirectInput: +Force = Right
-        // In a right turn, body feels left force (+X), but we want left pull (-Force)
-        double lat_g = -(raw_g / 9.81);
+        
+        // v0.4.30 FIX: Removed inversion. 
+        // Analysis shows mLocalAccel.x sign matches desired FFB direction.
+        // Left Turn -> Accel +X -> Force + (Right/Aligning).
+        // Right Turn -> Accel -X -> Force - (Left/Aligning).
+        double lat_g = (raw_g / 9.81);
         
         // SoP Smoothing (Time-Corrected Low Pass Filter) (Report v0.4.2)
         // m_sop_smoothing_factor (0.0 to 1.0) is treated as a "Smoothness" knob.
@@ -7210,7 +7212,59 @@ However, the screenshots also confirm why you felt the "Pulling In" instability 
 
 ---
 
+# Suggested fixes
 
+
+Based on the analysis of the screenshots and the codebase, you are correct. The **SoP (Lateral G)** effect is inverted relative to the **Base Torque** and **Rear Align Torque**.
+
+### Analysis
+*   **Screenshot 2 (Right Turn Scenario):**
+    *   **Base Torque:** `+13.08 Nm` (Positive). In the game's coordinate system, this represents the aligning torque resisting the turn.
+    *   **Rear Align Torque:** `+1.34 Nm` (Positive). This is working **with** the Base Torque, providing correct counter-steering feel.
+    *   **SoP (Lateral G):** `-150.02 Nm` (Negative). This is **opposing** the other forces, pulling the wheel into the turn (instability).
+*   **Conclusion:** The internal engine is operating in a "Positive = Left" coordinate system (matching the game), but the SoP calculation was inverted to "Negative = Left" in a previous update (v0.4.19), causing it to fight the other effects.
+
+### Fix
+We need to remove the sign inversion from **SoP (Lateral G)**. I will also remove the inversion from **Yaw Kick**, as it shares the same chassis physics coordinate system and was likely inverted for the same reason.
+
+Here are the code changes for `FFBEngine.h`.
+
+### `FFBEngine.h`
+
+```cpp
+        // --- 2. Seat of Pants (SoP) / Oversteer ---
+        // Lateral G-force
+        // v0.4.6: Clamp Input to reasonable Gs (+/- 5G)
+        double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
+        
+        // v0.4.29 FIX: Removed inversion.
+        // Internal engine uses Game Coordinate System (+ = Left).
+        // Base Torque and Rear Torque are Positive for Left. SoP must match.
+        double lat_g = raw_g / 9.81;
+        
+        // SoP Smoothing (Time-Corrected Low Pass Filter) (Report v0.4.2)
+        // ... [Smoothing Logic] ...
+
+        // ... [Rear Torque Logic] ...
+
+        // --- 2b. Yaw Acceleration Injector (The "Kick") ---
+        // Reads rotational acceleration (radians/sec^2)
+        // 
+        // v0.4.18 FIX: Apply Low Pass Filter to prevent noise feedback loop
+        double raw_yaw_accel = data->mLocalRotAccel.y;
+        
+        // Apply Smoothing (Low Pass Filter)
+        double alpha_yaw = 0.1;
+        m_yaw_accel_smoothed = m_yaw_accel_smoothed + alpha_yaw * (raw_yaw_accel - m_yaw_accel_smoothed);
+        
+        // Use SMOOTHED value for the kick
+        // Scaled by 5.0 (Base multiplier) and User Gain
+        // Added AFTER Oversteer Boost to provide a clean, independent cue.
+        // v0.4.29 FIX: Removed inversion to match SoP and Base Torque alignment.
+        // Positive yaw accel (right rotation) -> Positive force (Left pull in Game Coords)
+        double yaw_force = m_yaw_accel_smoothed * m_sop_yaw_gain * 5.0;
+        sop_total += yaw_force;
+```
 ```
 
 # File: docs\dev_docs\fix_tests_defined_but_not_called.md

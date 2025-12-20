@@ -580,10 +580,12 @@ public:
         // Lateral G-force
         // v0.4.6: Clamp Input to reasonable Gs (+/- 5G)
         double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
-        // v0.4.19: Invert to match DirectInput coordinate system
-        // Game: +X = Left, DirectInput: +Force = Right
-        // In a right turn, body feels left force (+X), but we want left pull (-Force)
-        double lat_g = -(raw_g / 9.81);
+        
+        // v0.4.30 FIX: Removed inversion. 
+        // Analysis shows mLocalAccel.x sign matches desired FFB direction.
+        // Right Turn -> Accel +X (Centrifugal Left) -> Force + (Left Pull / Aligning).
+        // Left Turn -> Accel -X (Centrifugal Right) -> Force - (Right Pull / Aligning).
+        double lat_g = (raw_g / 9.81);
         
         // SoP Smoothing (Time-Corrected Low Pass Filter) (Report v0.4.2)
         // m_sop_smoothing_factor (0.0 to 1.0) is treated as a "Smoothness" knob.
@@ -678,9 +680,9 @@ public:
         // Coefficient was tuned to produce ~3.0 Nm contribution at 3000N lateral force (v0.4.11).
         // This provides a distinct counter-steering cue.
         // Multiplied by m_rear_align_effect to allow user tuning of rear-end sensitivity.
-        // v0.4.19: INVERTED to provide counter-steering (restoring) torque instead of destabilizing force
-        // When rear slides left (+slip), we want left pull (-torque) to correct the slide
-        double rear_torque = -calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect; 
+        // v0.4.30 FIX: Removed inversion to match SoP and Base Torque alignment.
+        // Left Slide -> Positive Vel -> Positive Slip -> Positive Force -> Positive Torque (Left Pull).
+        double rear_torque = calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect; 
         sop_total += rear_torque;
 
         // --- 2b. Yaw Acceleration Injector (The "Kick") ---
@@ -701,8 +703,8 @@ public:
         // Use SMOOTHED value for the kick
         // Scaled by 5.0 (Base multiplier) and User Gain
         // Added AFTER Oversteer Boost to provide a clean, independent cue.
-        // v0.4.20 FIX: Invert to provide counter-steering torque
-        // Positive yaw accel (right rotation) → Negative force (left pull)
+        // v0.4.20 FIX: Invert to provide damping torque (stability).
+        // Positive yaw accel (right rotation) → Negative force (right pull/resisting snap).
         double yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * 5.0;
         sop_total += yaw_force;
         
@@ -856,11 +858,11 @@ public:
                 double abs_lat_vel = std::abs(avg_lat_vel);
                 if (abs_lat_vel > 0.001) { // Avoid noise
                     double fade = (std::min)(1.0, abs_lat_vel / 0.5);
-                    // v0.4.20 FIX: Provide counter-steering (stabilizing) torque
-                    // Game: +X = Left, DirectInput: +Force = Right
-                    // If sliding left (+vel), we want left torque (-force) to resist the slide
-                    double drag_dir = (avg_lat_vel > 0.0) ? -1.0 : 1.0;
-                    scrub_drag_force = drag_dir * m_scrub_drag_gain * 5.0 * fade; // Scaled & Faded
+                    // v0.4.30 FIX: Provide damping torque (opposes lateral movement).
+                    // If sliding left (+vel), we want right torque (-force) as damping.
+                    // Inverted sign to ensure damping behavior.
+                    double drag_dir = (avg_lat_vel > 0.0) ? 1.0 : -1.0;
+                    scrub_drag_force = -drag_dir * m_scrub_drag_gain * 5.0 * fade; // Scaled & Faded (Inverted)
                     total_force += scrub_drag_force;
                 }
             }
