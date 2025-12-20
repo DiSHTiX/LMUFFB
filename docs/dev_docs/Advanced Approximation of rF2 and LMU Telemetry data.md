@@ -169,6 +169,8 @@ If $S\_{combined} \> 1.0$, the tire is past its peak grip and is entering the sl
 * **Limitation 2: Low Speed Singularity:** Calculating $\\alpha$ involves dividing by velocity. At speeds $\< 5$ m/s, this calculation becomes unstable (division by zero or near-zero), causing massive spikes in calculated slip.  
   * *Fix:* You must implement a low-speed fade-out. If $v \< 5.0$ m/s, ramp the mGripFract approximation to 0.0.
 
+(note: do an investigation on implementing an adaptive optimal slip angle (and an adaptive optimal slip ratio) estimate, based on car behavior; see related doc in this repo).
+
 ### **4.4 Better Alternative: Work-Based Scrubbing**
 
 Instead of just looking at the angle of slip, look at the energy of the slip.
