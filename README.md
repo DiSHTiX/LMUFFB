@@ -59,7 +59,7 @@ Increase gradualy the values while monitoring for unexpected behavior.
 
 ## 🧪 Experimental Version - Testing Needed!
 
-This is an **experimental release** with the new LMU 1.2 interface. The FFB formulas may require refinement based on real-world testing.
+This is an **experimental release**, the FFB formulas may require refinement based on real-world testing.
 
 **Please help us improve lmuFFB:**
 1. **Test with caution** - Start with low wheel strength settings (see Safety Warning above)
