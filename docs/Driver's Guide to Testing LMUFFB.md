@@ -70,30 +70,34 @@
 
 ### 3. Slide Texture (Scrubbing)
 
-**What is it?** The front tires are dragging sideways across the asphalt (Understeer Scrub).
+**What is it?** The tires (Front or Rear) are dragging sideways across the asphalt.
 **The Goal:** A "grinding" or "sandpaper" vibration.
 
 **Quick Setup (Preset):**
 *   Load Preset: **"Guide: Slide Texture (Scrub)"**
-*   *Note:* If using a high `Max Torque Ref` (>40 Nm), set **Slide Gain** to maximum (2.0).
+*   *Note:* If using a high `Max Torque Ref` (>40 Nm), set **Slide Gain** to maximum (20.0).
 
 **Extreme Car Setup:**
-*   **Front Downforce (Splitter):** **Minimum**. Less aero load on the front helps induce understeer.
-*   **Front Tire Pressures:** **Maximum**. Balloons the tire to reduce the contact patch.
-*   **Front Springs & ARB:** **Maximum Stiffness**. Overloads the front tires immediately.
-*   **Rear Springs & ARB:** **Soft**. Keeps the rear planted so the car pushes instead of spinning.
+*   **Tire Pressures:** **Maximum (Front & Rear)**. Hard tires slide easier and transmit more vibration.
+*   **Suspension (Springs/ARB):** **Maximum Stiffness (Front & Rear)**. This turns the car into a go-kart with very little mechanical grip, ensuring it slides immediately upon turning.
+*   **Differential Preload:** **Maximum**. Locks the axle to force tire scrubbing in turns.
+*   **Downforce:** **Minimum**.
 
 **The Test:**
-1.  Find a wide runoff area (e.g., Paul Ricard).
-2.  Accelerate to a moderate speed (**80 - 100 km/h**).
-3.  **The "Plow" Maneuver:**
-    *   Turn the steering wheel **90 to 180 degrees** rapidly.
-    *   **Do not brake.** Keep the throttle constant or lift slightly.
-    *   The car should refuse to turn and "plow" straight ahead while the wheels are turned.
-4.  **What to feel:**
-    *   *The Cue:* As the car plows, you should feel a gritty vibration in the rim.
-    *   *Physics Check:* Look at the **"Avg Front Lat PatchVel"** graph in the Telemetry window. It must exceed **0.5** for the effect to activate.
-    *   *Dynamics:* The vibration should stop instantly if you straighten the wheel (regain grip) or slow down enough for the tires to bite.
+*Option A: The Plow (Recommended for clarity)*
+1.  Drive at **80 - 100 km/h** in a runoff area.
+2.  Turn the wheel **90 to 180 degrees** rapidly and hold.
+3.  The car should refuse to turn and "plow" straight.
+4.  **Feel:** A gritty vibration in the rim that persists as long as the car is sliding forward.
+
+*Option B: The Donut (Now supported)*
+1.  Stop. 1st Gear.
+2.  Turn fully to lock. Full Throttle.
+3.  **Feel:** As the car spins, the vibration should be continuous (triggered by the rear tires sliding).
+
+**Physics Check:**
+*   Look at the **"Patch Velocities"** graph. Either `Avg Front Lat` OR `Avg Rear Lat` must exceed **0.5 m/s** to trigger the effect.
+
 ---
 
 ### 4. Braking Lockup
@@ -315,6 +319,33 @@ Does LMUFFB produce all the effects described in this video `https://www.youtube
     *   *Physics Check:* The vibration pitch (frequency) should get **higher** as you slide faster.
         *   Slow slide = "Grrr-grrr" (Low rumble).
         *   Fast slide = "Zzzzzzz" (High buzz).
+
+#### 3. Slide Texture (Scrubbing)
+
+**What is it?** The front tires are dragging sideways across the asphalt (Understeer Scrub).
+**The Goal:** A "grinding" or "sandpaper" vibration.
+
+**Quick Setup (Preset):**
+*   Load Preset: **"Guide: Slide Texture (Scrub)"**
+*   *Note:* If using a high `Max Torque Ref` (>40 Nm), set **Slide Gain** to maximum (2.0).
+
+**Extreme Car Setup:**
+*   **Front Downforce (Splitter):** **Minimum**. Less aero load on the front helps induce understeer.
+*   **Front Tire Pressures:** **Maximum**. Balloons the tire to reduce the contact patch.
+*   **Front Springs & ARB:** **Maximum Stiffness**. Overloads the front tires immediately.
+*   **Rear Springs & ARB:** **Soft**. Keeps the rear planted so the car pushes instead of spinning.
+
+**The Test:**
+1.  Find a wide runoff area (e.g., Paul Ricard).
+2.  Accelerate to a moderate speed (**80 - 100 km/h**).
+3.  **The "Plow" Maneuver:**
+    *   Turn the steering wheel **90 to 180 degrees** rapidly.
+    *   **Do not brake.** Keep the throttle constant or lift slightly.
+    *   The car should refuse to turn and "plow" straight ahead while the wheels are turned.
+4.  **What to feel:**
+    *   *The Cue:* As the car plows, you should feel a gritty vibration in the rim.
+    *   *Physics Check:* Look at the **"Avg Front Lat PatchVel"** graph in the Telemetry window. It must exceed **0.5** for the effect to activate.
+    *   *Dynamics:* The vibration should stop instantly if you straighten the wheel (regain grip) or slow down enough for the tires to bite.
 
 
 ### 🛠️ Troubleshooting Cheat Sheet

@@ -558,38 +558,77 @@ static void test_progressive_lockup() {
 }
 
 static void test_slide_texture() {
-    std::cout << "\nTest: Slide Texture" << std::endl;
-    FFBEngine engine;
-    TelemInfoV01 data;
-    std::memset(&data, 0, sizeof(data));
+    std::cout << "\nTest: Slide Texture (Front & Rear)" << std::endl;
     
-    // Default RH to avoid scraping
-    data.mWheel[0].mRideHeight = 0.1; data.mWheel[1].mRideHeight = 0.1;
-    
-    engine.m_slide_texture_enabled = true;
-    engine.m_slide_texture_gain = 1.0;
-    
-    data.mSteeringShaftTorque = 0.0;
-    // Emulate high lateral velocity (was SlipAngle > 0.15)
-    // New threshold is > 0.5 m/s.
-    data.mWheel[0].mLateralPatchVel = 5.0; 
-    data.mWheel[1].mLateralPatchVel = 5.0;
-    
-    data.mDeltaTime = 0.013; // Avoid 0.01 which lands exactly on zero-crossing for 125Hz
-    data.mWheel[0].mTireLoad = 1000.0; // Some load
-    data.mWheel[1].mTireLoad = 1000.0;
-    
-    // Run two frames to advance phase
-    engine.calculate_force(&data);
-    double force = engine.calculate_force(&data);
-    
-    // We just assert it's non-zero
-    if (std::abs(force) > 0.00001) {
-        std::cout << "[PASS] Slide texture generated non-zero force: " << force << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Slide texture force is zero" << std::endl;
-        g_tests_failed++;
+    // Case 1: Front Slip (Understeer)
+    {
+        FFBEngine engine;
+        TelemInfoV01 data;
+        std::memset(&data, 0, sizeof(data));
+        // Default RH to avoid scraping
+        data.mWheel[0].mRideHeight = 0.1; data.mWheel[1].mRideHeight = 0.1;
+        
+        engine.m_max_torque_ref = 20.0f; // Standard scale for test
+        engine.m_slide_texture_enabled = true;
+        engine.m_slide_texture_gain = 1.0;
+        
+        data.mSteeringShaftTorque = 0.0;
+        
+        // Front Sliding
+        data.mWheel[0].mLateralPatchVel = 5.0; 
+        data.mWheel[1].mLateralPatchVel = 5.0;
+        data.mWheel[2].mLateralPatchVel = 0.0; // Rear Grip
+        data.mWheel[3].mLateralPatchVel = 0.0;
+        
+        data.mDeltaTime = 0.013; 
+        data.mWheel[0].mTireLoad = 4000.0; // Full load
+        data.mWheel[1].mTireLoad = 4000.0;
+        
+        engine.calculate_force(&data); // Cycle 1
+        double force = engine.calculate_force(&data); // Cycle 2
+        
+        if (std::abs(force) > 0.001) {
+             std::cout << "[PASS] Front slip triggers Slide Texture (Force: " << force << ")" << std::endl;
+             g_tests_passed++;
+        } else {
+             std::cout << "[FAIL] Front slip failed to trigger Slide Texture." << std::endl;
+             g_tests_failed++;
+        }
+    }
+
+    // Case 2: Rear Slip (Oversteer/Drift)
+    {
+        FFBEngine engine;
+        TelemInfoV01 data;
+        std::memset(&data, 0, sizeof(data));
+        data.mWheel[0].mRideHeight = 0.1; data.mWheel[1].mRideHeight = 0.1;
+
+        engine.m_max_torque_ref = 20.0f; 
+        engine.m_slide_texture_enabled = true;
+        engine.m_slide_texture_gain = 1.0;
+        
+        data.mSteeringShaftTorque = 0.0;
+        
+        // Front Grip, Rear Sliding
+        data.mWheel[0].mLateralPatchVel = 0.0; 
+        data.mWheel[1].mLateralPatchVel = 0.0;
+        data.mWheel[2].mLateralPatchVel = 10.0; // High Rear Slip
+        data.mWheel[3].mLateralPatchVel = 10.0;
+        
+        data.mDeltaTime = 0.013;
+        data.mWheel[0].mTireLoad = 4000.0; // Front Load required for effect amplitude scaling
+        data.mWheel[1].mTireLoad = 4000.0;
+
+        engine.calculate_force(&data);
+        double force = engine.calculate_force(&data);
+        
+        if (std::abs(force) > 0.001) {
+             std::cout << "[PASS] Rear slip triggers Slide Texture (Force: " << force << ")" << std::endl;
+             g_tests_passed++;
+        } else {
+             std::cout << "[FAIL] Rear slip failed to trigger Slide Texture." << std::endl;
+             g_tests_failed++;
+        }
     }
 }
 

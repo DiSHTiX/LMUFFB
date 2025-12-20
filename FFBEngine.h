@@ -825,15 +825,26 @@ public:
         if (m_slide_texture_enabled) {
             // New logic: Use mLateralPatchVel directly instead of Angle
             // This is cleaner as it represents actual scrubbing speed.
-            double lat_vel_l = std::abs(fl.mLateralPatchVel);
-            double lat_vel_r = std::abs(fr.mLateralPatchVel);
-            double avg_lat_vel = (lat_vel_l + lat_vel_r) / 2.0;
+            
+            // Front Slip Speed
+            double lat_vel_fl = std::abs(fl.mLateralPatchVel);
+            double lat_vel_fr = std::abs(fr.mLateralPatchVel);
+            double front_slip_avg = (lat_vel_fl + lat_vel_fr) / 2.0;
+
+            // Rear Slip Speed (New v0.4.34)
+            double lat_vel_rl = std::abs(data->mWheel[2].mLateralPatchVel);
+            double lat_vel_rr = std::abs(data->mWheel[3].mLateralPatchVel);
+            double rear_slip_avg = (lat_vel_rl + lat_vel_rr) / 2.0;
+
+            // Use the WORST slip (Max)
+            // This ensures we feel understeer (Front) AND oversteer/drifting (Rear)
+            double effective_slip_vel = (std::max)(front_slip_avg, rear_slip_avg);
             
             // Threshold: 0.5 m/s (~2 kph) slip
-            if (avg_lat_vel > 0.5) {
+            if (effective_slip_vel > 0.5) {
                 
                 // Map 1 m/s -> 40Hz, 10 m/s -> 200Hz
-                double freq = 40.0 + (avg_lat_vel * 17.0);
+                double freq = 40.0 + (effective_slip_vel * 17.0);
                 if (freq > 250.0) freq = 250.0;
 
                 // PHASE ACCUMULATION (CRITICAL FIX)

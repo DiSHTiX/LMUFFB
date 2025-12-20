@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.34] - 2025-12-20
+### Fixed
+- **Slide Texture Scope Expansion**: Updated "Slide Rumble" effect to trigger based on the **maximum** lateral slip of either axle (Front OR Rear).
+    - **Previous Behavior**: Only monitored front wheels (Understeer). Doing a donut or drift (Rear Slide) resulted in no vibration, making the car feel "floating."
+    - **New Behavior**: Calculates front and rear average slip velocities independently and uses the greater of the two to drive the vibration effect.
+    - **Impact**: You now feel the gritty tire scrub texture during donuts, power slides, and extensive oversteer, solving the "silent drift" issue.
+
 ## [0.4.33] - 2025-12-20
 ### Fixed
 - **CRITICAL: Oscillator Phase Explosion Fix**: Fixed a major bug where dynamic effects (Slide Texture, Progressive Lockup, Wheel Spin, and Suspension Bottoming) would produce massive constant forces or "flatlined" signals during frame stutters or telemetry lag.
