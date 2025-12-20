@@ -54,7 +54,10 @@ $$ F_{base} = (Base_{input} \times K_{shaft\_gain}) \times \left( 1.0 - \left( (
 *   $\text{Front\_Grip}_{avg}$: Average of Front Left and Front Right `mGripFract`.
     *   **Fallback (v0.4.5+):** If telemetry grip is missing ($\approx 0.0$) but Load $> 100N$, grip is approximated from **Slip Angle**.
         * **Low Speed Trap (v0.4.6):** If CarSpeed < 5.0 m/s, Grip = 1.0.
-        * **Slip Angle LPF (v0.4.6):** Slip Angle is smoothed using an Exponential Moving Average ($\alpha \approx 0.1$).
+        * **Slip Angle LPF (v0.4.37 Update):** Slip Angle is smoothed using **Time-Corrected** Exponential Moving Average.
+            * $\alpha = dt / (0.0225 + dt)$
+            * Target: Equivalent to $\alpha=0.1$ at 400Hz ($\tau \approx 0.0225s$).
+            * Ensures consistent physics response regardless of frame rate.
         * $\text{Slip} = \text{atan2}(V_{lat}, V_{long})$
         * **Refined Formula (v0.4.12):**
             * $\text{Excess} = \max(0, \text{Slip} - 0.10)$ (Threshold tightened from 0.15)
@@ -64,9 +67,10 @@ $$ F_{base} = (Base_{input} \times K_{shaft\_gain}) \times \left( 1.0 - \left( (
 #### C. Seat of Pants (SoP) & Oversteer
 This injects lateral G-force and rear-axle aligning torque to simulate the car body's rotation.
 
-1.  **Smoothed Lateral G ($G_{lat}$)**: Calculated via Low Pass Filter (Exponential Moving Average).
+1.    *   **Smoothed Lateral G (v0.4.6):** Calculated via Time-Corrected LPF.
     *   **Input Clamp (v0.4.6):** Raw AccelX is clamped to +/- 5G ($49.05 m/s^2$) before processing.
-    $$ G_{smooth} = G_{prev} + \alpha \times \left( \frac{\text{Chassis\_Lat\_Accel}}{9.81} - G_{prev} \right) $$
+    $$ G_{smooth} = G_{prev} + \alpha_{time\_corrected} \times \left( \frac{\text{Chassis\_Lat\_Accel}}{9.81} - G_{prev} \right) $$
+    *   $\alpha_{time\_corrected} = dt / (\tau + dt)$ where $\tau$ is derived from user setting `m_sop_smoothing_factor`.
     *   $\alpha$: User setting `m_sop_smoothing_factor`.
 
 2.  **Base SoP**:
@@ -79,10 +83,11 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
     
     *   Injects `mLocalRotAccel.y` (Radians/sec²) to provide a predictive kick when rotation starts.
     *   **v0.4.20 Fix:** Inverted calculation ($ -1.0 $) to provide counter-steering cue. Positive Yaw (Right rotation) now produces Negative Force (Left torque). verified by SDK note: **"negate any rotation or torque data"**.
-    *   **v0.4.18 Fix:** Applied Low Pass Filter (Exponential Moving Average, $\alpha = 0.1$) to prevent noise feedback loop with Slide Rumble.
-        *   **Problem:** Slide Rumble vibrations caused yaw acceleration (a derivative) to spike with high-frequency noise, which Yaw Kick amplified, creating a positive feedback loop.
-        *   **Solution:** $\text{YawAccel}_{smoothed} = \text{YawAccel}_{prev} + 0.1 \times (\text{YawAccel}_{raw} - \text{YawAccel}_{prev})$
-        *   This filters out high-frequency noise (> ~1.6 Hz) while preserving actual rotation kicks.
+    *   **v0.4.18 Fix (Updated v0.4.37):** Applied **Time-Corrected Low Pass Filter** ($\tau=0.0225s$) to prevent noise feedback loop.
+        *   **Problem:** Slide Rumble vibrations caused yaw acceleration (a derivative) to spike with high-frequency noise.
+        *   **Solution:** $\alpha = dt / (0.0225 + dt)$
+        *   $\text{YawAccel}_{smoothed} = \text{YawAccel}_{prev} + \alpha \times (\text{YawAccel}_{raw} - \text{YawAccel}_{prev})$
+        *   This filters out high-frequency noise while preserving actual rotation kicks regardless of frame rate.
     *   $K_{yaw}$: User setting `m_sop_yaw_gain` (0.0 - 2.0).
 
 4.  **Oversteer Boost**:
@@ -139,6 +144,8 @@ Active if Lateral Patch Velocity > 0.5 m/s.
 *   **Force**: $A \times \text{Sawtooth}(\text{phase})$
 
 **4. Road Texture ($F_{vib\_road}$)**
+Active if Road Texture Enabled.
+*   **Oscillator Safety (v0.4.37):** All oscillator phases (Lockup, Spin, Slide, Bottoming) are now wrapped using `fmod(phase, 2PI)` to prevent phase explosion during large time steps (stutters).
 High-pass filter on suspension movement.
 *   **Delta Clamp (v0.4.6):** $\Delta_{vert}$ is clamped to +/- 0.01 meters per frame.
 *   $\Delta_{vert} = (\text{Deflection}_{current} - \text{Deflection}_{prev})$
@@ -162,8 +169,11 @@ Active if Max Tire Load > 8000N or Ride Height < 2mm.
 **6. Synthetic Gyroscopic Damping ($F_{gyro}$) - New v0.4.17**
 Stabilizes the wheel by opposing rapid steering movements (prevents "tank slappers").
 *   $Angle$: Steering Input $\times$ (Range / 2.0).
+*   $Angle$: Steering Input $\times$ (Range / 2.0).
 *   $Vel$: $(Angle - Angle_{prev}) / dt$.
-*   $Vel_{smooth}$: Smoothed derivative of steering angle (LPF).
+*   $Vel_{smooth}$: Smoothed derivative of steering angle (Time-Corrected LPF).
+    * $\tau_{gyro} = K_{smoothness\_clamped} \times 0.1$
+    * $\alpha = dt / (\tau_{gyro} + dt)$
 *   $F_{gyro} = -1.0 \times Vel_{smooth} \times K_{gyro} \times (\text{CarSpeed} / 10.0)$
 *   **Note**: Scales with car speed (faster = more stability needed).
 

@@ -32,7 +32,7 @@ These values describe the state of the vehicle chassis and engine.
 
 | Variable | Units | Description | Current Usage | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
-| `mDeltaTime` | seconds | Time since last physics update | **Used**: Phase integration for oscillators | |
+| `mDeltaTime` | seconds | Time since last physics update | **Used**: Oscillator integration, Time-Corrected Smoothing (v0.4.37) | |
 | `mElapsedTime` | seconds | Session time | Unused | Timestamping for logging |
 | **`mSteeringShaftTorque`** | **Nm** | **Torque around steering shaft** (replaces `mSteeringArmForce`) | **Used**: Primary FFB source (v0.4.0+) | |
 | `mLocalAccel` | m/s² | Acceleration in car-local space (X=Lat, Y=Vert, Z=Long) | **Used**: `x` for SoP (Seat of Pants) effect | `z` for braking dive/acceleration squat cues |

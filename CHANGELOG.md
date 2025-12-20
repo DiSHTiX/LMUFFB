@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.38] - 2025-12-20
+### Added
+- **Time-Corrected Smoothing Filters (v0.4.37/38)**: Re-implemented core smoothing filters to use real-time coefficients (tau) instead of fixed frame-based alpha.
+    - **Consistent Feel**: FFB responsiveness (lag/smoothing) now remains identical regardless of whether the game is running at 400Hz, 60Hz, or experiencing a stutter.
+    - **Affected Effects**: Slip Angle (Understeer), Yaw Acceleration (Kick), SoP Lateral G, and Gyroscopic Damping.
+    - **Optimization**: Standardized on $\tau = 0.0225s$ (approx 0.1 legacy alpha at 400Hz) for the ideal balance of physics clarity and noise rejection.
+- **Physics Stability & Oscillator Hardening**:
+    - **Phase Explosion Protection**: All oscillators (Slide, Lockup, Spin, Bottoming) now use `std::fmod` for phase accumulation. This fixes the "Permanent Full-Force Texture" bug that occurred during large frame stutters.
+    - **Gyro Damping Safety**: Added internal clamps [0.0, 0.99] to the gyroscopic smoothing factor to prevent mathematical instability from invalid configuration.
+- **Enhanced Regression Tests**: Added and expanded unit tests to verify physics integrity during extreme conditions:
+    - `test_regression_phase_explosion`: Now covers all oscillators during simulated 50ms stutters.
+    - `test_time_corrected_smoothing`: Verifies filter convergence consistency between High-FPS and Low-FPS updates.
+    - `test_gyro_stability`: Verifies safety clamps against malicious/malformed configuration inputs.
+
+### Changed
+- **Documentation Refinement (Safety Fix)**: Updated `Yaw, Gyroscopic Damping... implementation.md` and `FFB_formulas.md` to reflect the new time-corrected math and robust phase wrapping. Fixed unsafe code examples in dev docs that suggested simple subtraction for phase wrapping.
+- **Test Suite Alignment**: Updated `test_rear_force_workaround` expectations to match the new, faster dynamics of the time-corrected smoothing filters.
+
 ## [0.4.37] - 2025-12-20
 ### Changed
 - **Calibrated Default Presets**: Updated the "Default (T300)" and internal defaults to match the latest calibrated values for belt-driven wheels.

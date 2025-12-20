@@ -384,7 +384,7 @@ if (is_wet) {
         
         // Use a separate phase for this
         m_hydro_phase += 100.0 * dt * TWO_PI;
-        if (m_hydro_phase > TWO_PI) m_hydro_phase -= TWO_PI;
+        m_hydro_phase = std::fmod(m_hydro_phase, TWO_PI); // Robust wrap
         
         // Subtle vibration
         double hydro_noise = std::sin(m_hydro_phase) * 0.5 * speed_factor * m_road_texture_gain;
@@ -496,7 +496,7 @@ if (hydro_grain_total > 0.0) {
     // Use a single phase for the vibration to avoid constructive/destructive interference 
     // between two sine waves of the same frequency.
     m_hydro_phase += 100.0 * dt * TWO_PI; // 100Hz "Fizz"
-    if (m_hydro_phase > TWO_PI) m_hydro_phase -= TWO_PI;
+    m_hydro_phase = std::fmod(m_hydro_phase, TWO_PI); // Robust wrap
     
     double vibration = std::sin(m_hydro_phase) * hydro_grain_total;
     total_force += vibration;

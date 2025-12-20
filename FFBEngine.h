@@ -311,9 +311,10 @@ public:
     }
 
     // Helper: Calculate Slip Angle (v0.4.6 LPF + Logic)
+    // v0.4.37: Added Time-Corrected Smoothing (Report v0.4.37)
     // v0.4.19 CRITICAL FIX: Removed abs() from mLateralPatchVel to preserve sign
     // This allows rear aligning torque to provide correct counter-steering in BOTH directions
-    double calculate_slip_angle(const TelemWheelV01& w, double& prev_state) {
+    double calculate_slip_angle(const TelemWheelV01& w, double& prev_state, double dt) {
         double v_long = std::abs(w.mLongitudinalGroundVel);
         if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
         
@@ -323,8 +324,15 @@ public:
         // This sign is critical for directional counter-steering
         double raw_angle = std::atan2(w.mLateralPatchVel, v_long);  // SIGN PRESERVED
         
-        // LPF: Alpha ~0.1 (Strong smoothing for stability)
-        double alpha = 0.1;
+        // LPF: Time Corrected Alpha (v0.4.37)
+        // Target: Alpha 0.1 at 400Hz (dt = 0.0025)
+        // Formula: alpha = dt / (tau + dt) -> 0.1 = 0.0025 / (tau + 0.0025) -> tau approx 0.0225s
+        const double tau = 0.0225; 
+        double alpha = dt / (tau + dt);
+        
+        // Safety clamp
+        alpha = (std::min)(1.0, (std::max)(0.001, alpha));
+
         prev_state = prev_state + alpha * (raw_angle - prev_state);
         return prev_state;
     }
@@ -336,7 +344,8 @@ public:
                               bool& warned_flag,
                               double& prev_slip1,
                               double& prev_slip2,
-                              double car_speed) {
+                              double car_speed,
+                              double dt) {
         GripResult result;
         result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
         result.value = result.original;
@@ -360,8 +369,8 @@ public:
         //           telemetry health, causing violent kicks and "reverse FFB" sensations.
         // ==================================================================================
         
-        double slip1 = calculate_slip_angle(w1, prev_slip1);
-        double slip2 = calculate_slip_angle(w2, prev_slip2);
+        double slip1 = calculate_slip_angle(w1, prev_slip1, dt);
+        double slip2 = calculate_slip_angle(w2, prev_slip2, dt);
         result.slip_angle = (slip1 + slip2) / 2.0;
 
         // Fallback condition: Grip is essentially zero BUT car has significant load
@@ -532,7 +541,7 @@ public:
         // Calculate Front Grip using helper (handles fallback and diagnostics)
         // Pass persistent state for LPF (v0.4.6) - Indices 0 and 1
         GripResult front_grip_res = calculate_grip(fl, fr, avg_load, m_warned_grip, 
-                                                   m_prev_slip_angle[0], m_prev_slip_angle[1], car_speed);
+                                                   m_prev_slip_angle[0], m_prev_slip_angle[1], car_speed, dt);
         double avg_grip = front_grip_res.value;
         
         // Update Diagnostics
@@ -615,7 +624,7 @@ public:
         // Calculate Rear Grip using helper (now includes fallback)
         // Pass persistent state for LPF (v0.4.6) - Indices 2 and 3
         GripResult rear_grip_res = calculate_grip(data->mWheel[2], data->mWheel[3], avg_load, m_warned_rear_grip,
-                                                  m_prev_slip_angle[2], m_prev_slip_angle[3], car_speed);
+                                                  m_prev_slip_angle[2], m_prev_slip_angle[3], car_speed, dt);
         double avg_rear_grip = rear_grip_res.value;
         
         // Update Diagnostics
@@ -696,9 +705,12 @@ public:
         double raw_yaw_accel = data->mLocalRotAccel.y;
         
         // Apply Smoothing (Low Pass Filter)
-        // Alpha 0.1 means we trust 10% new data, 90% history.
-        // This kills high-frequency vibration noise while preserving actual rotation kicks.
-        double alpha_yaw = 0.1;
+        // v0.4.37: Time Corrected Alpha
+        // Target: Alpha 0.1 at 400Hz (dt=0.0025). 
+        // tau approx 0.0225s
+        const double tau_yaw = 0.0225;
+        double alpha_yaw = dt / (tau_yaw + dt);
+        
         m_yaw_accel_smoothed = m_yaw_accel_smoothed + alpha_yaw * (raw_yaw_accel - m_yaw_accel_smoothed);
         
         // Use SMOOTHED value for the kick
@@ -723,7 +735,12 @@ public:
         m_prev_steering_angle = steer_angle; // Update history
         
         // Smoothing (LPF)
-        double alpha_gyro = (std::min)(1.0f, m_gyro_smoothing);
+        // v0.4.37: Time Corrected Alpha with Clamp
+        // Treat m_gyro_smoothing as "Smoothness" (0=Raw, 1=Slow)
+        double gyro_smoothness = (std::max)(0.0f, (std::min)(0.99f, m_gyro_smoothing)); // Clamp!
+        double tau_gyro = gyro_smoothness * 0.1; // Map to 0.0s - 0.1s time constant
+        double alpha_gyro = dt / (tau_gyro + dt);
+        
         m_steering_velocity_smoothed += alpha_gyro * (steer_vel - m_steering_velocity_smoothed);
         
         // Damping Force: Opposes velocity, scales with car speed

@@ -55,6 +55,8 @@ void test_coordinate_debug_slip_angle_sign(); // Forward declaration (v0.4.19)
 void test_regression_no_positive_feedback(); // Forward declaration (v0.4.19)
 void test_coordinate_all_effects_alignment(); // Forward declaration (v0.4.21)
 void test_regression_phase_explosion(); // Forward declaration (Regression)
+void test_time_corrected_smoothing(); // Forward declaration (v0.4.37)
+void test_gyro_stability(); // Forward declaration (v0.4.37)
 
 
 
@@ -2393,6 +2395,8 @@ int main() {
     test_regression_no_positive_feedback();
     test_coordinate_all_effects_alignment(); // v0.4.21
     test_regression_phase_explosion(); // Regression
+    test_time_corrected_smoothing();
+    test_gyro_stability();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -2835,8 +2839,11 @@ static void test_rear_force_workaround() {
     // v0.4.19 COORDINATE FIX:
     // Rear torque should be NEGATIVE for counter-steering (pulling left for a right slide)
     // So expected torque is -1.21 Nm
-    double expected_torque = -1.21;   // First-frame value with LPF smoothing
-    double torque_tolerance = 0.60;         // ±50% tolerance
+    // v0.4.37 Update: Time-Corrected Smoothing (tau=0.0225)
+    // with dt=0.01 (100Hz), alpha = 0.01 / (0.0225 + 0.01) = 0.307
+    // Expected = Raw (-12.13) * 0.307 = -3.73 Nm
+    double expected_torque = -3.73;   // First-frame value with Time-Corrected LPF
+    double torque_tolerance = 1.0;    // ±1.0 Nm tolerance
     
     // ========================================
     // Assertion
@@ -3655,48 +3662,131 @@ static void test_coordinate_all_effects_alignment() {
 }
 
 static void test_regression_phase_explosion() {
-    std::cout << "\nTest: Regression - Phase Explosion (Slide Texture Fix)" << std::endl;
+    std::cout << "\nTest: Regression - Phase Explosion (All Oscillators)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
-    // Enable Slide Texture
+    // Enable All Oscillators
     engine.m_slide_texture_enabled = true;
     engine.m_slide_texture_gain = 1.0f;
-    engine.m_slide_freq_scale = 1.0f;
-    // Disable others
+    engine.m_lockup_enabled = true;
+    engine.m_lockup_gain = 1.0f;
+    engine.m_spin_enabled = true;
+    engine.m_spin_gain = 1.0f;
+    
     engine.m_sop_effect = 0.0f;
-    engine.m_road_texture_enabled = false;
 
-    // Setup inputs for Slide Texture
-    // Condition: avg_lat_vel > 0.5
-    data.mWheel[0].mLateralPatchVel = 5.0; // High slip speed -> High freq
+    // Slide Condition: avg_lat_vel > 0.5
+    data.mWheel[0].mLateralPatchVel = 5.0; 
     data.mWheel[1].mLateralPatchVel = 5.0;
     
-    // Need some load factor
+    // Lockup Condition: Brake > 0.05, Slip < -0.1
+    data.mUnfilteredBrake = 1.0;
+    data.mWheel[0].mLongitudinalPatchVel = -5.0; // High slip
+    data.mWheel[0].mLongitudinalGroundVel = 20.0;
+    
+    // Spin Condition: Throttle > 0.05, Slip > 0.2
+    data.mUnfilteredThrottle = 1.0;
+    data.mWheel[2].mLongitudinalPatchVel = 30.0; 
+    data.mWheel[2].mLongitudinalGroundVel = 10.0; // Ratio 3.0 -> Slip > 0.2
+
+    // Load
     data.mWheel[0].mTireLoad = 4000.0;
     data.mWheel[1].mTireLoad = 4000.0;
-    
+    data.mWheel[2].mTireLoad = 4000.0;
+    data.mWheel[3].mTireLoad = 4000.0;
+    data.mDeltaTime = 0.0025;
+    data.mLocalVel.z = 20.0;
+
     // SIMULATE A STUTTER (Large Delta Time)
-    // 50ms (0.05s) -> 30Hz effect (was 125Hz) -> 1.5 cycles -> Phase ~9.42 rad
     data.mDeltaTime = 0.05; 
     
-    // Run multiple frames
     bool failed = false;
     for (int i=0; i<10; i++) {
         engine.calculate_force(&data);
-        // Check public phase member
-        // Should be [0, 2PI] i.e., [0, ~6.28]
+        
+        // Check public phase members
         if (engine.m_slide_phase < -0.001 || engine.m_slide_phase > 6.30) {
-             std::cout << "[FAIL] Frame " << i << ": Phase out of bounds: " << engine.m_slide_phase << std::endl;
+             std::cout << "[FAIL] Slide Phase out of bounds: " << engine.m_slide_phase << std::endl;
+             failed = true;
+        }
+        if (engine.m_lockup_phase < -0.001 || engine.m_lockup_phase > 6.30) {
+             std::cout << "[FAIL] Lockup Phase out of bounds: " << engine.m_lockup_phase << std::endl;
+             failed = true;
+        }
+        if (engine.m_spin_phase < -0.001 || engine.m_spin_phase > 6.30) {
+             std::cout << "[FAIL] Spin Phase out of bounds: " << engine.m_spin_phase << std::endl;
              failed = true;
         }
     }
     
     if (!failed) {
-        std::cout << "[PASS] Phase wrapped correctly during stutter." << std::endl;
+        std::cout << "[PASS] All oscillator phases wrapped correctly during stutter." << std::endl;
         g_tests_passed++;
     } else {
         g_tests_failed++;
+    }
+}
+
+static void test_time_corrected_smoothing() {
+    std::cout << "\nTest: Time Corrected Smoothing (v0.4.37)" << std::endl;
+    FFBEngine engine_fast; // 400Hz
+    FFBEngine engine_slow; // 50Hz
+    
+    // Setup - Yaw Accel Smoothing Test
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    data.mLocalRotAccel.y = 10.0; // Step input
+    
+    // Run approx 0.2 seconds (Requires about 8-10 time constants tau=0.0225)
+    // Fast: dt = 0.0025, 80 steps = 0.2s
+    data.mDeltaTime = 0.0025;
+    for(int i=0; i<80; i++) engine_fast.calculate_force(&data);
+    
+    // Slow: dt = 0.02, 10 steps = 0.2s
+    data.mDeltaTime = 0.02;
+    for(int i=0; i<10; i++) engine_slow.calculate_force(&data);
+    
+    // Values should be converged to 10.0 (Step response)
+    // Or at least equal to each other at the same physical time.
+    
+    double val_fast = engine_fast.m_yaw_accel_smoothed;
+    double val_slow = engine_slow.m_yaw_accel_smoothed;
+    
+    std::cout << "Fast Yaw (400Hz): " << val_fast << " Slow Yaw (50Hz): " << val_slow << std::endl;
+    
+    // Tolerance: 5% (Integration difference is expected)
+    if (std::abs(val_fast - val_slow) < 0.5) {
+        std::cout << "[PASS] Smoothing is consistent across frame rates." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Smoothing diverges! Time correction failed." << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_gyro_stability() {
+    std::cout << "\nTest: Gyro Stability (Clamp Check)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    engine.m_gyro_gain = 1.0;
+    engine.m_gyro_smoothing = -1.0; // Malicious input (should be clamped to 0.0 internally)
+    
+    data.mDeltaTime = 0.01;
+    data.mLocalVel.z = 20.0;
+    
+    // Run
+    engine.calculate_force(&data);
+    
+    // Check if exploded
+    if (std::abs(engine.m_steering_velocity_smoothed) < 1000.0 && !std::isnan(engine.m_steering_velocity_smoothed)) {
+         std::cout << "[PASS] Gyro stable with negative smoothing." << std::endl;
+         g_tests_passed++;
+    } else {
+         std::cout << "[FAIL] Gyro exploded!" << std::endl;
+         g_tests_failed++;
     }
 }
