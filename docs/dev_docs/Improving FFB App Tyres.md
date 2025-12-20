@@ -186,3 +186,45 @@ slide_noise = sawtooth * m_slide_texture_gain * slide_intensity;
 1.  **Critical:** Implement `calculate_kinematic_load` to handle cases where both `mTireLoad` and `mSuspForce` are zero (common in LMU DLC).
 2.  **Critical:** Update `calculate_grip` to include **Longitudinal Slip** (Braking/Accel) in the approximation.
 3.  **Refinement:** Apply LPF to the acceleration data used for load estimation to simulate chassis weight.
+
+  
+## Follow ups after first implementation
+
+Based on the analysis of the latest codebase (`v0.4.39`), here is the status of checks and fallbacks for `mSuspensionDeflection` and `mLateralForce`.
+
+### 1. `mLateralForce` (Lateral Tire Force)
+*   **Status:** ✅ **Handled / Safe**
+*   **Context:** This value is critical for the **Rear Aligning Torque** (Oversteer feel).
+*   **Current Implementation:**
+    *   In `v0.4.10`, we identified that LMU 1.2 reports `0.0` for rear lateral force.
+    *   In the current code (`FFBEngine.h`), the engine **completely ignores** the raw `mLateralForce` from the game for the rear wheels.
+    *   It uses `calc_rear_lat_force` (derived from Slip Angle and Load) exclusively.
+    *   **Conclusion:** Even if the game sends 0.0 (blocked), the FFB works correctly because we calculate it ourselves.
+
+### 2. `mSuspensionDeflection` (Spring Compression)
+*   **Status:** ⚠️ **Not Used / Indirect Risk**
+*   **Context:** Your app does **not** use `mSuspensionDeflection` directly.
+    *   For **Road Texture**, it uses `mVerticalTireDeflection` (Tire compression).
+    *   For **Bottoming**, it uses `mRideHeight` or `mSuspForce`.
+*   **The Risk:** If `mSuspensionDeflection` is blocked (0.0), it is highly likely that **`mVerticalTireDeflection`** and **`mRideHeight`** are also blocked, as they are part of the same suspension physics packet.
+
+### 3. Missing Checks Identified (Gaps)
+
+While you handled Load and Grip, there are **two specific gaps** regarding suspension data on encrypted cars:
+
+#### Gap A: Road Texture (`mVerticalTireDeflection`)
+*   **Behavior:** If this value is blocked (0.0), the delta (`current - prev`) will be 0.0.
+*   **Result:** **Road Texture will be silent.** You will feel no bumps or curbs.
+*   **Missing Fallback:** There is no code to switch to an alternative source (like Vertical G-Force) if deflection is dead.
+
+#### Gap B: Bottoming Effect (`mRideHeight`)
+*   **Behavior:** If `mRideHeight` is blocked (0.0), the "Scraping" logic checks: `if (min_rh < 0.002)`.
+*   **Result:** **Constant False Positive.** Since $0.0 < 0.002$, the app will think the car is constantly scraping the ground, causing a permanent vibration or "crunch" sound.
+*   **Missing Check:** We need to verify if `mRideHeight` is exactly 0.0 while the car is moving (which is physically impossible) and disable the effect or switch to a fallback.
+
+### Recommendations
+
+1.  **Fix Bottoming:** Add a sanity check. If `mRideHeight` is exactly `0.000`, disable Method A (Scraping) to prevent constant vibration.
+2.  **Fix Road Texture:** If `mVerticalTireDeflection` is static/zero, fallback to using **Vertical G-Force** (`mLocalAccel.y`) through a high-pass filter to generate road noise.
+
+Would you like me to generate a prompt to implement these specific suspension fallbacks?
