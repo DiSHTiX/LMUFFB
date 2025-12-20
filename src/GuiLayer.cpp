@@ -389,12 +389,12 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Text("Haptics (Dynamic)");
     BoolSetting("Progressive Lockup", &engine.m_lockup_enabled);
     if (engine.m_lockup_enabled) {
-        ImGui::SameLine(); FloatSetting("##Lockup", &engine.m_lockup_gain, 0.0f, 20.0f, "Gain: %.2f");
+        ImGui::SameLine(); FloatSetting("##Lockup", &engine.m_lockup_gain, 0.0f, 5.0f, "Gain: %.2f");
     }
     
     BoolSetting("Spin Traction Loss", &engine.m_spin_enabled);
     if (engine.m_spin_enabled) {
-        ImGui::SameLine(); FloatSetting("##Spin", &engine.m_spin_gain, 0.0f, 20.0f, "Gain: %.2f");
+        ImGui::SameLine(); FloatSetting("##Spin", &engine.m_spin_gain, 0.0f, 5.0f, "Gain: %.2f");
     }
     
     // v0.4.5: Manual Slip Calculation Toggle
@@ -406,13 +406,13 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     BoolSetting("Slide Rumble", &engine.m_slide_texture_enabled);
     if (engine.m_slide_texture_enabled) {
         ImGui::Indent();
-        FloatSetting("Slide Gain", &engine.m_slide_texture_gain, 0.0f, 20.0f);
+        FloatSetting("Slide Gain", &engine.m_slide_texture_gain, 0.0f, 5.0f);
         ImGui::Unindent();
     }
     BoolSetting("Road Details", &engine.m_road_texture_enabled);
     if (engine.m_road_texture_enabled) {
         ImGui::Indent();
-        FloatSetting("Road Gain", &engine.m_road_texture_gain, 0.0f, 20.0f);
+        FloatSetting("Road Gain", &engine.m_road_texture_gain, 0.0f, 5.0f);
         ImGui::Unindent();
     }
     

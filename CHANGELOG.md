@@ -8,8 +8,8 @@ All notable changes to this project will be documented in this file.
     - **Previous Behavior**: Frequencies ranged from 40Hz to 250Hz. High frequencies (above 100Hz) are often dampened by rubber belts and interpreted as a subtle "fizz" rather than a gritty rumble.
     - **New Behavior**: Frequency starts at 10Hz (chunky grind) and ramps to 70Hz (fast buzz) based on slip speed. This provides significantly better tactile feedback on hardware like the T300 and G29.
     - **Aliasing Protection**: Lowering the frequency range also improves signal stability relative to the 400Hz physics loop (improving Nyquist headroom).
-- **Unlocked Effect Gain Ranges**: Increased the maximum slider limits for dynamic effects and textures in the GUI from 1.0-5.0 to **20.0**.
-    - This allows users to "punch through" the internal friction and damping of belt-driven gear by boosting the amplitude of micro-vibrations (Slide, Road, Lockup, Spin).
+- **Refined Effect Gain Ranges**: Increased the maximum slider limits for dynamic effects and textures in the GUI from 1.0 to **5.0**.
+    - This provides enough headroom to "punch through" belt friction on high-torque settings while maintaining high precision for fine-tuning. Previously tried 20.0, but found 5.0 to be the ideal balance.
 
 ### Fixed
 - **Slide Texture Scope Expansion**: Updated "Slide Rumble" effect to trigger based on the **maximum** lateral slip of either axle (Front OR Rear).
