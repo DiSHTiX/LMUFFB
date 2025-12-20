@@ -39,6 +39,11 @@ $$
 
 *   **Robustness Check:** If $\text{Front\\_Load} \approx 0.0$ and $|Velocity| > 1.0 m/s$, $\text{Front\\_Load}$ defaults to 4000N to prevent signal dropout.
 *   **Safety Clamp (v0.4.6):** $\text{Front\\_Load\\_Factor}$ is hard-clamped to a maximum of **2.0** (regardless of configuration) to prevent unbounded forces during aero-spikes.
+*   **Adaptive Kinematic Load (v0.4.38):** If telemetry load (`mTireLoad`) AND suspension force (`mSuspForce`) are missing (encrypted content), tire load is estimated kinematically:
+    $$ F_{z} = F_{\text{static}} + F_{\text{aero}} + F_{\text{long\\_transfer}} + F_{\text{lat\\_transfer}} $$
+    *   $F_{\text{static}}$: Mass (1100kg) distributed by weight bias (55% Rear).
+    *   $F_{\text{aero}}$: $K_{\text{aero}} \times V^2$.
+    *   $F_{\text{transfer}}$: Derived from **Smoothed** Chassis Acceleration (simulating inertia).
 
 #### B. Base Force (Understeer / Grip Modulation)
 
@@ -72,9 +77,12 @@ $$
             * Target: Equivalent to $\alpha=0.1$ at 400Hz ($\tau \approx 0.0225s$).
             * Ensures consistent physics response regardless of frame rate.
         * $\text{Slip} = \text{atan2}(V_{\text{lat}}, V_{\text{long}})$
-        * **Refined Formula (v0.4.12):**
-            * $\text{Excess} = \max(0, \text{Slip} - 0.10)$ (Threshold tightened from 0.15)
-            * $\text{Grip} = \max(0.2, 1.0 - (\text{Excess} \times 4.0))$ (Multiplier increased from 2.0)
+        * **Combined Friction Circle (v0.4.38):**
+            * Grip loss is now calculated from the vector sum of Lateral Slip ($\alpha$) and Longitudinal Slip ($\kappa$).
+            * $\text{Metric}_{\text{lat}} = \alpha / 0.10$
+            * $\text{Metric}_{\text{long}} = \kappa / 0.12$
+            * $\text{Combined} = \sqrt{\text{Metric}_{\text{lat}}^2 + \text{Metric}_{\text{long}}^2}$
+            * If $\text{Combined} > 1.0$: $\text{Grip} = 1.0 / (1.0 + (\text{Combined} - 1.0) \times 2.0)$.
         * **Safety Clamp (v0.4.6):** Calculated Grip never drops below **0.2**.
 
 #### C. Seat of Pants (SoP) & Oversteer
@@ -179,9 +187,11 @@ Active if Throttle > 5% and Rear Slip Ratio > 0.2.
 Active if Lateral Patch Velocity > 0.5 m/s.
 *   **Frequency**: $40 + (\text{LateralVel} \times 17.0)$ Hz
 *   **Waveform**: Sawtooth
-*   **Amplitude**: $A = K_{\text{slide}} \times 1.5 \times \text{Front\\_Load\\_Factor}$
-    
-    **Note**: Amplitude scaling changed from 300.0 to 1.5 in v0.4.1 (Nm units).
+*   **Amplitude (Work-Based Scrubbing v0.4.38)**: 
+    $$ A = K_{\text{slide}} \times 1.5 \times \text{Front\\_Load\\_Factor} \times (1.0 - \text{Grip}) $$
+    *   Scales with **Load** (Force pressing tire to road).
+    *   Scales with **Slip** ($1.0 - \text{Grip}$). Scrubbing requires sliding; a gripping tire rolls silent.
+    *   **Note**: Amplitude scaling changed from 300.0 to 1.5 in v0.4.1 (Nm units).
 *   **Force**: $A \times \text{Sawtooth}(\text{phase})$
 
 **4. Road Texture ($F_{\text{vib\\_road}}$)**

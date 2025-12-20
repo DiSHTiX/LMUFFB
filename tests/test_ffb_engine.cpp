@@ -40,6 +40,8 @@ void test_snapshot_data_integrity(); // Forward declaration
 void test_snapshot_data_v049(); // Forward declaration
 void test_rear_force_workaround(); // Forward declaration
 void test_rear_align_effect(); // Forward declaration
+void test_kinematic_load_braking(); // Forward declaration
+void test_combined_grip_loss(); // Forward declaration
 void test_sop_yaw_kick_direction(); // Forward declaration  (v0.4.20)
 void test_zero_effects_leakage(); // Forward declaration
 void test_base_force_modes(); // Forward declaration
@@ -57,6 +59,8 @@ void test_coordinate_all_effects_alignment(); // Forward declaration (v0.4.21)
 void test_regression_phase_explosion(); // Forward declaration (Regression)
 void test_time_corrected_smoothing(); // Forward declaration (v0.4.37)
 void test_gyro_stability(); // Forward declaration (v0.4.37)
+void test_chassis_inertia_smoothing_convergence(); // Forward declaration (v0.4.39)
+void test_kinematic_load_cornering(); // Forward declaration (v0.4.39)
 
 
 
@@ -563,6 +567,8 @@ static void test_slide_texture() {
     std::cout << "\nTest: Slide Texture (Front & Rear)" << std::endl;
     
     // Case 1: Front Slip (Understeer)
+    // v0.4.39 UPDATE: Work-Based Scrubbing requires grip LOSS to generate vibration
+    // Gripping tires (grip=1.0) should NOT scrub, even with high lateral velocity
     {
         FFBEngine engine;
         TelemInfoV01 data;
@@ -576,18 +582,23 @@ static void test_slide_texture() {
         
         data.mSteeringShaftTorque = 0.0;
         
-        // Front Sliding
+        // Front Sliding WITH GRIP LOSS (v0.4.39 Fix)
         data.mWheel[0].mLateralPatchVel = 5.0; 
         data.mWheel[1].mLateralPatchVel = 5.0;
         data.mWheel[2].mLateralPatchVel = 0.0; // Rear Grip
         data.mWheel[3].mLateralPatchVel = 0.0;
         
+        // Set grip to 0.0 to trigger approximation AND grip loss
+        data.mWheel[0].mGripFract = 0.0; // Missing -> Triggers approximation
+        data.mWheel[1].mGripFract = 0.0;
+        data.mWheel[0].mTireLoad = 4000.0; // Valid load (prevents low-speed cutoff)
+        data.mWheel[1].mTireLoad = 4000.0;
+        data.mLocalVel.z = 20.0; // Moving fast (> 5.0 m/s cutoff)
+        
         engine.m_slide_freq_scale = 1.0f;
         
         data.mDeltaTime = 0.013; // 13ms. For 35Hz (5m/s input), period is 28ms. 
                                  // 13ms is ~0.46 period, ensuring non-zero phase advance.
-        data.mWheel[0].mTireLoad = 4000.0; // Full load
-        data.mWheel[1].mTireLoad = 4000.0;
         
         engine.calculate_force(&data); // Cycle 1
         double force = engine.calculate_force(&data); // Cycle 2
@@ -2379,6 +2390,8 @@ int main() {
     test_snapshot_data_v049();
     test_rear_force_workaround();
     test_rear_align_effect();
+    test_kinematic_load_braking();
+    test_combined_grip_loss();
     test_sop_yaw_kick_direction();
     test_zero_effects_leakage();
     test_base_force_modes();
@@ -2397,6 +2410,10 @@ int main() {
     test_regression_phase_explosion(); // Regression
     test_time_corrected_smoothing();
     test_gyro_stability();
+    
+    // Kinematic Load Model Tests (v0.4.39)
+    test_chassis_inertia_smoothing_convergence();
+    test_kinematic_load_cornering();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -3788,5 +3805,216 @@ static void test_gyro_stability() {
     } else {
          std::cout << "[FAIL] Gyro exploded!" << std::endl;
          g_tests_failed++;
+    }
+}
+
+void test_kinematic_load_braking() {
+    std::cout << "\nTest: Kinematic Load Braking (+Z Accel)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup
+    data.mWheel[0].mTireLoad = 0.0; // Trigger Fallback
+    data.mWheel[1].mTireLoad = 0.0;
+    data.mWheel[0].mSuspForce = 0.0; // Trigger Kinematic
+    data.mWheel[1].mSuspForce = 0.0;
+    data.mLocalVel.z = -10.0; // Moving Forward (game: -Z)
+    data.mDeltaTime = 0.01;
+    
+    // Braking: +Z Accel (Rearwards force)
+    data.mLocalAccel.z = 10.0; // ~1G
+    
+    // Run multiple frames to settle Smoothing (alpha ~ 0.2)
+    for (int i=0; i<50; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    auto batch = engine.GetDebugBatch();
+    float load = batch.back().calc_front_load;
+    
+    // Static Weight ~1100kg * 9.81 / 4 ~ 2700N
+    // Transfer: (10.0/9.81) * 2000 ~ 2000N
+    // Total ~ 4700N.
+    
+    // If we were accelerating (-Z), Transfer would be -2000. Total ~ 700N.
+    
+    if (load > 4000.0) {
+        std::cout << "[PASS] Front Load Increased under Braking (Approx " << load << " N)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Front Load did not increase significantly. Value: " << load << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_combined_grip_loss() {
+    std::cout << "\nTest: Combined Friction Circle" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Full Grip Telemetry (1.0), but we force fallback
+    // Wait, fallback only triggers if telemetry grip is 0.
+    data.mWheel[0].mGripFract = 0.0; 
+    data.mWheel[1].mGripFract = 0.0;
+    data.mWheel[0].mTireLoad = 4000.0; // Load present
+    data.mWheel[1].mTireLoad = 4000.0;
+    data.mLocalVel.z = -20.0;
+    
+    // Case 1: Straight Line, No Slip
+    // manual slip ratio ~ 0.
+    data.mWheel[0].mStaticUndeflectedRadius = 30;
+    data.mWheel[0].mRotation = 20.0 / 0.3; // Match speed
+    data.mWheel[1].mStaticUndeflectedRadius = 30;
+    data.mWheel[1].mRotation = 20.0 / 0.3;
+    data.mDeltaTime = 0.01;
+    
+    engine.calculate_force(&data);
+    // Grip should be 1.0 (approximated)
+    
+    // Case 2: Braking Lockup (Slip Ratio -1.0)
+    data.mWheel[0].mRotation = 0.0;
+    data.mWheel[1].mRotation = 0.0;
+    
+    engine.calculate_force(&data);
+    auto batch = engine.GetDebugBatch();
+    float grip = batch.back().calc_front_grip;
+    
+    // Combined slip > 1.0. Grip should drop.
+    if (grip < 0.5) {
+        std::cout << "[PASS] Grip dropped due to Longitudinal Slip (" << grip << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Grip remained high despite lockup. Value: " << grip << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_chassis_inertia_smoothing_convergence() {
+    std::cout << "\nTest: Chassis Inertia Smoothing Convergence (v0.4.39)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Apply constant acceleration
+    data.mLocalAccel.x = 9.81; // 1G lateral (right turn)
+    data.mLocalAccel.z = 9.81; // 1G longitudinal (braking)
+    data.mDeltaTime = 0.0025; // 400Hz
+    
+    // Chassis tau = 0.035s, alpha = dt / (tau + dt)
+    // At 400Hz: alpha = 0.0025 / (0.035 + 0.0025) ≈ 0.0667
+    // After 50 frames (~125ms), should be near steady-state
+    
+    for (int i = 0; i < 50; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    // Check convergence
+    double smoothed_x = engine.m_accel_x_smoothed;
+    double smoothed_z = engine.m_accel_z_smoothed;
+    
+    // Should be close to input (9.81) after 50 frames
+    // Exponential decay: y(t) = target * (1 - e^(-t/tau))
+    // At t = 125ms, tau = 35ms: y = 9.81 * (1 - e^(-3.57)) ≈ 9.81 * 0.972 ≈ 9.53
+    double expected = 9.81 * 0.95; // Allow 5% error
+    
+    if (smoothed_x > expected && smoothed_z > expected) {
+        std::cout << "[PASS] Smoothing converged (X: " << smoothed_x << ", Z: " << smoothed_z << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Smoothing did not converge. X: " << smoothed_x << " Z: " << smoothed_z << " Expected > " << expected << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test decay
+    data.mLocalAccel.x = 0.0;
+    data.mLocalAccel.z = 0.0;
+    
+    for (int i = 0; i < 50; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    smoothed_x = engine.m_accel_x_smoothed;
+    smoothed_z = engine.m_accel_z_smoothed;
+    
+    // Should decay to near zero
+    if (smoothed_x < 0.5 && smoothed_z < 0.5) {
+        std::cout << "[PASS] Smoothing decayed correctly (X: " << smoothed_x << ", Z: " << smoothed_z << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Smoothing did not decay. X: " << smoothed_x << " Z: " << smoothed_z << std::endl;
+        g_tests_failed++;
+    }
+}
+
+void test_kinematic_load_cornering() {
+    std::cout << "\nTest: Kinematic Load Cornering (Lateral Transfer v0.4.39)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Trigger Kinematic Model
+    data.mWheel[0].mTireLoad = 0.0; // Missing
+    data.mWheel[1].mTireLoad = 0.0;
+    data.mWheel[0].mSuspForce = 0.0; // Also missing -> Kinematic
+    data.mWheel[1].mSuspForce = 0.0;
+    data.mLocalVel.z = -20.0; // Moving forward
+    data.mDeltaTime = 0.01;
+    
+    // Right Turn: +X Acceleration (body pushed left)
+    // COORDINATE VERIFICATION: +X = LEFT
+    // Expected: LEFT wheels (outside) gain load, RIGHT wheels (inside) lose load
+    data.mLocalAccel.x = 9.81; // 1G lateral (right turn)
+    
+    // Run multiple frames to settle smoothing
+    for (int i = 0; i < 50; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    // Calculate loads manually to verify
+    double load_fl = engine.calculate_kinematic_load(&data, 0); // Front Left
+    double load_fr = engine.calculate_kinematic_load(&data, 1); // Front Right
+    
+    // Static weight per wheel: 1100 * 9.81 * 0.45 / 2 ≈ 2425N
+    // Lateral transfer: (9.81 / 9.81) * 2000 * 0.6 = 1200N
+    // Left wheel: 2425 + 1200 = 3625N
+    // Right wheel: 2425 - 1200 = 1225N
+    
+    if (load_fl > load_fr) {
+        std::cout << "[PASS] Left wheel has more load in right turn (FL: " << load_fl << "N, FR: " << load_fr << "N)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Lateral transfer incorrect. FL: " << load_fl << " FR: " << load_fr << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Verify magnitude is reasonable (difference should be ~2400N)
+    double diff = load_fl - load_fr;
+    if (diff > 2000.0 && diff < 2800.0) {
+        std::cout << "[PASS] Lateral transfer magnitude reasonable (" << diff << "N)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Lateral transfer magnitude unexpected: " << diff << "N (expected ~2400N)" << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test Left Turn (opposite direction)
+    data.mLocalAccel.x = -9.81; // -1G lateral (left turn)
+    
+    for (int i = 0; i < 50; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    load_fl = engine.calculate_kinematic_load(&data, 0);
+    load_fr = engine.calculate_kinematic_load(&data, 1);
+    
+    // Now RIGHT wheel should have more load
+    if (load_fr > load_fl) {
+        std::cout << "[PASS] Right wheel has more load in left turn (FR: " << load_fr << "N, FL: " << load_fl << "N)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Lateral transfer reversed incorrectly. FL: " << load_fl << " FR: " << load_fr << std::endl;
+        g_tests_failed++;
     }
 }

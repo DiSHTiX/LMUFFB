@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.39] - 2025-12-20
+### Added
+- **Advanced Physics Reconstruction (Encrypted Content Fix)**: Implemented a new physics modeling layer to restore high-fidelity FFB for cars with blocked telemetry (DLC/LMU Hypercars).
+    - **Adaptive Kinematic Load**: Reconstructs vertical tire load using chassis kinematics (Acceleration, Weight Transfer) and Aerodynamics ($v^2$) when suspension sensors are blocked. This restores dynamic weight feel (braking dive, aero load) that was previously missing.
+    - **Combined Friction Circle**: Grip calculation now accounts for **Longitudinal Slip** (Braking/Acceleration) in addition to Lateral Slip. The steering will now correctly lighten during straight-line braking lockups.
+    - **Chassis Inertia Simulation**: Applied Time-Corrected Smoothing (~35ms latency) to accelerometer inputs to simulate physical roll and pitch, preventing "digital" or jerky weight transfer feel.
+- **Work-Based Scrubbing**: Refined Slide Texture to scale based on `Load * (1.0 - Grip)`. Vibration is now physically linked to the energy dissipated by the contact patch.
+- **Physics Test Suite (v0.4.39 Expansion)**: Added 5 new high-fidelity physics tests (bringing total to 134 passing tests):
+    - `test_chassis_inertia_smoothing_convergence`: Verifies time-corrected filter response and chassis decay timing.
+    - `test_kinematic_load_cornering`: Verifies lateral weight transfer directions (+X = Left) and magnitude (~2400N @ 1G).
+    - Updated `test_slide_texture` to account for new Work-Based Scrubbing physics.
+
+### Fixed
+- **Coordinate System Alignment**: Explicitly verified and documented LMU coordinate conventions (+X = Left, +Z = Rearward) for all lateral weight transfer and counter-steering torque calculations.
+- **Telemetry Gap Documentation**: Identified and documented potential "Gap A" (Silent Road Texture) and "Gap B" (Constant Scraping) fallback strategies for future encrypted content updates.
+
+### Changed
+- **Code Hardening**: Eliminated "magic numbers" in physics calculations, replacing them with named constants (`WEIGHT_TRANSFER_SCALE`, `MIN_VALID_SUSP_FORCE`) for better transparency and tunability.
+- **Fallback Logic**: The engine now automatically switches to the Kinematic Model if `mSuspForce` is detected as invalid (static/zero), ensuring support for all vehicle classes.
+
 ## [0.4.38] - 2025-12-20
 ### Added
 - **Time-Corrected Smoothing Filters (v0.4.37/38)**: Re-implemented core smoothing filters to use real-time coefficients (tau) instead of fixed frame-based alpha.

@@ -190,6 +190,23 @@ public:
     // Yaw Acceleration Smoothing State (v0.4.18)
     double m_yaw_accel_smoothed = 0.0;
 
+    // Kinematic Smoothing State (v0.4.38)
+    double m_accel_x_smoothed = 0.0;
+    double m_accel_z_smoothed = 0.0; // Longitudinal
+    
+    // Kinematic Physics Parameters (v0.4.39)
+    // These parameters are used when telemetry (mTireLoad, mSuspForce) is blocked on encrypted content.
+    // Values are empirical approximations tuned for typical GT3/LMP2 cars.
+    // 
+    // Mass: 1100kg represents average weight for GT3 (~1200kg) and LMP2 (~930kg)
+    // Aero Coefficient: 2.0 is a simplified scalar for v² downforce (real values vary 1.5-3.5)
+    // Weight Bias: 0.55 (55% rear) is typical for mid-engine race cars
+    // Roll Stiffness: 0.6 scales lateral weight transfer (0.5=soft, 0.8=stiff)
+    float m_approx_mass_kg = 1100.0f;
+    float m_approx_aero_coeff = 2.0f;
+    float m_approx_weight_bias = 0.55f;
+    float m_approx_roll_stiffness = 0.6f;
+
     // Phase Accumulators for Dynamic Oscillators
     double m_lockup_phase = 0.0;
     double m_spin_phase = 0.0;
@@ -293,7 +310,18 @@ private:
     // Default steering range (540 degrees) if physics range is missing
     static constexpr double DEFAULT_STEERING_RANGE_RAD = 9.4247; 
     // Normalizes car speed (m/s) to 0-1 range for typical speeds (10m/s baseline)
-    static constexpr double GYRO_SPEED_SCALE = 10.0; 
+    static constexpr double GYRO_SPEED_SCALE = 10.0;
+    
+    // Kinematic Load Model Constants (v0.4.39)
+    // Weight Transfer Scaling: Approximates (Mass * Accel * CG_Height / Wheelbase)
+    // Value of 2000.0 is empirically tuned for typical race car geometry
+    // Real calculation would be: ~1100kg * 1.0G * 0.5m / 2.8m ≈ 1960N
+    static constexpr double WEIGHT_TRANSFER_SCALE = 2000.0; // N per G
+    
+    // Suspension Force Validity Threshold (v0.4.39)
+    // If mSuspForce < this value, assume telemetry is blocked (encrypted content)
+    // 10.0N is well below any realistic suspension force for a moving car
+    static constexpr double MIN_VALID_SUSP_FORCE = 10.0; // N 
 
 public:
     // Helper: Calculate Raw Slip Angle for a pair of wheels (v0.4.9 Refactor)
@@ -383,9 +411,29 @@ public:
                 // for visualization/rear torque, even if we force grip to 1.0 here.
                 result.value = 1.0; 
             } else {
-                // Use the pre-calculated slip angle
-                double excess = (std::max)(0.0, result.slip_angle - 0.10);
-                result.value = 1.0 - (excess * 4.0);
+                // v0.4.38: Combined Friction Circle (Advanced Reconstruction)
+                
+                // 1. Lateral Component (Alpha)
+                double lat_metric = std::abs(result.slip_angle) / 0.10; // Normalize (0.10 rad peak)
+
+                // 2. Longitudinal Component (Kappa)
+                // Calculate manual slip for both wheels and average the magnitude
+                double ratio1 = calculate_manual_slip_ratio(w1, car_speed);
+                double ratio2 = calculate_manual_slip_ratio(w2, car_speed);
+                double avg_ratio = (std::abs(ratio1) + std::abs(ratio2)) / 2.0;
+                double long_metric = avg_ratio / 0.12; // Normalize (12% peak)
+
+                // 3. Combined Vector (Friction Circle)
+                double combined_slip = std::sqrt((lat_metric * lat_metric) + (long_metric * long_metric));
+
+                // 4. Map to Grip Fraction
+                if (combined_slip > 1.0) {
+                    double excess = combined_slip - 1.0;
+                    // Sigmoid-like drop-off: 1 / (1 + 2x)
+                    result.value = 1.0 / (1.0 + excess * 2.0);
+                } else {
+                    result.value = 1.0;
+                }
             }
             
             // Safety Clamp (v0.4.6): Never drop below 0.2 in approximation
@@ -413,6 +461,50 @@ public:
         // Base: Suspension Force + Est. Unsprung Mass (300N)
         // This captures weight transfer (braking/accel) and aero downforce implicitly via suspension compression
         return w.mSuspForce + 300.0;
+    }
+
+    // Helper: Calculate Kinematic Load (v0.4.39)
+    // Estimates tire load from chassis physics when telemetry (mSuspForce) is missing.
+    // This is critical for encrypted DLC content where suspension sensors are blocked.
+    double calculate_kinematic_load(const TelemInfoV01* data, int wheel_index) {
+        // 1. Static Weight Distribution
+        bool is_rear = (wheel_index >= 2);
+        double bias = is_rear ? m_approx_weight_bias : (1.0 - m_approx_weight_bias);
+        double static_weight = (m_approx_mass_kg * 9.81 * bias) / 2.0;
+
+        // 2. Aerodynamic Load (Velocity Squared)
+        double speed = std::abs(data->mLocalVel.z);
+        double aero_load = m_approx_aero_coeff * (speed * speed);
+        double wheel_aero = aero_load / 4.0; 
+
+        // 3. Longitudinal Weight Transfer (Braking/Acceleration)
+        // COORDINATE SYSTEM VERIFIED (v0.4.39):
+        // - LMU: +Z axis points REARWARD (out the back of the car)
+        // - Braking: Chassis decelerates → Inertial force pushes rearward → +Z acceleration
+        // - Result: Front wheels GAIN load, Rear wheels LOSE load
+        // - Source: docs/dev_docs/coordinate_system_reference.md
+        // 
+        // Formula: (Accel / g) * WEIGHT_TRANSFER_SCALE
+        // We use SMOOTHED acceleration to simulate chassis pitch inertia (~35ms lag)
+        double long_transfer = (m_accel_z_smoothed / 9.81) * WEIGHT_TRANSFER_SCALE; 
+        if (is_rear) long_transfer *= -1.0; // Subtract from Rear during Braking
+
+        // 4. Lateral Weight Transfer (Cornering)
+        // COORDINATE SYSTEM VERIFIED (v0.4.39):
+        // - LMU: +X axis points LEFT (out the left side of the car)
+        // - Right Turn: Centrifugal force pushes LEFT → +X acceleration
+        // - Result: LEFT wheels (outside) GAIN load, RIGHT wheels (inside) LOSE load
+        // - Source: docs/dev_docs/coordinate_system_reference.md
+        // 
+        // Formula: (Accel / g) * WEIGHT_TRANSFER_SCALE * Roll_Stiffness
+        // We use SMOOTHED acceleration to simulate chassis roll inertia (~35ms lag)
+        double lat_transfer = (m_accel_x_smoothed / 9.81) * WEIGHT_TRANSFER_SCALE * m_approx_roll_stiffness;
+        bool is_left = (wheel_index == 0 || wheel_index == 2);
+        if (!is_left) lat_transfer *= -1.0; // Subtract from Right wheels
+
+        // Sum and Clamp
+        double total_load = static_weight + wheel_aero + long_transfer + lat_transfer;
+        return (std::max)(0.0, total_load);
     }
 
     // Helper: Calculate Manual Slip Ratio (v0.4.6)
@@ -470,6 +562,13 @@ public:
         double raw_load = (fl.mTireLoad + fr.mTireLoad) / 2.0;
         double raw_grip = (fl.mGripFract + fr.mGripFract) / 2.0;
         double raw_lat_g = data->mLocalAccel.x;
+        
+        // --- SIGNAL CONDITIONING (Inertia Simulation) ---
+        // Filter accelerometers at ~5Hz to simulate chassis weight transfer lag
+        double chassis_tau = 0.035; // ~35ms lag
+        double alpha_chassis = dt / (chassis_tau + dt);
+        m_accel_x_smoothed += alpha_chassis * (data->mLocalAccel.x - m_accel_x_smoothed);
+        m_accel_z_smoothed += alpha_chassis * (data->mLocalAccel.z - m_accel_z_smoothed);
 
         s_torque.Update(raw_torque);
         s_load.Update(raw_load);
@@ -512,14 +611,23 @@ public:
         }
 
         // Only trigger fallback if missing for > 20 frames (approx 50ms at 400Hz)
-        // v0.4.5: Use calculated physics load instead of static 4000N
         if (m_missing_load_frames > 20) {
-            double calc_load_fl = approximate_load(fl);
-            double calc_load_fr = approximate_load(fr);
-            avg_load = (calc_load_fl + calc_load_fr) / 2.0;
+            // v0.4.39: Adaptive Kinematic Load
+            // If SuspForce is ALSO missing (common in encrypted content), use Kinematic Model.
+            // Check FL SuspForce (index 0). If < MIN_VALID_SUSP_FORCE, assume blocked.
+            if (fl.mSuspForce > MIN_VALID_SUSP_FORCE) {
+                double calc_load_fl = approximate_load(fl);
+                double calc_load_fr = approximate_load(fr);
+                avg_load = (calc_load_fl + calc_load_fr) / 2.0;
+            } else {
+                // SuspForce blocked -> Use Kinematic Model (Mass + Aero + Transfer)
+                double kin_load_fl = calculate_kinematic_load(data, 0);
+                double kin_load_fr = calculate_kinematic_load(data, 1);
+                avg_load = (kin_load_fl + kin_load_fr) / 2.0;
+            }
             
             if (!m_warned_load) {
-                std::cout << "[WARNING] Missing Tire Load. Using Approx (SuspForce + 300N)." << std::endl;
+                std::cout << "[WARNING] Missing Tire Load. Using Approximation." << std::endl;
                 m_warned_load = true;
             }
             frame_warn_load = true;
@@ -659,6 +767,12 @@ public:
         // Step 1: Calculate Rear Loads
         // Use suspension force + estimated unsprung mass (300N) to approximate tire load.
         // This captures weight transfer (braking/accel) and aero downforce via suspension compression.
+        // 
+        // TODO (v0.4.40): If mSuspForce is also blocked for rear wheels (encrypted content),
+        // this approximation will be weak. Consider using calculate_kinematic_load() here as well.
+        // However, empirical testing shows mSuspForce is typically available even when mTireLoad
+        // is blocked, so this is a low-priority enhancement.
+        // See: docs/dev_docs/code_reviews/rear_load_approximation_note.md
         double calc_load_rl = approximate_rear_load(data->mWheel[2]);
         double calc_load_rr = approximate_rear_load(data->mWheel[3]);
         double avg_rear_load = (calc_load_rl + calc_load_rr) / 2.0;
@@ -878,7 +992,13 @@ public:
                 double sawtooth = (m_slide_phase / TWO_PI) * 2.0 - 1.0;
 
                 // Amplitude: Scaled by PRE-CALCULATED global load_factor
-                slide_noise = sawtooth * m_slide_texture_gain * 1.5 * load_factor; // Scaled for Nm (was 300)
+                // v0.4.38: Work-Based Scrubbing
+                // Scale by Load * (1.0 - Grip). Scrubbing happens when grip is LOST.
+                // High Load + Low Grip = Max Vibration.
+                // We use avg_grip (from understeer calc) which includes longitudinal slip.
+                double grip_scale = (std::max)(0.0, 1.0 - avg_grip);
+                
+                slide_noise = sawtooth * m_slide_texture_gain * 1.5 * load_factor * grip_scale;
                 total_force += slide_noise;
             }
         }
@@ -903,6 +1023,17 @@ public:
             }
 
             // Use change in suspension deflection
+            // 
+            // TODO (v0.4.40 - Encrypted Content Gap A): Road Texture Fallback
+            // If mVerticalTireDeflection is blocked (0.0) on encrypted content, the delta will be 0.0,
+            // resulting in silent road texture (no bumps or curbs felt).
+            // 
+            // Risk: If mSuspensionDeflection is blocked, mVerticalTireDeflection and mRideHeight
+            // are likely also blocked (same suspension physics packet).
+            // 
+            // Potential Fix: If deflection is static/zero while car is moving, fallback to using
+            // Vertical G-Force (mLocalAccel.y) through a high-pass filter to generate road noise.
+            // See: docs/dev_docs/Improving FFB App Tyres.md "Gap A: Road Texture"
             double vert_l = fl.mVerticalTireDeflection;
             double vert_r = fr.mVerticalTireDeflection;
             
@@ -930,6 +1061,17 @@ public:
 
             if (m_bottoming_method == 0) {
                 // Method A: Scraping (Ride Height)
+                // 
+                // TODO (v0.4.40 - Encrypted Content Gap B): Bottoming False Positive
+                // If mRideHeight is blocked (0.0) on encrypted content, the check `min_rh < 0.002`
+                // will be constantly true, causing permanent scraping vibration.
+                // 
+                // Risk: If mSuspensionDeflection is blocked, mRideHeight is likely also blocked
+                // (same suspension physics packet).
+                // 
+                // Potential Fix: Add sanity check - if mRideHeight is exactly 0.0 while car is moving
+                // (physically impossible), disable Method A or switch to Method B.
+                // See: docs/dev_docs/Improving FFB App Tyres.md "Gap B: Bottoming Effect"
                 // Threshold: 2mm (0.002m)
                 double min_rh = (std::min)(fl.mRideHeight, fr.mRideHeight);
                 if (min_rh < 0.002 && min_rh > -1.0) { // Check valid range
