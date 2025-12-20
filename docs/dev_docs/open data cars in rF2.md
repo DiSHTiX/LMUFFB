@@ -12,6 +12,13 @@
 * Panoz	AIV Roadster
 * Renault	Clio Cup / Megane	
 
+# Other data that might be blocked for DLC cars
+
+* mSuspensionDeflection
+* mLateralForce
+* mTireLoad
+* mGripFract
+
 # Workaournds for missing data in DLC cars
 
 ## Operational Consequences for Telemetry Analysis**
