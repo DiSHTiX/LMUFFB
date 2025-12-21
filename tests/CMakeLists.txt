@@ -12,3 +12,18 @@ add_executable(run_tests test_ffb_engine.cpp ../src/Config.cpp)
 # Enable testing
 enable_testing()
 add_test(NAME CoreLogicTest COMMAND run_tests)
+
+# Windows-Specific Tests (DirectInput Helpers, Persistence)
+if(WIN32)
+    add_executable(run_tests_win32 
+        test_windows_platform.cpp 
+        ../src/DirectInputFFB.cpp 
+        ../src/Config.cpp
+    )
+    
+    # Link required Windows libraries
+    target_link_libraries(run_tests_win32 dinput8 dxguid version imm32 winmm)
+    
+    # Add to CTest
+    add_test(NAME WindowsPlatformTest COMMAND run_tests_win32)
+endif()

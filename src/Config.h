@@ -189,6 +189,9 @@ public:
     // NEW: Add a user preset
     static void AddUserPreset(const std::string& name, const FFBEngine& engine);
 
+    // NEW: Persist selected device
+    static std::string m_last_device_guid;
+
     // Global App Settings (not part of FFB Physics)
     static bool m_ignore_vjoy_version_warning;
     static bool m_enable_vjoy;        // Acquire vJoy device (Driver Enabled)

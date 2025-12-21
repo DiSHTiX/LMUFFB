@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.44] - 2025-12-21
+### Added
+- **Device Selection Persistence**: The application now remembers your selected steering wheel across restarts.
+    - Automatically scans and matches the last used device GUID on startup.
+    - Saves selections immediately to `config.ini` when changed in the GUI.
+- **Connection Hardening (Smart Reconnect)**: Implemented robust error handling for DirectInput failures.
+    - **Physical Connection Recovery**: Explicitly restarts the FFB motor using `Start(1, 0)` upon re-acquisition, fixing the "silent wheel" issue after Alt-Tab or driver resets.
+    - **Automatic Re-Acquisition**: Detects `DIERR_INPUTLOST` and `DIERR_NOTACQUIRED` to trigger immediate recovery.
+    - **Diagnostics**: Added foreground window logging to the console (rate-limited to 1s) when FFB is lost, helping identify if other apps (like the game) are stealing exclusive priority.
+- **Console Optimization**: Removed the frequent "FFB Output Saturated" warning to declutter the console for critical connection diagnostics.
+
 ## [0.4.43] - 2025-12-21
 ### Added
 - **Static Notch Filter**: Implemented a surgical static notch filter to eliminate constant-frequency mechanical hum or vibration.

@@ -46,6 +46,9 @@ endif()
 #    link_directories(${VJOY_SDK_DIR}/lib/i386)
 # endif()
 
+# Tests
+add_subdirectory(tests)
+
 add_executable(LMUFFB main.cpp src/GuiLayer.cpp src/GuiLayer.h src/Config.cpp src/Config.h src/DirectInputFFB.cpp src/DirectInputFFB.h src/GameConnector.cpp src/GameConnector.h src/DynamicVJoy.h ${IMGUI_SOURCES})
 
 target_link_libraries(LMUFFB dinput8.lib dxguid.lib winmm.lib)

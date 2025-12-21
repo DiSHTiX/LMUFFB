@@ -1,10 +1,22 @@
 #include "DirectInputFFB.h"
+
+// Standard Library Headers
 #include <iostream>
 #include <cmath>
+#include <cstdio> // For sscanf, sprintf
+#include <algorithm> // For std::max, std::min
 
+// Platform-Specific Headers
 #ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
 #include <dinput.h>
 #endif
+
+// Constants
+namespace {
+    constexpr DWORD DIAGNOSTIC_LOG_INTERVAL_MS = 1000; // Rate limit diagnostic logging to 1 second
+}
 
 // Keep existing implementations
 DirectInputFFB& DirectInputFFB::Get() {
@@ -13,6 +25,48 @@ DirectInputFFB& DirectInputFFB::Get() {
 }
 
 DirectInputFFB::DirectInputFFB() {}
+
+// NEW: Helper to get foreground window title for diagnostics
+std::string DirectInputFFB::GetActiveWindowTitle() {
+#ifdef _WIN32
+    char wnd_title[256];
+    HWND hwnd = GetForegroundWindow();
+    if (hwnd) {
+        GetWindowTextA(hwnd, wnd_title, sizeof(wnd_title));
+        return std::string(wnd_title);
+    }
+#endif
+    return "Unknown";
+}
+
+// NEW: Helper Implementations for GUID
+std::string DirectInputFFB::GuidToString(const GUID& guid) {
+    char buf[64];
+    sprintf_s(buf, "{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
+        guid.Data1, guid.Data2, guid.Data3,
+        guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+        guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+    return std::string(buf);
+}
+
+GUID DirectInputFFB::StringToGuid(const std::string& str) {
+    GUID guid = { 0 };
+    if (str.empty()) return guid;
+    unsigned long p0;
+    unsigned int p1, p2, p3, p4, p5, p6, p7, p8, p9, p10;
+    int n = sscanf_s(str.c_str(), "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        &p0, &p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9, &p10);
+    if (n == 11) {
+        guid.Data1 = p0;
+        guid.Data2 = (unsigned short)p1;
+        guid.Data3 = (unsigned short)p2;
+        guid.Data4[0] = (unsigned char)p3; guid.Data4[1] = (unsigned char)p4;
+        guid.Data4[2] = (unsigned char)p5; guid.Data4[3] = (unsigned char)p6;
+        guid.Data4[4] = (unsigned char)p7; guid.Data4[5] = (unsigned char)p8;
+        guid.Data4[6] = (unsigned char)p9; guid.Data4[7] = (unsigned char)p10;
+    }
+    return guid;
+}
 
 DirectInputFFB::~DirectInputFFB() {
     Shutdown();
@@ -204,16 +258,18 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
     if (!m_active) return;
 
     // Sanity Check: If 0.0, stop effect to prevent residual hum
-    // Actually DirectInput 0 means center/off for Constant Force.
     if (std::abs(normalizedForce) < 0.00001) normalizedForce = 0.0;
 
-    // Safety Check: Saturation
+    // --- DECLUTTERING: REMOVED CLIPPING WARNING ---
+    /*
     if (std::abs(normalizedForce) > 0.99) {
         static int clip_log = 0;
-        if (clip_log++ % 400 == 0) { // Log approx once per second at 400Hz
-            std::cout << "[DI] WARNING: FFB Output Saturated (Clipping). Force: " << normalizedForce << ". Reduce Gain or increase Max Torque Ref." << std::endl;
+        if (clip_log++ % 400 == 0) { 
+            std::cout << "[DI] WARNING: FFB Output Saturated..." << std::endl;
         }
     }
+    */
+    // ----------------------------------------------
 
     // Clamp
     normalizedForce = (std::max)(-1.0, (std::min)(1.0, normalizedForce));
@@ -233,31 +289,51 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
         DIEFFECT eff;
         ZeroMemory(&eff, sizeof(eff));
         eff.dwSize = sizeof(DIEFFECT);
-        // We use DIEP_TYPESPECIFICPARAMS because we are only updating the Magnitude (Specific to ConstantForce).
-        // This is more efficient than updating the entire envelope or direction.
         eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
         eff.lpvTypeSpecificParams = &cf;
         
-        // Update parameters only (magnitude changes).
-        // DO NOT pass DIEP_START here as it restarts the envelope and can cause clicks/latency.
-        // The effect is started once in CreateEffect() and runs continuously.
-        // If device is lost, the re-acquisition logic below will restart it properly.
+        // Try to update parameters
         HRESULT hr = m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
         
-        if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) {
-            // Try to re-acquire once
-            HRESULT hrAcq = m_pDevice->Acquire();
-            if (SUCCEEDED(hrAcq)) {
-                // If we re-acquired, we might need to restart effect, or maybe just set params.
-                // Safest to SetParams and assume continuous play, but CreateEffect handles Start(1,0).
-                // If logic suggests effect stopped, we can explicitly start if needed, but avoid DIEP_START loop.
-                m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
-            } else if (hrAcq == DIERR_OTHERAPPHASPRIO) {
-                static int log_limit = 0;
-                if (log_limit++ % 400 == 0) { // Log once per sec approx
-                    std::cerr << "[DI Warning] Device unavailable. LMU (or another app) has Exclusive Priority. " 
-                              << "You may have a 'Double FFB' conflict." << std::endl;
-                }
+        // --- DIAGNOSTIC & RECOVERY LOGIC ---
+        if (FAILED(hr)) {
+            // 1. Identify the Error
+            std::string errorType = "Unknown";
+            bool recoverable = false;
+
+            if (hr == DIERR_INPUTLOST) {
+                errorType = "DIERR_INPUTLOST (Physical disconnect or Driver reset)";
+                recoverable = true;
+            } else if (hr == DIERR_NOTACQUIRED) {
+                errorType = "DIERR_NOTACQUIRED (Lost focus/lock)";
+                recoverable = true;
+            } else if (hr == DIERR_OTHERAPPHASPRIO) {
+                errorType = "DIERR_OTHERAPPHASPRIO (Another app stole the device!)";
+                recoverable = true;
+            }
+
+            // 2. Log the Context (Rate limited)
+            static DWORD lastLogTime = 0;
+            if (GetTickCount() - lastLogTime > DIAGNOSTIC_LOG_INTERVAL_MS) {
+                std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType << std::endl;
+                std::cerr << "           Active Window: [" << GetActiveWindowTitle() << "]" << std::endl;
+                lastLogTime = GetTickCount();
+            }
+
+            // 3. Attempt Recovery
+            if (recoverable) {
+                HRESULT hrAcq = m_pDevice->Acquire();
+                
+                if (SUCCEEDED(hrAcq)) {
+                    std::cout << "[DI RECOVERY] Device Re-Acquired successfully." << std::endl;
+                    
+                    // CRITICAL FIX: Restart the effect
+                    // Often, re-acquiring is not enough; the effect must be restarted.
+                    m_pEffect->Start(1, 0); 
+                    
+                    // Retry the update immediately
+                    m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+                } 
             }
         }
     }

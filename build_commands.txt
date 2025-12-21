@@ -7,6 +7,15 @@
 ## Compile and run tests in one command
 & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cl /EHsc /std:c++17 /I.. tests\test_ffb_engine.cpp src\Config.cpp /Fe:tests\test_ffb_engine.exe; tests\test_ffb_engine.exe 2>&1 | Tee-Object -FilePath tmp\test_results.txt
 
+# Include windows tests
+
+& 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; `
+cl /EHsc /std:c++17 /I.. /D_CRT_SECURE_NO_WARNINGS tests\test_ffb_engine.cpp src\Config.cpp /Fe:tests\test_ffb_engine.exe; `
+tests\test_ffb_engine.exe; `
+cl /EHsc /std:c++17 /I.. /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS tests\test_windows_platform.cpp src\DirectInputFFB.cpp src\Config.cpp dinput8.lib dxguid.lib winmm.lib version.lib imm32.lib user32.lib ole32.lib /Fe:tests\test_windows_platform.exe; `
+tests\test_windows_platform.exe
+
+
 # Prerequisites
 
 Enable run scripts in powershell:

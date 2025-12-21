@@ -43,6 +43,11 @@ public:
     // Update the Constant Force effect (-1.0 to 1.0)
     void UpdateForce(double normalizedForce);
 
+    // NEW: Helpers for Config persistence
+    static std::string GuidToString(const GUID& guid);
+    static GUID StringToGuid(const std::string& str);
+    static std::string GetActiveWindowTitle();
+
     bool IsActive() const { return m_active; }
     std::string GetCurrentDeviceName() const { return m_deviceName; }
     
