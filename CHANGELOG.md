@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.42] - 2025-12-21
+### Added
+- **Yaw Kick Signal Conditioning**: Implemented filters to eliminate constant "physics noise" from the Yaw Kick effect.
+    - **Low Speed Cutoff**: Mutes the effect when moving slower than 5 m/s (18 kph) to prevent engine idle vibration and parking lot jitters.
+    - **Noise Gate (Deadzone)**: Filters out micro-rotations below 0.2 rad/s² to ensure the "Kick" only triggers during significant events (like slide initiation).
+    - **Technical Impact**: Resolves the "muddy" FFB feeling caused by constant background noise, making the counter-steering cue much clearer.
+- **Unit Tests**: Added `test_yaw_kick_signal_conditioning` to verify the new filtering logic handling.
+
 ## [0.4.41] - 2025-12-21
 ### Added
 - **Dynamic Notch Filter (Flatspot Suppression)**: Implemented a speed-tracking notch filter to surgically remove vibrations linked to wheel rotation frequency (e.g., flat spots, unbalanced tires).

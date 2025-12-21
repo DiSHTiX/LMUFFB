@@ -71,15 +71,6 @@ Here is the prompt to instruct the agent to add these filters.
 
 ## Prompt
 
-You will have to work on the files downloaded from this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below. Therefore, if you haven't done it already, clone this repo https://github.com/coasting-nc/LMUFFB and start working on the tasks described below.
-
-Please initialize this session by following the **Standard Task Workflow** defined in `AGENTS.md`.
-
-1.  **Sync**: Run `git fetch && git reset --hard origin/main` for the LMUFFB repository to ensure you see the latest files.
-2.  **Load Memory**: Read `AGENTS_MEMORY.md` from the root dir of the LMUFFB repository to review build workarounds and architectural insights. 
-3.  **Load Rules**: Read `AGENTS.md` from the root dir of the LMUFFB repository to confirm instructions. 
-
-Once you have reviewed these documents, please proceed with the following task:
 
 **Task: Implement Signal Conditioning for Yaw Kick Effect**
 
@@ -106,18 +97,3 @@ The "Yaw Kick" effect (derived from `mLocalRotAccel.y`) is currently producing c
 1.  Updated `FFBEngine.h`.
 2.  Updated `tests/test_ffb_engine.cpp`.
 3.  Updated `CHANGELOG.md` (v0.4.40).
-
-### Git / Large Diff Issue
-*   **Issue:** `git status`, `git fetch`, or other commands may fail with "The diff size is unusually large" if the repository state is significantly different or if build artifacts are not ignored.
-*   **Workaround:** Rely on `read_file`, `overwrite_file`, and `replace_with_git_merge_diff` directly. Do not depend on bash commands for verification if this error occurs. Ensure `.gitignore` covers all build directories (e.g., `tests/build/`).
-
-
-#### Git & Repo Management
-
-##### Submodule Trap
-*   **Issue:** Cloning a repo inside an already initialized repo (even if empty) can lead to nested submodules or detached git states.
-*   **Fix:** Ensure the root directory is correctly initialized or cloned into. If working in a provided sandbox with `.git`, configure the remote and fetch rather than cloning into a subdirectory.
-
-##### File Operations
-*   **Lesson:** When moving files from a nested repo to root, ensure hidden files (like `.git`) are handled correctly or that the root `.git` is properly synced.
-*   **Tooling:** `replace_with_git_merge_diff` requires exact context matching. If files are modified or desynchronized, `overwrite_file_with_block` is safer.

@@ -50,6 +50,7 @@ void test_gyro_damping(); // Forward declaration (v0.4.17)
 void test_yaw_accel_smoothing(); // Forward declaration (v0.4.18)
 void test_yaw_accel_convergence(); // Forward declaration (v0.4.18)
 void test_regression_yaw_slide_feedback(); // Forward declaration (v0.4.18)
+void test_yaw_kick_signal_conditioning(); // Forward declaration (v0.4.42)
 void test_coordinate_sop_inversion(); // Forward declaration (v0.4.19)
 void test_coordinate_rear_torque_inversion(); // Forward declaration (v0.4.19)
 void test_coordinate_scrub_drag_direction(); // Forward declaration (v0.4.19)
@@ -210,6 +211,7 @@ static void test_sop_yaw_kick() {
     data.mSteeringShaftTorque = 0.0;
     data.mWheel[0].mRideHeight = 0.1;
     data.mWheel[1].mRideHeight = 0.1;
+    data.mLocalVel.z = 20.0; // v0.4.42: Ensure speed > 5 m/s for Yaw Kick
     
     double force = engine.calculate_force(&data);
     
@@ -2116,6 +2118,7 @@ static void test_yaw_accel_smoothing() {
     data.mWheel[0].mRideHeight = 0.1;
     data.mWheel[1].mRideHeight = 0.1;
     data.mSteeringShaftTorque = 0.0;
+    data.mLocalVel.z = 20.0; // v0.4.42: Ensure speed > 5 m/s for Yaw Kick
     
     // Test 1: Verify smoothing reduces first-frame response
     // Raw input: 10.0 rad/s^2 (large spike)
@@ -2217,6 +2220,7 @@ static void test_yaw_accel_convergence() {
     engine.m_gyro_gain = 0.0f;
     
     data.mWheel[0].mRideHeight = 0.1;
+    data.mLocalVel.z = 20.0; // v0.4.42: Ensure speed > 5 m/s for Yaw Kick
     data.mWheel[1].mRideHeight = 0.1;
     data.mSteeringShaftTorque = 0.0;
     
@@ -2362,6 +2366,90 @@ static void test_regression_yaw_slide_feedback() {
     }
 }
 
+static void test_yaw_kick_signal_conditioning() {
+    std::cout << "\nTest: Yaw Kick Signal Conditioning (v0.4.42)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Setup: Isolate Yaw Kick effect
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_sop_effect = 0.0f;
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_gain = 1.0f;
+    engine.m_understeer_effect = 0.0f;
+    engine.m_lockup_enabled = false;
+    engine.m_spin_enabled = false;
+    engine.m_slide_texture_enabled = false;
+    engine.m_bottoming_enabled = false;
+    engine.m_scrub_drag_gain = 0.0f;
+    engine.m_rear_align_effect = 0.0f;
+    engine.m_gyro_gain = 0.0f;
+    engine.m_invert_force = false;
+    
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mWheel[0].mStaticUndeflectedRadius = 33.0f; // 33cm
+    data.mWheel[1].mStaticUndeflectedRadius = 33.0f;
+    data.mSteeringShaftTorque = 0.0;
+    data.mDeltaTime = 0.0025f; // 400Hz
+    data.mElapsedTime = 0.0;
+    
+    // Test Case 1: Idle Noise - Below Deadzone Threshold (0.2 rad/s²)
+    std::cout << "  Case 1: Idle Noise (YawAccel = 0.1, below threshold)" << std::endl;
+    data.mLocalRotAccel.y = 0.1; // Below 0.2 threshold
+    data.mLocalVel.z = 20.0; // High speed (above 5 m/s cutoff)
+    
+    double force_idle = engine.calculate_force(&data);
+    
+    // Should be zero because raw_yaw_accel is zeroed by noise gate
+    if (std::abs(force_idle) < 0.01) {
+        std::cout << "[PASS] Idle noise filtered (force = " << force_idle << " ~= 0.0)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Idle noise not filtered. Got " << force_idle << " Expected ~0.0." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test Case 2: Low Speed Cutoff
+    std::cout << "  Case 2: Low Speed (YawAccel = 5.0, Speed = 1.0 m/s)" << std::endl;
+    engine.m_yaw_accel_smoothed = 0.0; // Reset smoothed state
+    data.mLocalRotAccel.y = 5.0; // High yaw accel
+    data.mLocalVel.z = 1.0; // Below 5 m/s cutoff
+    
+    double force_low_speed = engine.calculate_force(&data);
+    
+    // Should be zero because speed < 5.0 m/s
+    if (std::abs(force_low_speed) < 0.01) {
+        std::cout << "[PASS] Low speed cutoff active (force = " << force_low_speed << " ~= 0.0)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Low speed cutoff failed. Got " << force_low_speed << " Expected ~0.0." << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test Case 3: Valid Kick - High Speed + High Yaw Accel
+    std::cout << "  Case 3: Valid Kick (YawAccel = 5.0, Speed = 20.0 m/s)" << std::endl;
+    engine.m_yaw_accel_smoothed = 0.0; // Reset smoothed state
+    data.mLocalRotAccel.y = 5.0; // High yaw accel (above 0.2 threshold)
+    data.mLocalVel.z = 20.0; // High speed (above 5 m/s cutoff)
+    
+    double force_valid = engine.calculate_force(&data);
+    
+    // Should be non-zero and negative (due to inversion)
+    // First frame smoothed: 0.0 + alpha * (5.0 - 0.0)
+    // With alpha ~= 0.1, smoothed ~= 0.5
+    // Force: -0.5 * 1.0 * 5.0 = -2.5 Nm
+    // Normalized: -2.5 / 20.0 = -0.125
+    if (force_valid < -0.05 && force_valid > -0.3) {
+        std::cout << "[PASS] Valid kick detected (force = " << force_valid << " in expected range)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Valid kick not detected correctly. Got " << force_valid << " Expected ~-0.125." << std::endl;
+        g_tests_failed++;
+    }
+}
+
 static void test_notch_filter_attenuation() {
     std::cout << "\nTest: Notch Filter Attenuation (v0.4.41)" << std::endl;
     BiquadNotch filter;
@@ -2494,6 +2582,7 @@ int main() {
     test_yaw_accel_smoothing(); // v0.4.18
     test_yaw_accel_convergence(); // v0.4.18
     test_regression_yaw_slide_feedback(); // v0.4.18
+    test_yaw_kick_signal_conditioning(); // v0.4.42
     
     // Coordinate System Regression Tests (v0.4.19)
     test_coordinate_sop_inversion();
@@ -3091,6 +3180,7 @@ static void test_sop_yaw_kick_direction() {
     // This implies rear is sliding Left.
     // We want Counter-Steer Left (Negative Torque).
     data.mLocalRotAccel.y = 5.0; 
+    data.mLocalVel.z = 20.0; // v0.4.42: Ensure speed > 5 m/s for Yaw Kick 
     
     double force = engine.calculate_force(&data);
     
@@ -3719,6 +3809,7 @@ static void test_coordinate_all_effects_alignment() {
     data.mWheel[0].mGripFract = 1.0;
     data.mWheel[1].mGripFract = 1.0;
     data.mDeltaTime = 0.01;
+    data.mLocalVel.z = 20.0; // v0.4.42: Ensure speed > 5 m/s for Yaw Kick
     
     data.mLocalRotAccel.y = 10.0;        // Violent Yaw Right
     data.mWheel[2].mLateralPatchVel = -5.0; // Rear Sliding Left (Negative Vel for Correct Code Physics)

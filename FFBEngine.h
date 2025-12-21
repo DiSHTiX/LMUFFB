@@ -953,6 +953,17 @@ public:
         // SOLUTION: Smooth the yaw acceleration to filter out high-frequency noise while keeping low-frequency signal
         double raw_yaw_accel = data->mLocalRotAccel.y;
         
+        // v0.4.42: Signal Conditioning - Eliminate idle jitter and road noise
+        // Low Speed Cutoff: Mute below 5 m/s (18 kph) to prevent parking lot jitter
+        if (car_v_long < 5.0) {
+            raw_yaw_accel = 0.0;
+        }
+        // Noise Gate (Deadzone): Filter out micro-corrections and road bumps
+        // Real slides generate >> 2.0 rad/s², road noise is typically < 0.2 rad/s²
+        else if (std::abs(raw_yaw_accel) < 0.2) {
+            raw_yaw_accel = 0.0;
+        }
+        
         // Apply Smoothing (Low Pass Filter)
         // v0.4.37: Time Corrected Alpha
         // Target: Alpha 0.1 at 400Hz (dt=0.0025). 
