@@ -374,6 +374,13 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             }
             ImGui::Unindent();
         }
+        
+        // Frequency Diagnostics
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0, 1, 1, 1), "Est. Freq: %.1f Hz | Theory: %.1f Hz", engine.m_debug_freq, engine.m_theoretical_freq);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Matching values indicate a speed-dependent vibration (flat spot).");
+        }
         ImGui::TreePop();
     }
 
@@ -1105,21 +1112,6 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
                       "Longitudinal Velocity at Contact Patch (Rear)");
 
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Signal Analysis");
-        if (!snapshots.empty()) {
-            float freq = snapshots.back().debug_freq;
-            ImGui::Text("Est. Vibration Freq: %.1f Hz", freq);
-
-            float speed = std::abs(snapshots.back().raw_car_speed);
-            // Use actual tire radius from telemetry (with 0.33m fallback)
-            float radius = snapshots.back().tire_radius;
-            if (radius < 0.1f) radius = 0.33f; // Safety fallback
-            float theoretical = speed / (2.0f * 3.14159f * radius);
-            ImGui::Text("Theoretical Wheel Freq: %.1f Hz", theoretical);
-        } else {
-            ImGui::Text("Est. Vibration Freq: 0.0 Hz");
-            ImGui::Text("Theoretical Wheel Freq: 0.0 Hz");
-        }
 
         ImGui::Columns(1);
     }

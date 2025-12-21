@@ -218,6 +218,7 @@ public:
     
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
+    double m_theoretical_freq = 0.0; // Theoretical wheel frequency for GUI
 
     // Warning States (Console logging)
     bool m_warned_load = false;
@@ -659,21 +660,25 @@ public:
 
 
         // 2. Dynamic Notch Filter Logic
+        // Calculate Wheel Frequency (always, for GUI display)
+        double car_v_long = std::abs(data->mLocalVel.z);
+        
+        // Get radius (convert cm to m)
+        // Use Front Left as reference
+        const TelemWheelV01& fl_ref = data->mWheel[0];
+        double radius = (double)fl_ref.mStaticUndeflectedRadius / 100.0;
+        if (radius < 0.1) radius = 0.33; // Safety fallback
+        
+        double circumference = 2.0 * PI * radius;
+        
+        // Avoid divide by zero
+        double wheel_freq = (circumference > 0.0) ? (car_v_long / circumference) : 0.0;
+        
+        // Store for GUI display
+        m_theoretical_freq = wheel_freq;
+        
+        // Apply filter if enabled
         if (m_flatspot_suppression) {
-            // Calculate Wheel Frequency
-            double car_v_long = std::abs(data->mLocalVel.z);
-            
-            // Get radius (convert cm to m)
-            // Use Front Left as reference
-            const TelemWheelV01& fl_ref = data->mWheel[0];
-            double radius = (double)fl_ref.mStaticUndeflectedRadius / 100.0;
-            if (radius < 0.1) radius = 0.33; // Safety fallback
-            
-            double circumference = 2.0 * PI * radius;
-            
-            // Avoid divide by zero
-            double wheel_freq = (circumference > 0.0) ? (car_v_long / circumference) : 0.0;
-
             // Only filter if moving fast enough (> 1Hz)
             if (wheel_freq > 1.0) {
                 // Update filter coefficients
