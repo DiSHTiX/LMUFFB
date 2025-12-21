@@ -5,7 +5,7 @@
 
 ---
 
-![lmuFFB GUI](docs/screenshots/Signal Filtering.png)
+![lmuFFB GUI](screenshots/Signal%20Filtering.png)
 
 ## What Is It?
 
