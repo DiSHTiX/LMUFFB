@@ -359,6 +359,25 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The torque value that equals 100%% FFB output.\nIncrease this to WEAKEN the FFB (make it lighter).\nFor T300/G29, try 40-100 Nm.");
 
     ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+    if (ImGui::TreeNode("Signal Filtering")) {
+        // Notch Filter Controls
+        BoolSetting("Dynamic Flatspot Suppression", &engine.m_flatspot_suppression);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Removes vibrations linked to wheel speed (e.g. flat spots)\nusing a zero-latency tracking filter.");
+        }
+
+        if (engine.m_flatspot_suppression) {
+            ImGui::Indent();
+            FloatSetting("Notch Width (Q)", &engine.m_notch_q, 0.5f, 10.0f, "Q: %.1f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Controls filter precision.\n2.0 = Balanced.\n>2.0 = Narrower (Surgical).\n<2.0 = Wider (Softer).");
+            }
+            ImGui::Unindent();
+        }
+        ImGui::TreePop();
+    }
+
+    ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     if (ImGui::TreeNode("Advanced Tuning")) {
         // Base Force Mode (v0.4.13)
         const char* base_modes[] = { "Native (Physics)", "Synthetic (Constant)", "Muted (Off)" };
@@ -1084,6 +1103,23 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
 
         PlotWithStats("Avg Rear Long PatchVel", plot_raw_rear_long_patch_vel, -20.0f, 20.0f, ImVec2(0, 40),
                       "Longitudinal Velocity at Contact Patch (Rear)");
+
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Signal Analysis");
+        if (!snapshots.empty()) {
+            float freq = snapshots.back().debug_freq;
+            ImGui::Text("Est. Vibration Freq: %.1f Hz", freq);
+
+            float speed = std::abs(snapshots.back().raw_car_speed);
+            // Use actual tire radius from telemetry (with 0.33m fallback)
+            float radius = snapshots.back().tire_radius;
+            if (radius < 0.1f) radius = 0.33f; // Safety fallback
+            float theoretical = speed / (2.0f * 3.14159f * radius);
+            ImGui::Text("Theoretical Wheel Freq: %.1f Hz", theoretical);
+        } else {
+            ImGui::Text("Est. Vibration Freq: 0.0 Hz");
+            ImGui::Text("Theoretical Wheel Freq: 0.0 Hz");
+        }
 
         ImGui::Columns(1);
     }

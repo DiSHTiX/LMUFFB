@@ -340,6 +340,8 @@ void Config::LoadPresets() {
                         else if (key == "slip_angle_smoothing") current_preset.slip_smoothing = std::stof(value);
                         else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
                         else if (key == "gyro_gain") current_preset.gyro_gain = std::stof(value);
+                        else if (key == "flatspot_suppression") current_preset.flatspot_suppression = std::stoi(value);
+                        else if (key == "notch_q") current_preset.notch_q = std::stof(value);
                     } catch (...) {}
                 }
             }
@@ -415,6 +417,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "steering_shaft_gain=" << engine.m_steering_shaft_gain << "\n";
         file << "base_force_mode=" << engine.m_base_force_mode << "\n";
         file << "gyro_gain=" << engine.m_gyro_gain << "\n";
+        file << "flatspot_suppression=" << engine.m_flatspot_suppression << "\n";
+        file << "notch_q=" << engine.m_notch_q << "\n";
         
         // 3. User Presets
         file << "\n[Presets]\n";
@@ -448,6 +452,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "steering_shaft_gain=" << p.steering_shaft_gain << "\n";
                 file << "base_force_mode=" << p.base_force_mode << "\n";
                 file << "gyro_gain=" << p.gyro_gain << "\n";
+                file << "flatspot_suppression=" << p.flatspot_suppression << "\n";
+                file << "notch_q=" << p.notch_q << "\n";
                 file << "\n";
             }
         }
@@ -511,6 +517,8 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
                     else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
                     else if (key == "gyro_gain") engine.m_gyro_gain = std::stof(value);
+                    else if (key == "flatspot_suppression") engine.m_flatspot_suppression = std::stoi(value);
+                    else if (key == "notch_q") engine.m_notch_q = std::stof(value);
                 } catch (...) {
                     std::cerr << "[Config] Error parsing line: " << line << std::endl;
                 }

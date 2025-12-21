@@ -262,10 +262,34 @@
 3.  **What to feel:**
     *   *The Cue:* A rapid, mechanical rattling or pulsing vibration.
     *   *Physics Check:* Since ABS prevents full lockup, the `Slip Ratio` will oscillate rapidly. The FFB should reflect this with a "Rattle" rather than a continuous "Screech."
-    
+
 ---
 
-### Effects currently missing in lmuFFB v0.4.25
+### 11. Dynamic Flatspot Suppression (Notch Filter)
+
+**What is it?** A surgically precise filter that tracks your wheel's rotational frequency and removes the specific vibration caused by flat spots or unbalanced tires. Unlike standard smoothing, it has **zero latency** and does not dull the rest of the FFB.
+
+**The Goal:** A perfectly "clean" steering wheel at high speeds, even if you have flat-spotted your tires earlier in the race.
+
+**Quick Setup:**
+1.  Open **Tuning Window** -> **Signal Filtering**.
+2.  Check **"Dynamic Flatspot Suppression"**.
+3.  Set **"Notch Width (Q)"** to **2.0** (Default).
+
+**The Test:**
+1.  **Create the Flatspot:** Perform an extreme braking lockup (as in Section 4). Hold the brakes until the car almost stops.
+2.  **Verify the Vibration:** Drive at **120 km/h**. With the filter **OFF**, you should feel a rhythmic "thud-thud-thud" or "buzz" in the wheel that speeds up with the car.
+3.  **Activate Suppression:** Toggle the filter **ON**.
+4.  **What to feel:**
+    *   *The Cue:* The rhythmic vibration should instantly vanish or be greatly reduced.
+    *   *Correct Behavior:* The steering should still feel sharp and you should still feel "Random" road bumps (which are at different frequencies). Only the "Speed-Linked" vibration is removed.
+5.  **Diagnostic Check:**
+    *   Open the **Debug Window** -> **Signal Analysis**.
+    *   Compare **"Est. Vibration Freq"** with **"Theoretical Wheel Freq"**. If they match, the filter is working on the correct target.
+
+---
+
+### Effects currently missing in lmuFFB v0.4.41
 
 Does LMUFFB produce all the effects described in this video `https://www.youtube.com/watch?v=XHSEAMQgN2c`?
 

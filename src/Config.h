@@ -46,6 +46,10 @@ struct Preset {
     float steering_shaft_gain = 1.0f;
     int base_force_mode = 0; // 0=Native
 
+    // v0.4.41: Signal Filtering
+    bool flatspot_suppression = false;
+    float notch_q = 2.0f;
+
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
     Preset() : name("Unnamed"), is_builtin(false) {} // Default constructor for file loading
@@ -82,6 +86,11 @@ struct Preset {
     
     Preset& SetShaftGain(float v) { steering_shaft_gain = v; return *this; }
     Preset& SetBaseMode(int v) { base_force_mode = v; return *this; }
+    Preset& SetFlatspot(bool enabled, float q = 2.0f) { 
+        flatspot_suppression = enabled; 
+        notch_q = q; 
+        return *this; 
+    }
 
     // Apply this preset to an engine instance
     void Apply(FFBEngine& engine) const {
@@ -112,6 +121,8 @@ struct Preset {
         engine.m_gyro_gain = gyro_gain;
         engine.m_steering_shaft_gain = steering_shaft_gain;
         engine.m_base_force_mode = base_force_mode;
+        engine.m_flatspot_suppression = flatspot_suppression;
+        engine.m_notch_q = notch_q;
     }
 
     // NEW: Capture current engine state into this preset
@@ -143,6 +154,8 @@ struct Preset {
         gyro_gain = engine.m_gyro_gain;
         steering_shaft_gain = engine.m_steering_shaft_gain;
         base_force_mode = engine.m_base_force_mode;
+        flatspot_suppression = engine.m_flatspot_suppression;
+        notch_q = engine.m_notch_q;
     }
 };
 

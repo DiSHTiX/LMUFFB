@@ -61,6 +61,8 @@ void test_time_corrected_smoothing(); // Forward declaration (v0.4.37)
 void test_gyro_stability(); // Forward declaration (v0.4.37)
 void test_chassis_inertia_smoothing_convergence(); // Forward declaration (v0.4.39)
 void test_kinematic_load_cornering(); // Forward declaration (v0.4.39)
+void test_notch_filter_attenuation(); // Forward declaration (v0.4.41)
+void test_frequency_estimator(); // Forward declaration (v0.4.41)
 
 
 
@@ -907,6 +909,15 @@ static void test_multi_effect_interaction() {
     // Default RH to avoid scraping
     data.mWheel[0].mRideHeight = 0.1; data.mWheel[1].mRideHeight = 0.1;
     
+    // Set tire radius for snapshot (v0.4.41)
+    data.mWheel[0].mStaticUndeflectedRadius = 33; // 33cm = 0.33m
+    data.mWheel[1].mStaticUndeflectedRadius = 33;
+    data.mWheel[2].mStaticUndeflectedRadius = 33;
+    data.mWheel[3].mStaticUndeflectedRadius = 33;
+    
+    // Set base steering torque
+    data.mSteeringShaftTorque = 5.0; // 5 Nm base force
+    
     // Enable both lockup and spin
     engine.m_lockup_enabled = true;
     engine.m_lockup_gain = 1.0;
@@ -924,22 +935,29 @@ static void test_multi_effect_interaction() {
     data.mWheel[2].mLongitudinalGroundVel = ground_vel;
     data.mWheel[3].mLongitudinalGroundVel = ground_vel;
 
-    // Front Locked (-0.3 slip)
+    // Front Locked (-0.3 slip ratio)
+    // Slip ratio = PatchVel / GroundVel, so PatchVel = slip_ratio * GroundVel
+    // For -0.3 slip: PatchVel = -0.3 * 20 = -6.0 m/s
     data.mWheel[0].mLongitudinalPatchVel = -0.3 * ground_vel;
     data.mWheel[1].mLongitudinalPatchVel = -0.3 * ground_vel;
     
-    // Rear Spinning (+0.5 slip)
+    // Rear Spinning (+0.5 slip ratio)
+    // For +0.5 slip: PatchVel = 0.5 * 20 = 10.0 m/s
     data.mWheel[2].mLongitudinalPatchVel = 0.5 * ground_vel;
     data.mWheel[3].mLongitudinalPatchVel = 0.5 * ground_vel;
 
     data.mDeltaTime = 0.01;
+    data.mElapsedTime = 0.0; // Initialize elapsed time
     
     // Run multiple frames
-    for (int i = 0; i < 10; i++) {
+    // Note: Using 11 frames instead of 10 to avoid a coincidence where
+    // lockup phase (40Hz at 20m/s) wraps exactly to 0 after 10 frames with dt=0.01.
+    for (int i = 0; i < 11; i++) {
+        data.mElapsedTime += data.mDeltaTime; // Increment time each frame
         engine.calculate_force(&data);
     }
     
-    // Verify both phases advanced
+// Verify both phases advanced
     bool lockup_ok = engine.m_lockup_phase > 0.0;
     bool spin_ok = engine.m_spin_phase > 0.0;
     
@@ -953,7 +971,7 @@ static void test_multi_effect_interaction() {
              g_tests_failed++;
         }
     } else {
-        std::cout << "[FAIL] Effects did not trigger." << std::endl;
+        std::cout << "[FAIL] Effects did not trigger. lockup_phase=" << engine.m_lockup_phase << ", spin_phase=" << engine.m_spin_phase << std::endl;
         g_tests_failed++;
     }
 }
@@ -2344,6 +2362,83 @@ static void test_regression_yaw_slide_feedback() {
     }
 }
 
+static void test_notch_filter_attenuation() {
+    std::cout << "\nTest: Notch Filter Attenuation (v0.4.41)" << std::endl;
+    BiquadNotch filter;
+    double sample_rate = 400.0;
+    double target_freq = 15.0; // 15Hz
+    filter.Update(target_freq, sample_rate, 2.0);
+
+    // 1. Target Frequency: Should be killed
+    double max_amp_target = 0.0;
+    for (int i = 0; i < 400; i++) {
+        double t = (double)i / sample_rate;
+        double in = std::sin(2.0 * 3.14159265 * target_freq * t);
+        double out = filter.Process(in);
+        // Skip initial transient
+        if (i > 100 && std::abs(out) > max_amp_target) max_amp_target = std::abs(out);
+    }
+    
+    if (max_amp_target < 0.1) {
+        std::cout << "[PASS] Notch Filter attenuated target frequency (Max Amp: " << max_amp_target << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Notch Filter did not attenuate target frequency. Max Amp: " << max_amp_target << std::endl;
+        g_tests_failed++;
+    }
+
+    // 2. Off-Target Frequency: Should pass
+    filter.Reset();
+    double pass_freq = 2.0; // 2Hz steering
+    double max_amp_pass = 0.0;
+    for (int i = 0; i < 400; i++) {
+        double t = (double)i / sample_rate;
+        double in = std::sin(2.0 * 3.14159265 * pass_freq * t);
+        double out = filter.Process(in);
+        if (i > 100 && std::abs(out) > max_amp_pass) max_amp_pass = std::abs(out);
+    }
+
+    if (max_amp_pass > 0.8) {
+        std::cout << "[PASS] Notch Filter passed off-target frequency (Max Amp: " << max_amp_pass << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Notch Filter attenuated off-target frequency. Max Amp: " << max_amp_pass << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_frequency_estimator() {
+    std::cout << "\nTest: Frequency Estimator (v0.4.41)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    data.mDeltaTime = 0.0025; // 400Hz
+    double target_freq = 20.0; // 20Hz vibration
+
+    // Run 1 second of simulation
+    for (int i = 0; i < 400; i++) {
+        double t = (double)i * data.mDeltaTime;
+        data.mSteeringShaftTorque = 5.0 * std::sin(2.0 * 3.14159265 * target_freq * t);
+        data.mElapsedTime = t;
+        
+        // Ensure no other effects trigger
+        data.mWheel[0].mRideHeight = 0.1;
+        data.mWheel[1].mRideHeight = 0.1;
+        
+        engine.calculate_force(&data);
+    }
+
+    double estimated = engine.m_debug_freq;
+    if (std::abs(estimated - target_freq) < 1.0) {
+        std::cout << "[PASS] Frequency Estimator converged to " << estimated << " Hz (Target: " << target_freq << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Frequency Estimator mismatch. Got " << estimated << " Hz, Expected ~" << target_freq << std::endl;
+        g_tests_failed++;
+    }
+}
+
 int main() {
     // Regression Tests (v0.4.14)
     test_regression_road_texture_toggle();
@@ -2414,6 +2509,10 @@ int main() {
     // Kinematic Load Model Tests (v0.4.39)
     test_chassis_inertia_smoothing_convergence();
     test_kinematic_load_cornering();
+
+    // Signal Filtering Tests (v0.4.41)
+    test_notch_filter_attenuation();
+    test_frequency_estimator();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

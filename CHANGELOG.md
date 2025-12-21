@@ -2,7 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.40] - 2025-12-21
+## [0.4.41] - 2025-12-21
+### Added
+- **Dynamic Notch Filter (Flatspot Suppression)**: Implemented a speed-tracking notch filter to surgically remove vibrations linked to wheel rotation frequency (e.g., flat spots, unbalanced tires).
+    - **Tracking Logic**: Automatically calculates the notch center frequency based on longitudinal car speed and tire radius ($f = v / 2\pi r$).
+    - **Zero Latency**: Uses a high-precision Biquad IIR filter that removes the offending frequency without adding overall group delay (lag) to the steering signal.
+    - **Configurable Precision**: Added "Notch Width (Q)" slider to control how "narrow" the filter is. High Q values (e.g. 5.0) are surgical; lower values (e.g. 1.0) are softer.
+- **Frequency Estimator (Signal Analysis)**: Added a real-time vibration analyzer using zero-crossing detection.
+    - **Diagnostics**: Displays the "Estimated Vibration Freq" in the Debug Window, allowing users to verify if their FFB vibrations match the wheel's rotational frequency.
+    - **Theoretical Comparison**: Displays the expected wheel frequency based on current speed for quick verification.
+- **Signal Filtering UI**: Added a new "Signal Filtering" section to the Tuning Window.
+- **Enhanced Test Suite**: Added 2 new signal processing tests:
+    - `test_notch_filter_attenuation`: Verifies that the notch filter correctly kills the target frequency while passing steering inputs (2Hz) untouched.
+    - `test_frequency_estimator`: Verifies that the analyzer accurately detects a simulated 20Hz vibration.
+
+### Technical Details
+- **FFBEngine.h**: Added `BiquadNotch` utility struct and integrated tracking logic into the main force calculation.
+- **Config.cpp**: Added persistence for `flatspot_suppression` and `notch_q` settings.
+- **GuiLayer.cpp**: Integrated frequency diagnostics into the "Signal Analysis" debug section.
+
 ### Added
 - **Configurable Slip Angle Smoothing**: Exposed the internal physics smoothing time constant (tau) as a user setting in the "Advanced Tuning" section.
     - Allows users to balance "Physics Response Time" against signal noise for Understeer and Rear Align Torque effects.

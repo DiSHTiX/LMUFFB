@@ -9,6 +9,10 @@
 #include <chrono>
 #include "src/lmu_sm_interface/InternalsPlugin.hpp"
 
+// Mathematical Constants
+static constexpr double PI = 3.14159265358979323846;
+static constexpr double TWO_PI = 2.0 * PI;
+
 // Stats helper
 struct ChannelStats {
     // Session-wide stats (Persistent)
@@ -111,6 +115,52 @@ struct FFBSnapshot {
     bool warn_load;
     bool warn_grip;
     bool warn_dt;
+
+    float debug_freq; // New v0.4.41: Frequency for diagnostics
+    float tire_radius; // New v0.4.41: Tire radius in meters for theoretical freq calculation
+};
+
+struct BiquadNotch {
+    // Coefficients
+    double b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
+    // State history (Inputs x, Outputs y)
+    double x1 = 0.0, x2 = 0.0;
+    double y1 = 0.0, y2 = 0.0;
+
+    // Update coefficients based on dynamic frequency
+    void Update(double center_freq, double sample_rate, double Q) {
+        // Safety: Clamp frequency to Nyquist (sample_rate / 2) and min 1Hz
+        center_freq = (std::max)(1.0, (std::min)(center_freq, sample_rate * 0.49));
+        
+        double omega = 2.0 * PI * center_freq / sample_rate;
+        double sn = std::sin(omega);
+        double cs = std::cos(omega);
+        double alpha = sn / (2.0 * Q);
+
+        double a0 = 1.0 + alpha;
+        
+        // Calculate and Normalize
+        b0 = 1.0 / a0;
+        b1 = (-2.0 * cs) / a0;
+        b2 = 1.0 / a0;
+        a1 = (-2.0 * cs) / a0;
+        a2 = (1.0 - alpha) / a0;
+    }
+
+    // Apply filter to single sample
+    double Process(double in) {
+        double out = b0 * in + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        
+        // Shift history
+        x2 = x1; x1 = in;
+        y2 = y1; y1 = out;
+        
+        return out;
+    }
+    
+    void Reset() {
+        x1 = x2 = y1 = y2 = 0.0;
+    }
 };
 
 // FFB Engine Class
@@ -162,6 +212,13 @@ public:
 
     float m_slip_angle_smoothing = 0.015f; // v0.4.40: Expose tau (Smoothing Time Constant in seconds)
     
+    // v0.4.41: Signal Filtering Settings
+    bool m_flatspot_suppression = false;
+    float m_notch_q = 2.0f; // Default Q-Factor
+    
+    // Signal Diagnostics
+    double m_debug_freq = 0.0; // Estimated frequency for GUI
+
     // Warning States (Console logging)
     bool m_warned_load = false;
     bool m_warned_grip = false;
@@ -226,6 +283,14 @@ public:
     // Smoothing State
     double m_sop_lat_g_smoothed = 0.0;
     
+    // Filter Instances (v0.4.41)
+    BiquadNotch m_notch_filter;
+
+    // Frequency Estimator State (v0.4.41)
+    double m_last_crossing_time = 0.0;
+    double m_torque_ac_smoothed = 0.0; // For High-Pass
+    double m_prev_ac_torque = 0.0;
+
     // Telemetry Stats
     ChannelStats s_torque;
     ChannelStats s_load;
@@ -539,7 +604,6 @@ public:
         if (!data) return 0.0;
         
         double dt = data->mDeltaTime;
-        const double TWO_PI = 6.28318530718;
 
         // Sanity Check Flags for this frame
         bool frame_warn_load = false;
@@ -562,6 +626,66 @@ public:
 
         // Critical: Use mSteeringShaftTorque instead of mSteeringArmForce
         double game_force = data->mSteeringShaftTorque;
+
+        // --- v0.4.41: Frequency Estimator & Dynamic Notch Filter ---
+        
+        // 1. Frequency Estimator Logic
+        // Isolate AC component (Vibration) using simple High Pass (remove DC offset)
+        // Alpha for HPF: fast smoothing to get the "average" center
+        double alpha_hpf = dt / (0.1 + dt); 
+        m_torque_ac_smoothed += alpha_hpf * (game_force - m_torque_ac_smoothed);
+        double ac_torque = game_force - m_torque_ac_smoothed;
+
+        // Detect Zero Crossing (Sign change)
+        // Add hysteresis (0.05 Nm) to avoid noise triggering
+        if ((m_prev_ac_torque < -0.05 && ac_torque > 0.05) || 
+            (m_prev_ac_torque > 0.05 && ac_torque < -0.05)) {
+            
+            double now = data->mElapsedTime;
+            double period = now - m_last_crossing_time;
+            
+            // Sanity check period (e.g., 1Hz to 200Hz)
+            if (period > 0.005 && period < 1.0) {
+                // Half-cycle * 2 = Full Cycle Period
+                // Let's assume we detect every crossing (2 per cycle).
+                double inst_freq = 1.0 / (period * 2.0);
+                
+                // Smooth the readout for GUI
+                m_debug_freq = m_debug_freq * 0.9 + inst_freq * 0.1;
+            }
+            m_last_crossing_time = now;
+        }
+        m_prev_ac_torque = ac_torque;
+
+
+        // 2. Dynamic Notch Filter Logic
+        if (m_flatspot_suppression) {
+            // Calculate Wheel Frequency
+            double car_v_long = std::abs(data->mLocalVel.z);
+            
+            // Get radius (convert cm to m)
+            // Use Front Left as reference
+            const TelemWheelV01& fl_ref = data->mWheel[0];
+            double radius = (double)fl_ref.mStaticUndeflectedRadius / 100.0;
+            if (radius < 0.1) radius = 0.33; // Safety fallback
+            
+            double circumference = 2.0 * PI * radius;
+            
+            // Avoid divide by zero
+            double wheel_freq = (circumference > 0.0) ? (car_v_long / circumference) : 0.0;
+
+            // Only filter if moving fast enough (> 1Hz)
+            if (wheel_freq > 1.0) {
+                // Update filter coefficients
+                m_notch_filter.Update(wheel_freq, 1.0/dt, (double)m_notch_q);
+                
+                // Apply filter
+                game_force = m_notch_filter.Process(game_force);
+            } else {
+                // Reset filter state when stopped to prevent "ringing" on start
+                m_notch_filter.Reset();
+            }
+        }
         
         // --- 0. UPDATE STATS ---
         double raw_torque = game_force;
@@ -1241,6 +1365,9 @@ public:
                 snap.warn_load = frame_warn_load;
                 snap.warn_grip = frame_warn_grip || frame_warn_rear_grip; // Combined warning
                 snap.warn_dt = frame_warn_dt;
+                snap.debug_freq = (float)m_debug_freq;
+                snap.tire_radius = (float)fl.mStaticUndeflectedRadius / 100.0f; // Convert cm to m
+
 
                 m_debug_buffer.push_back(snap);
             }
