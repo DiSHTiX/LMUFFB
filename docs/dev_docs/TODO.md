@@ -1155,13 +1155,16 @@ GUI reorganization
 
 # Oversteer and Rear Tyres
 * Oversteer Boost
+
 ## SoP
 * Rear Align Torque (Rename?
 * Yaw Kick
 * Gyroscopic Damping
 * Lateral G
+## -> advanced (collapsible)
 * SoP smoothing
 * Sop Scale
+
 
 # Grip and slip angle estimation
 * Slip Angle Smoothing
