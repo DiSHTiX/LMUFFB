@@ -1116,7 +1116,9 @@ Investigate bug: "would have **sudden pulls/loss of FFB off centre at random tim
 
 issues from GM testing
 
-delay from the app (not when using game base ffb without the app)
+delay from the app (not when using game base ffb without the app): add sliders for SoP smoothing and slip angle smoothing that were introducing latency.
+
+mask the flatspot vibration ..between 10-60 hz. From the steering shaft torque. Try: masking a frequency from that, offering an equalizer/targetd masker where we can choose the specific frequency or frquency range to mask. Add a counter frequency that cancels that out if constant. Apply smoothing to that shaft torque, or damping. Doing spectrum analysis to determine the exact frequencey. Is it constant or variable in amplitude and frequency? (if it is from flatspots, it strange it does not increase with speed)
 
 loses wheel or connection to game when app not in focus
 (make the app always on top? auto reconnect game / rebind wheel when disconnected? other mechanisms to avoid these disconnections?)
@@ -1124,12 +1126,9 @@ loses wheel or connection to game when app not in focus
 yaw kick is not working. apply next proposed cutoffs by speed and force.
 but then something else might be needed.
 
-add slider for optimal sleep angle
-
 improvements to the formulas
 
 remove warnings about missing telemetry data
 
-mask the flatspot vibration ..between 10-60 hz. From the steering shaft torque. Try: masking a frequency from that, offering an equalizer/targetd masker where we can choose the specific frequency or frquency range to mask. Add a counter frequency that cancels that out if constant. Apply smoothing to that shaft torque, or damping. Doing spectrum analysis to determine the exact frequencey. Is it constant or variable in amplitude and frequency? (if it is from flatspots, it strange it does not increase with speed)
 
-slider for optimal slip angle (and slip ratio)
+add slider for optimal slip angle (and slip ratio)
