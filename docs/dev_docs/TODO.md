@@ -1142,30 +1142,30 @@ GUI
 GUI reorganization
 
 # General
-Master gain
-Max Torque ref
-min force
-Load Cap (add tooltip and clarify if actually general or just related to SoP)(or to tyre load, all 4 or 2)
+* Master gain
+* Max Torque ref
+* min force
+* Load Cap (add tooltip and clarify if actually general or just related to SoP)(or to tyre load, all 4 or 2)
 
 # Understeer and front tyres
-Steering Shaft Gain
-Understeer (Grip): rename to clarify: its front tyres grip..
+* Steering Shaft Gain
+* Understeer (Grip): rename to clarify: its front tyres grip..
 ## Advanced / experimental 
-Base Force Mode
+* Base Force Mode
 
 # Oversteer and Rear Tyres
-Oversteer Boost
+* Oversteer Boost
 ## SoP
-Rear Align Torque (Rename?
-Yaw Kick
-Gyroscopic Damping
-Lateral G
-SoP smoothing
-Sop Scale
+* Rear Align Torque (Rename?
+* Yaw Kick
+* Gyroscopic Damping
+* Lateral G
+* SoP smoothing
+* Sop Scale
 
 # Grip and slip angle estimation
-Slip Angle Smoothing
+* Slip Angle Smoothing
 
 # Advanced
 # Signal filtering
-(current content)
+* (current content)
