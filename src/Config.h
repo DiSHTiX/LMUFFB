@@ -14,7 +14,8 @@ struct Preset {
     float understeer = 0.61f; // Calibrated from Image
     float sop = 0.08f;        // Calibrated from Image
     float sop_scale = 1.0f;   // Calibrated from Image
-    float sop_smoothing = 0.05f;
+    float sop_smoothing = 0.85f;
+    float slip_smoothing = 0.015f;
     float min_force = 0.0f;
     float oversteer_boost = 0.65f; // Calibrated from Image
     
@@ -57,6 +58,7 @@ struct Preset {
     Preset& SetSmoothing(float v) { sop_smoothing = v; return *this; }
     Preset& SetMinForce(float v) { min_force = v; return *this; }
     Preset& SetOversteer(float v) { oversteer_boost = v; return *this; }
+    Preset& SetSlipSmoothing(float v) { slip_smoothing = v; return *this; }
     
     Preset& SetLockup(bool enabled, float g) { lockup_enabled = enabled; lockup_gain = g; return *this; }
     Preset& SetSpin(bool enabled, float g) { spin_enabled = enabled; spin_gain = g; return *this; }
@@ -88,6 +90,7 @@ struct Preset {
         engine.m_sop_effect = sop;
         engine.m_sop_scale = sop_scale;
         engine.m_sop_smoothing_factor = sop_smoothing;
+        engine.m_slip_angle_smoothing = slip_smoothing;
         engine.m_min_force = min_force;
         engine.m_oversteer_boost = oversteer_boost;
         engine.m_lockup_enabled = lockup_enabled;
@@ -118,6 +121,7 @@ struct Preset {
         sop = engine.m_sop_effect;
         sop_scale = engine.m_sop_scale;
         sop_smoothing = engine.m_sop_smoothing_factor;
+        slip_smoothing = engine.m_slip_angle_smoothing;
         min_force = engine.m_min_force;
         oversteer_boost = engine.m_oversteer_boost;
         lockup_enabled = engine.m_lockup_enabled;

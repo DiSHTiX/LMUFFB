@@ -2859,7 +2859,10 @@ static void test_rear_force_workaround() {
     // v0.4.37 Update: Time-Corrected Smoothing (tau=0.0225)
     // with dt=0.01 (100Hz), alpha = 0.01 / (0.0225 + 0.01) = 0.307
     // Expected = Raw (-12.13) * 0.307 = -3.73 Nm
-    double expected_torque = -3.73;   // First-frame value with Time-Corrected LPF
+    // v0.4.40 Update: Reduced tau to 0.015 for lower latency
+    // with dt=0.01 (100Hz), alpha = 0.01 / (0.015 + 0.01) = 0.4
+    // Expected = Raw (-12.13) * 0.4 = -4.85 Nm
+    double expected_torque = -4.85;   // First-frame value with Time-Corrected LPF (v0.4.40)
     double torque_tolerance = 1.0;    // ±1.0 Nm tolerance
     
     // ========================================
@@ -2957,8 +2960,9 @@ static void test_rear_align_effect() {
         FFBSnapshot snap = batch.back();
         double rear_torque_nm = snap.ffb_rear_torque;
         
-        // Expected ~-2.4 Nm (with LPF smoothing on first frame)
-        double expected_torque = -2.4;
+        // Expected ~-2.4 Nm (with LPF smoothing on first frame, tau=0.0225)
+        // v0.4.40: Updated to -3.46 Nm (tau=0.015, alpha=0.4, with 2x rear_align_effect)
+        double expected_torque = -3.46;
         double torque_tolerance = 1.0; 
         
         if (rear_torque_nm > (expected_torque - torque_tolerance) && 

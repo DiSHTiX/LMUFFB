@@ -123,7 +123,7 @@ public:
     float m_min_force = 0.0f;     // 0.0 - 0.20 (Deadzone removal)
     
     // Configurable Smoothing & Caps (v0.3.9)
-    float m_sop_smoothing_factor = 0.05f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default Default 0.05 for responsive feel. (0.1 ~5Hz.)
+    float m_sop_smoothing_factor = 0.85f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default 0.85 for responsive feel (15ms lag).
     float m_max_load_factor = 1.5f;      // Cap for load scaling (Default 1.5x)
     float m_sop_scale = 20.0f;            // SoP base scaling factor (Default 20.0 for Nm)
     
@@ -160,6 +160,8 @@ public:
     bool m_bottoming_enabled = true;
     float m_bottoming_gain = 1.0f;
 
+    float m_slip_angle_smoothing = 0.015f; // v0.4.40: Expose tau (Smoothing Time Constant in seconds)
+    
     // Warning States (Console logging)
     bool m_warned_load = false;
     bool m_warned_grip = false;
@@ -305,6 +307,7 @@ private:
     // This creates a small deadzone around center to avoid rapid direction changes
     // when the steering shaft torque oscillates near zero.
     static constexpr double SYNTHETIC_MODE_DEADZONE_NM = 0.5; // Nm
+ 
 
     // Gyroscopic Damping Constants (v0.4.17)
     // Default steering range (540 degrees) if physics range is missing
@@ -355,7 +358,10 @@ public:
         // LPF: Time Corrected Alpha (v0.4.37)
         // Target: Alpha 0.1 at 400Hz (dt = 0.0025)
         // Formula: alpha = dt / (tau + dt) -> 0.1 = 0.0025 / (tau + 0.0025) -> tau approx 0.0225s
-        const double tau = 0.0225; 
+        // v0.4.40: Using configurable m_slip_angle_smoothing
+        double tau = (double)m_slip_angle_smoothing;
+        if (tau < 0.0001) tau = 0.0001; // Safety clamp 
+        
         double alpha = dt / (tau + dt);
         
         // Safety clamp

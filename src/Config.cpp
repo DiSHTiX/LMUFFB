@@ -13,7 +13,10 @@ void Config::LoadPresets() {
     presets.clear();
     
     // 1. Default (Uses the defaults defined in Config.h - Standardized on T300)
-    presets.push_back(Preset("Default (T300)", true));
+    presets.push_back(Preset("Default (T300)", true)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+    );
     
     // 2. T300 (Redundant but kept for explicit selection)
     presets.push_back(Preset("T300", true)
@@ -25,6 +28,8 @@ void Config::LoadPresets() {
         .SetSoPYaw(0.0f)
         .SetMaxTorque(98.3f)
         .SetInvert(true)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(true, 0.39f)
     );
     
@@ -33,7 +38,8 @@ void Config::LoadPresets() {
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
         .SetSoPScale(1.0f)
-        .SetSmoothing(0.05f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.0f)
     );
@@ -43,7 +49,8 @@ void Config::LoadPresets() {
         .SetUndersteer(0.0f)
         .SetSoP(0.08f)
         .SetSoPScale(1.0f)
-        .SetSmoothing(0.05f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.0f)
         .SetSoPYaw(0.0f)
@@ -55,7 +62,8 @@ void Config::LoadPresets() {
         .SetUndersteer(0.61f)
         .SetSoP(0.0f)
         .SetSoPScale(1.0f)
-        .SetSmoothing(0.05f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.0f)
     );
@@ -65,7 +73,8 @@ void Config::LoadPresets() {
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
         .SetSoPScale(0.0f)
-        .SetSmoothing(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetLockup(true, 1.0f)
         .SetSpin(true, 1.0f)
         .SetSlide(true, 0.39f)
@@ -79,7 +88,8 @@ void Config::LoadPresets() {
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
-        .SetSmoothing(0.05f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.90f)
         .SetSoPYaw(0.0f)
@@ -90,7 +100,8 @@ void Config::LoadPresets() {
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.08f)
-        .SetSmoothing(0.05f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.0f)
         .SetSoPYaw(0.0f)
@@ -102,7 +113,8 @@ void Config::LoadPresets() {
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
-        .SetSmoothing(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(true, 0.39f, 1.0f)
         .SetRearAlign(0.0f)
         .SetBaseMode(2) // Muted
@@ -113,7 +125,8 @@ void Config::LoadPresets() {
         .SetGain(1.0f)
         .SetUndersteer(0.0f)
         .SetSoP(0.0f)
-        .SetSmoothing(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetSlide(false, 0.0f)
         .SetRearAlign(0.0f)
         .SetBaseMode(2) // Muted
@@ -135,6 +148,8 @@ void Config::LoadPresets() {
         .SetSlide(false, 0.0f)
         .SetRoad(false, 0.0f)
         .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetBaseMode(0) // Native Physics needed to feel the drop
     );
 
@@ -153,6 +168,8 @@ void Config::LoadPresets() {
         .SetSlide(false, 0.0f)
         .SetRoad(false, 0.0f)
         .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetBaseMode(0) // Native Physics + Boost
     );
 
@@ -168,6 +185,8 @@ void Config::LoadPresets() {
         .SetLockup(false, 0.0f)
         .SetSpin(false, 0.0f)
         .SetRoad(false, 0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetBaseMode(2) // Muted for clear texture feel
     );
 
@@ -183,6 +202,8 @@ void Config::LoadPresets() {
         .SetSlide(false, 0.0f)
         .SetRoad(false, 0.0f)
         .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetBaseMode(2) // Muted
     );
 
@@ -198,6 +219,8 @@ void Config::LoadPresets() {
         .SetSlide(false, 0.0f)
         .SetRoad(false, 0.0f)
         .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetBaseMode(2) // Muted
     );
 
@@ -215,6 +238,8 @@ void Config::LoadPresets() {
         .SetSlide(false, 0.0f)
         .SetRoad(false, 0.0f)
         .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetBaseMode(2) // Muted: Feel only the rotation impulse
     );
 
@@ -232,6 +257,8 @@ void Config::LoadPresets() {
         .SetSlide(false, 0.0f)
         .SetRoad(false, 0.0f)
         .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
         .SetBaseMode(2) // Muted: Feel only the resistance to movement
     );
 
@@ -310,6 +337,7 @@ void Config::LoadPresets() {
                         else if (key == "rear_align_effect") current_preset.rear_align_effect = std::stof(value);
                         else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = std::stof(value);
                         else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
+                        else if (key == "slip_angle_smoothing") current_preset.slip_smoothing = std::stof(value);
                         else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
                         else if (key == "gyro_gain") current_preset.gyro_gain = std::stof(value);
                     } catch (...) {}
@@ -361,6 +389,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "output_ffb_to_vjoy=" << m_output_ffb_to_vjoy << "\n";
         file << "gain=" << engine.m_gain << "\n";
         file << "sop_smoothing_factor=" << engine.m_sop_smoothing_factor << "\n";
+        file << "slip_angle_smoothing=" << engine.m_slip_angle_smoothing << "\n";
         file << "sop_scale=" << engine.m_sop_scale << "\n";
         file << "max_load_factor=" << engine.m_max_load_factor << "\n";
         file << "understeer=" << engine.m_understeer_effect << "\n";
@@ -397,6 +426,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "sop=" << p.sop << "\n";
                 file << "sop_scale=" << p.sop_scale << "\n";
                 file << "sop_smoothing_factor=" << p.sop_smoothing << "\n";
+                file << "slip_angle_smoothing=" << p.slip_smoothing << "\n";
                 file << "min_force=" << p.min_force << "\n";
                 file << "oversteer_boost=" << p.oversteer_boost << "\n";
                 file << "lockup_enabled=" << p.lockup_enabled << "\n";
@@ -450,6 +480,7 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "gain") engine.m_gain = std::stof(value);
                     else if (key == "sop_smoothing_factor") engine.m_sop_smoothing_factor = std::stof(value);
                     else if (key == "sop_scale") engine.m_sop_scale = std::stof(value);
+                    else if (key == "slip_angle_smoothing") engine.m_slip_angle_smoothing = std::stof(value);
                     else if (key == "max_load_factor") engine.m_max_load_factor = std::stof(value);
                     else if (key == "smoothing") engine.m_sop_smoothing_factor = std::stof(value); // Legacy support
                     else if (key == "understeer") engine.m_understeer_effect = std::stof(value);

@@ -364,7 +364,36 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, IM_ARRAYSIZE(base_modes));
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Debug tool to isolate effects.\nNative: Raw physics.\nSynthetic: Constant force to tune Grip drop-off.\nMuted: Zero base force.");
 
-        FloatSetting("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f (1=Raw)");
+        // SoP Smoothing (Responsive Factor)
+        {
+            int lat_ms = (int)((1.0f - engine.m_sop_smoothing_factor) * 100.0f);
+            if (lat_ms > 20) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "(SIGNAL LATENCY: %d ms)", lat_ms);
+            } else {
+                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "(Latency: %d ms - OK)", lat_ms);
+            }
+            
+            char fmt[32];
+            snprintf(fmt, sizeof(fmt), "%%.2f (%dms lag)", lat_ms);
+            FloatSetting("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, fmt);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("0.0 = Smooth but Slow (100ms delay)\n1.0 = Fast but Grainy (0ms delay)\nTarget 15-20ms for best balance.");
+        }
+
+        // Slip Angle Smoothing (Physics Stability)
+        {
+            int slip_ms = (int)(engine.m_slip_angle_smoothing * 1000.0f);
+            if (slip_ms > 20) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "(PHYSICS LATENCY: %d ms)", slip_ms);
+            } else {
+                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "(Physics: %d ms - OK)", slip_ms);
+            }
+            
+            char fmt[32];
+            snprintf(fmt, sizeof(fmt), "%%.3f (%dms lag)", slip_ms);
+            FloatSetting("Slip Angle Smooth", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, fmt);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Internal physics smoothing for Slip Angle.\nAffects response time of Understeer and Rear Align Torque.\nRange: 0.000 (Instant) to 0.100s (Slow).");
+        }
+
         FloatSetting("SoP Scale", &engine.m_sop_scale, 0.0f, 20.0f, "%.1f");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scales Lateral G to Nm.\n5.0 = Balanced (10Nm at 2G).\n20.0 = Heavy (40Nm at 2G).");
         FloatSetting("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.1fx");

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.40] - 2025-12-21
+### Added
+- **Configurable Slip Angle Smoothing**: Exposed the internal physics smoothing time constant (tau) as a user setting in the "Advanced Tuning" section.
+    - Allows users to balance "Physics Response Time" against signal noise for Understeer and Rear Align Torque effects.
+    - Added a new slider with real-time latency readout (ms).
+- **GUI Latency Readouts**: Added dynamic, color-coded latency indicators for smoothing filters.
+    - **Green Labels**: Indicators show "(Latency: XX ms - OK)" for settings <= 20ms.
+    - **Red Labels**: Indicators warn "(SIGNAL LATENCY: XX ms)" for settings > 20ms.
+    - Tooltips now explicitly explain the trade-offs: "High Latency = Smooth but Slow; Low Latency = Fast but Grainy."
+
+### Changed
+- **Optimized Default Latency**: Reduced default filter latency from ~95ms to **15ms** to address user reports of "FFB delay."
+    - **SoP Smoothing**: Changed default from 0.05 (95ms) to **0.85** (15ms).
+    - **Slip Angle Smoothing**: Changed default from 0.0225 (22.5ms) to **0.015** (15ms).
+- **Preset Synchronization**: Updated "Default (T300)" and "T300" presets to use the new 15ms target values.
+
+### Technical Details
+- **FFBEngine.h**: Promoted `tau` to `m_slip_angle_smoothing` with a safety clamp (`0.0001s`).
+- **Config.cpp**: Added persistence for `slip_angle_smoothing` in `config.ini` and updated preset builders.
+
 ## [0.4.39] - 2025-12-20
 ### Added
 - **Advanced Physics Reconstruction (Encrypted Content Fix)**: Implemented a new physics modeling layer to restore high-fidelity FFB for cars with blocked telemetry (DLC/LMU Hypercars).
