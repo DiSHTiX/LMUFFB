@@ -1120,6 +1120,10 @@ DONE: delay from the app due to SoP and slip angle smoothing
 DONE: mask the flatspot vibration
 DONE:yaw kick cutoffs by speed and force.
 
+User report
+"potentially leave the ingame FFB as is and add the SoP effects ontop? (...) for DD users this could be an amazing feature. I tested it with VRS DFP Pro"
+if it is not possible to have both FFB coming from game and lmuFFB app, implement it by using the steering shaft torque as a surrogate of the game FFB (which is probably what the game FFB is based on). Try if we can remove the annoying "vibration" from this signal with an added smoothing filter, or other type of filter. This might reduce detail and get rid of the vibration. In fact, the game FFB seems less detailed than the raw steering shaft torque , and the reason might be an added smoothing filter.
+
 decouple the scale of sliders from main gain and ref torque.
 reorganize UI: understeer and oversterer groups of widgets , collapsible
 within oversteer, nester collapsible group called SoP. First widget Rear align torque (research to confirm proper name), then yaw kick, gyro damping, and others.
