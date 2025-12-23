@@ -32,34 +32,57 @@ GUI
 
 GUI reorganization
 
-# General
-* Master gain
-* Max Torque ref
-* min force
-* Load Cap (add tooltip and clarify if actually general or just related to SoP)(or to tyre load, all 4 or 2)
-
-# Understeer and front tyres
-* Steering Shaft Gain
-* Understeer (Grip): rename to clarify: its front tyres grip..
-## Advanced / experimental 
-* Base Force Mode
-
-# Oversteer and Rear Tyres
-* Oversteer Boost
-
-## SoP
-* Rear Align Torque (Rename?
-* Yaw Kick
-* Gyroscopic Damping
-* Lateral G
-## -> advanced (collapsible)
-* SoP smoothing
-* Sop Scale
+* Core Settings, with FFB device selection , Rescan Devices button, Unbind Device button (leave unchanged)
+* Game status and retry connection (leave unchanged)
+* On a single line: Always on top checkbox, Show Troublehooting Graphs checkbox, Save Screenshot
 
 
-# Grip and slip angle estimation
-* Slip Angle Smoothing
+* Presets and Configuration (collapsible)
+    * Load Present  
+    * Save as New Preset
+    * Save Configuration button
+    * Reset Defaults button
 
-# Advanced
-# Signal filtering
-* (current content)
+* General (collapsible)
+    * Master gain
+    * Max Torque ref
+    * Invert FFB Signal checkbox
+    * min force
+    * Load Cap (add tooltip and clarify if actually general or just related to SoP)(or to tyre load, all 4 or 2)
+
+* Understeer and front tyres (collapsible)
+    * Steering Shaft Gain
+    * Understeer (Grip): rename to clarify: its front tyres grip..
+    * Base Force Mode
+    * Signal filtering (collapsible)
+        Keep the same current elements:
+        * Dynamic Flatspot Suppression
+        * Static Noise Filter 
+        * Est. Freq | Theory
+
+* Oversteer and Rear Tyres (collapsible)
+    * Oversteer Boost
+
+    * SoP (collapsible)
+        * Rear Align Torque (Rename?
+        * Yaw Kick
+        * Gyroscopic Damping
+        * Lateral G
+        * -> advanced (collapsible)
+            * SoP smoothing
+            * Sop Scale
+
+
+* Grip and slip angle estimation (collapsible)
+    * Slip Angle Smoothing
+
+*  Haptics (Dynamic): make it collapsible
+    (keep the same elements inside)
+
+* Textures (make it collapsible)
+    (keep the same elements inside)
+
+Remove these elements:
+* Monitor FFB on vJoy (Axis X)
+* Clipping Visualization Placeholder 
+
