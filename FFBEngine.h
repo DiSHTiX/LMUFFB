@@ -175,7 +175,7 @@ public:
     // Configurable Smoothing & Caps (v0.3.9)
     float m_sop_smoothing_factor = 0.85f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default 0.85 for responsive feel (15ms lag).
     float m_max_load_factor = 1.5f;      // Cap for load scaling (Default 1.5x)
-    float m_sop_scale = 20.0f;            // SoP base scaling factor (Default 20.0 for Nm)
+    float m_sop_scale = 1.0f;            // SoP base scaling factor (Default 20.0 was too high for Nm)
     
     // v0.4.4 Features
     float m_max_torque_ref = 100.0f;      // Reference torque for 100% output (Default 100.0 Nm)

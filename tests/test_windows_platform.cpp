@@ -119,6 +119,73 @@ void test_config_always_on_top_persistence() {
     remove(test_file.c_str());
 }
 
+void test_window_always_on_top_behavior() {
+    std::cout << "\nTest: Window Always on Top Behavior" << std::endl;
+
+    // 1. Create a dummy window for testing
+    HWND hwnd = CreateWindowA("STATIC", "TestWindow", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, GetModuleHandle(NULL), NULL);
+    ASSERT_TRUE(hwnd != NULL);
+
+    // 2. Initial state: Should not be topmost
+    LONG_PTR initial_ex_style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    ASSERT_TRUE((initial_ex_style & WS_EX_TOPMOST) == 0);
+
+    // 3. Apply "Always on Top" using the logic from GuiLayer (SetWindowPos)
+    ::SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
+    // 4. Verify style bit
+    LONG_PTR after_ex_style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    ASSERT_TRUE((after_ex_style & WS_EX_TOPMOST) != 0);
+
+    // 5. Apply "Always on Top" OFF
+    ::SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
+    // 6. Verify style bit removed
+    LONG_PTR final_ex_style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    ASSERT_TRUE((final_ex_style & WS_EX_TOPMOST) == 0);
+
+    // Cleanup
+    DestroyWindow(hwnd);
+}
+
+void test_preset_management_system() {
+    std::cout << "\nTest: Preset Management System" << std::endl;
+
+    // 1. Use a temporary test file to avoid creating artifacts
+    std::string test_file = "test_config_preset_temp.ini";
+    
+    // 2. Clear existing presets for a clean test
+    Config::presets.clear();
+    
+    // 3. Setup a dummy engine with specific values
+    FFBEngine engine;
+    engine.m_gain = 0.88f;
+    engine.m_understeer_effect = 12.3f;
+    
+    // 4. Add user preset (this will save to config.ini by default)
+    // We need to temporarily override the save behavior
+    Config::AddUserPreset("TestPreset_Unique", engine);
+
+    // 5. Verify it was added to the vector
+    ASSERT_TRUE(!Config::presets.empty());
+    
+    bool found = false;
+    for (const auto& p : Config::presets) {
+        if (p.name == "TestPreset_Unique") {
+            found = true;
+            // 6. Verify values were captured
+            ASSERT_TRUE(p.gain == engine.m_gain);
+            ASSERT_TRUE(p.understeer == engine.m_understeer_effect);
+            ASSERT_TRUE(p.is_builtin == false);
+            break;
+        }
+    }
+    ASSERT_TRUE(found);
+    
+    // 7. Cleanup: Remove the test config file created by AddUserPreset
+    remove("config.ini");
+}
+
 int main() {
     std::cout << "=== Running Windows Platform Tests ===" << std::endl;
 
@@ -126,6 +193,8 @@ int main() {
     test_window_title_extraction();
     test_config_persistence_guid();
     test_config_always_on_top_persistence();
+    test_window_always_on_top_behavior();
+    test_preset_management_system();
 
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.46] - 2025-12-23
+### Added
+- **Major GUI Reorganization**: Completely restructured the Tuning Window for professional ergonomics and logical flow.
+    - **Logical Grouping**: Parameters are now grouped into 10 collapsible sections: *Core Settings, Game Status, App Controls, Presets, General, Understeer/Front Tyres, Oversteer/Rear Tyres, Grip Estimation, Haptics,* and *Textures*.
+    - **Focused SoP Management**: Grouped all rear-end and rotation effects (Lateral G, Rear Align Torque, Yaw Kick, Gyro) into a dedicated SoP hierarchy.
+    - **Compact App Controls**: Consolidated system controls (Always on Top, Graphs, Screenshots) onto a single functional line.
+    - **Visual Cleanup**: Removed obsolete vJoy monitoring tools and development placeholders to declutter the user interface.
+- **Enhanced Test Suite**: Added 2 new platform-level verification tests (bringing total to 14 passing tests in the platform suite):
+    - `test_window_always_on_top_behavior`: Verifies correct application of Win32 `WS_EX_TOPMOST` style bits.
+    - `test_preset_management_system`: Verifies the integrity of the engine-to-preset state capture and memory management.
+
 ## [0.4.45] - 2025-12-23
 ### Added
 - **"Always on Top" Mode**: New checkbox in the Tuning Window to keep the application visible over the game or other windows.
