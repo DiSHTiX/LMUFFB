@@ -1,109 +1,213 @@
-### 1. Terminology: "Gain Compensation"
+# Implementation Plan: FFB Signal Gain Compensation ("Decoupling")
 
-You are looking for a term that describes adjusting specific signal components to maintain their perceived intensity relative to a changing master scale.
+## 1. Introduction & Terminology
 
-In signal processing and audio engineering, the most precise terms are:
+### The Problem: Signal Compression
+Currently, the application calculates forces in absolute Newton-meters (Nm). These forces are then normalized (divided) by the user's `Max Torque Ref` setting to produce the final output signal (-1.0 to 1.0).
 
-1.  **Gain Compensation (or Make-up Gain):** This is the standard term used in compressors/limiters. When you compress a signal (reduce its dynamic range), you apply "Make-up Gain" to bring the peak level back up. Here, when you increase `Max Torque Ref` (which compresses the signal ratio), we apply gain to the effects to restore their perceived level.
-2.  **Ratio-metric Scaling:** This describes maintaining the *ratio* between the "Micro" forces (textures) and the "Macro" forces (steering torque) regardless of the absolute output scale.
-3.  **Perceptual Loudness Matching:** In audio (ISO 226), this ensures bass/treble are boosted at low volumes so the human ear perceives the same balance. Similarly, we are boosting "tactile treble" (vibrations) so the human hand perceives the same detail even when the "volume" (Torque Ref) changes.
+*   **Scenario A (Weak Wheel):** `Max Torque Ref` = 20 Nm. A 2 Nm texture effect results in **10%** signal output. Strong and clear.
+*   **Scenario B (Strong Wheel):** `Max Torque Ref` = 100 Nm. The same 2 Nm texture effect results in **2%** signal output. Weak and imperceptible.
 
-**Recommendation:** **"Gain Compensation"** is the most technically accurate engineering term for what we are doing.
+This forces users with high-torque settings to max out their effect sliders just to feel them, effectively confining them to a tiny usable range of the slider.
 
----
+### The Solution: Gain Compensation
+We will implement **Gain Compensation** (often referred to as "Decoupling"). This technique automatically scales the internal force of specific effects based on the `Max Torque Ref`.
 
-### 2. Re-evaluation of Understeer & Oversteer Boost
+*   **Logic:** If the user increases `Max Torque Ref` (zooming out the signal), the app automatically boosts the "Generator" effects (zooming them in) by the same ratio.
+*   **Result:** A "50%" setting on a slider will feel like a 50% strength effect relative to the wheel's capability, regardless of whether the wheel is calibrated to 20 Nm or 100 Nm.
 
-You asked to reconsider decoupling these. Let's look at the math in `FFBEngine.h`.
+### Classification of Effects
+To implement this correctly, we must classify every slider into one of two categories:
 
-#### A. Understeer Effect (Grip Modulation)
-*   **Formula:** `Factor = 1.0 - ((1.0 - Grip) * UndersteerGain)`
-*   **Type:** **Modifier (Multiplicative)**. It does not generate force; it reduces existing force.
-*   **Scenario:**
-    *   Grip drops by 20% (0.8).
-    *   Gain is 1.0.
-    *   Result: Force is reduced by 20%.
-*   **If we Decouple (Scale) it:**
-    *   If `Max Torque Ref` is 100Nm, Scale is 5.0.
-    *   Gain becomes 5.0.
-    *   Result: Force is reduced by $0.2 \times 5.0 = 100\%$.
-*   **The Problem:** Scaling this slider changes the **Physics Sensitivity**, not just the intensity. It would make the drop-off extremely abrupt (binary) on high-torque settings.
-*   **Conclusion:** **DO NOT Decouple.** A 20% drop in force is physically meaningful regardless of whether the max force is 20Nm or 100Nm.
-*   **UI Proposal:** However, you are right about the **Slider Presentation**. Currently 0-50 is arbitrary. We should map this to **0% - 100%** (or 0.0 - 1.0 internally) to make it intuitive.
-
-#### B. Oversteer Boost
-*   **Formula:** `SoP_Total *= (1.0 + (GripDelta * BoostGain))`
-*   **Type:** **Modifier (Multiplicative)**.
-*   **The Logic:** This multiplies the `SoP Force`.
-*   **Inheritance:** We have already decided to Decouple (Scale) the `SoP Force`.
-    *   If `SoP Force` is scaled up by 5x, and we multiply it by `Boost`, the `Boost` effect is **automatically scaled up by 5x** because the base number is larger.
-*   **If we Decouple Boost too:** We would multiply a 5x larger force by a 5x larger boost. Result = 25x force. This is a "Double Scaling" error.
-*   **Conclusion:** **DO NOT Decouple.** It inherits the scaling from the SoP effect it modifies.
+1.  **Generators (Apply Compensation):** These add new forces (Newtons) to the signal.
+    *   *Examples:* SoP, Rear Align Torque, Slide Texture, Road Texture, Lockup.
+2.  **Modifiers (Do NOT Apply Compensation):** These multiply or reduce existing forces. Scaling them would result in "Double Scaling" errors.
+    *   *Examples:* Understeer Effect (Reduction ratio), Oversteer Boost (Multiplier).
 
 ---
 
-### 3. Comprehensive Slider Table
+## 2. Slider Configuration Table
 
-Here is the plan for every slider in the GUI.
+This table defines the new behavior for every GUI control.
 
-*   **Generator:** Adds Newtons (Needs Decoupling/Gain Compensation).
-*   **Modifier:** Multiplies/Scales existing Newtons (Do NOT Decouple).
-*   **Reference:** Sets the scale (The Source).
+| Slider Name | Type | Compensation? | New GUI Range | Display Format |
+| :--- | :--- | :--- | :--- | :--- |
+| **Master Gain** | Scalar | **NO** | 0.0 - 2.0 | `0% - 200%` |
+| **Max Torque Ref** | Reference | **NO** | 1.0 - 200.0 | `%.1f Nm` |
+| **Steering Shaft Gain** | Attenuator | **NO** | 0.0 - 1.0 | `0% - 100%` |
+| **Understeer Effect** | Modifier | **NO** | 0.0 - 50.0 | `0% - 100%` (Remapped) |
+| **Oversteer Boost** | Modifier | **NO** | 0.0 - 20.0 | `0% - 200%` |
+| **Rear Align Torque** | Generator | **YES** | 0.0 - 2.0 | `0% - 200% (~X Nm)` |
+| **SoP Yaw (Kick)** | Generator | **YES** | 0.0 - 2.0 | `0% - 200% (~X Nm)` |
+| **Gyro Damping** | Generator | **YES** | 0.0 - 1.0 | `0% - 100% (~X Nm)` |
+| **Lateral G (SoP)** | Generator | **YES** | 0.0 - 2.0 | `0% - 200% (~X Nm)` |
+| **Lockup Gain** | Generator | **YES** | 0.0 - 2.0 | `0% - 200% (~X Nm)` |
+| **Spin Gain** | Generator | **YES** | 0.0 - 2.0 | `0% - 200% (~X Nm)` |
+| **Slide Gain** | Generator | **YES** | 0.0 - 2.0 | `0% - 200% (~X Nm)` |
+| **Road Gain** | Generator | **YES** | 0.0 - 2.0 | `0% - 200% (~X Nm)` |
+| **Scrub Drag Gain** | Generator | **YES** | 0.0 - 1.0 | `0% - 100% (~X Nm)` |
 
-| Section | Slider Name | Type | Current Range | **Decouple?** | **Proposed UI Range / Format** |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **General** | **Master Gain** | Global Scalar | 0.0 - 2.0 | **NO** | 0% - 200% |
-| **General** | **Max Torque Ref** | Reference | 1.0 - 200.0 | **NO** | 1.0 - 200.0 Nm (Source of Scaling) |
-| **General** | **Min Force** | Post-Process | 0.0 - 0.20 | **NO** | 0.0 - 20.0% (Keep as is) |
-| **General** | **Load Cap** | Limiter | 1.0 - 3.0 | **NO** | 1.0x - 3.0x |
-| **Understeer** | **Steering Shaft Gain** | Attenuator | 0.0 - 1.0 | **NO** | 0% - 100% |
-| **Understeer** | **Understeer Effect** | Modifier | 0.0 - 50.0 | **NO** | **0% - 100%** (Remap internal 0-50 to 0-100 UI) |
-| **Oversteer** | **Oversteer Boost** | Modifier | 0.0 - 20.0 | **NO** | **0% - 200%** (Remap for clarity) |
-| **SoP** | **Rear Align Torque** | Generator | 0.0 - 20.0 | **YES** | 0% - 200% (Show dynamic Nm in text) |
-| **SoP** | **SoP Yaw (Kick)** | Generator | 0.0 - 20.0 | **YES** | 0% - 200% (Show dynamic Nm in text) |
-| **SoP** | **Gyro Damping** | Generator | 0.0 - 1.0 | **YES** | 0% - 100% (Show dynamic Nm in text) |
-| **SoP** | **Lateral G (SoP)** | Generator | 0.0 - 20.0 | **YES** | 0% - 200% (Show dynamic Nm in text) |
-| **Haptics** | **Lockup Gain** | Generator | 0.0 - 5.0 | **YES** | 0% - 100% (Show dynamic Nm in text) |
-| **Haptics** | **Spin Gain** | Generator | 0.0 - 5.0 | **YES** | 0% - 100% (Show dynamic Nm in text) |
-| **Textures** | **Slide Gain** | Generator | 0.0 - 5.0 | **YES** | 0% - 100% (Show dynamic Nm in text) |
-| **Textures** | **Road Gain** | Generator | 0.0 - 5.0 | **YES** | 0% - 100% (Show dynamic Nm in text) |
-| **Textures** | **Scrub Drag Gain** | Generator | 0.0 - 1.0 | **YES** | 0% - 100% (Show dynamic Nm in text) |
+---
 
-### 4. Implementation Details for "Dynamic Nm Display"
+## 3. Implementation: Physics Engine
 
-For the sliders marked **YES**, we will use the `FormatNm` helper in the GUI. This satisfies your request to "show the final value in Newtons depending on the current position".
+We modify `FFBEngine.h` to calculate the scaling factor and apply it to all **Generators**.
 
-**Example Logic for `GuiLayer.cpp`:**
+**File:** `FFBEngine.h`
 
 ```cpp
-// Helper to format slider text with Dynamic Nm calculation
-// gain: The variable being edited
-// base_nm: The approximate Nm this effect produces at Gain 1.0 (Physics Constant)
-auto FormatDecoupled = [&](float val, float base_nm) {
-    // 1. Calculate the Decoupling Scale (Same as FFBEngine)
-    float scale = (engine.m_max_torque_ref / 20.0f); 
-    if (scale < 0.1f) scale = 0.1f;
+// Inside calculate_force(const TelemInfoV01* data)
 
-    // 2. Calculate estimated output Nm
-    float estimated_nm = val * base_nm * scale;
+    // ... [Existing Setup] ...
 
-    // 3. Format string: "50% (~3.5 Nm)"
-    static char buf[64];
-    // Assuming slider is 0.0-1.0 (mapped to 0-100%)
-    snprintf(buf, 64, "%.0f%% (~%.1f Nm)", val * 100.0f, estimated_nm); 
-    return buf;
-};
+    // --- 1. GAIN COMPENSATION (Decoupling) ---
+    // Baseline: 20.0 Nm (The standard reference where 1.0 gain was tuned).
+    // If MaxTorqueRef increases, we scale effects up to maintain relative intensity.
+    double decoupling_scale = (double)m_max_torque_ref / 20.0;
+    if (decoupling_scale < 0.1) decoupling_scale = 0.1; // Safety clamp
+
+    // ... [Understeer Logic (Modifier - NO CHANGE)] ...
+
+    // --- 2. SoP & Rear Align (Generators - DECOUPLED) ---
+    
+    // SoP Base
+    // Old: ... * m_sop_scale;
+    double sop_base_force = m_sop_lat_g_smoothed * m_sop_effect * (double)m_sop_scale * decoupling_scale;
+
+    // Rear Align Torque
+    // Old: ... * m_rear_align_effect;
+    double rear_torque = -calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect * decoupling_scale;
+
+    // Yaw Kick
+    // Old: ... * 5.0;
+    double yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * 5.0 * decoupling_scale;
+
+    // Gyro Damping
+    // Old: ... * (car_speed / GYRO_SPEED_SCALE);
+    double gyro_force = -1.0 * m_steering_velocity_smoothed * m_gyro_gain * (car_speed / GYRO_SPEED_SCALE) * decoupling_scale;
+
+    // ... [Haptics (Generators - DECOUPLED)] ...
+
+    // Lockup
+    // Old: ... * 4.0;
+    double amp_lock = severity * m_lockup_gain * 4.0 * decoupling_scale;
+
+    // Spin
+    // Old: ... * 2.5;
+    double amp_spin = severity * m_spin_gain * 2.5 * decoupling_scale;
+
+    // Slide Texture
+    // Old: ... * 1.5 * ...;
+    slide_noise = sawtooth * m_slide_texture_gain * 1.5 * load_factor * grip_scale * decoupling_scale;
+
+    // Road Texture
+    // Old: ... * 50.0 * ...;
+    double road_noise = (delta_l + delta_r) * 50.0 * m_road_texture_gain * decoupling_scale;
+
+    // Scrub Drag
+    // Old: ... * 5.0 * ...;
+    scrub_drag_force = drag_dir * m_scrub_drag_gain * 5.0 * fade * decoupling_scale;
+
+    // Bottoming
+    // Old: ... * 20.0;
+    double bump_magnitude = intensity * m_bottoming_gain * 0.05 * 20.0 * decoupling_scale;
+
+    // ... [Rest of function] ...
 ```
 
-### 5. Summary of Changes
+---
 
-1.  **FFBEngine.h**: Apply `decoupling_scale` to all **Generators** (SoP, Rear Align, Yaw, Gyro, Textures). Do **not** apply to Modifiers (Understeer, Boost).
-2.  **GuiLayer.cpp**:
-    *   Update slider ranges to be consistent (mostly 0.0 to 1.0 or 2.0).
-    *   Use the `FormatDecoupled` helper to show the user the *actual* force they are dialing in.
-    *   Rename "Understeer Effect" range to 0-100% (internally mapping to the physics constant).
+## 4. Implementation: GUI Layer
 
-This approach ensures that:
-1.  **Consistency:** Users see "50%" on a slider and know it's half strength.
-2.  **Transparency:** Users see "(~5.0 Nm)" and know exactly how much force that 50% represents on *their* specific wheel setup.
-3.  **Physics Integrity:** We don't break the sensitivity of Understeer/Oversteer modifiers.
+We modify `GuiLayer.cpp` to display the dynamic Newton-meter values and standardize the sliders.
+
+**File:** `src/GuiLayer.cpp`
+
+```cpp
+// Inside DrawTuningWindow()
+
+    // --- Helper: Format Decoupled Sliders ---
+    // val: The current slider value (0.0 - 2.0)
+    // base_nm: The physical force this effect produces at Gain 1.0 (Physics Constant)
+    auto FormatDecoupled = [&](float val, float base_nm) {
+        // Calculate the same scale used in FFBEngine
+        float scale = (engine.m_max_torque_ref / 20.0f); 
+        if (scale < 0.1f) scale = 0.1f;
+
+        // Calculate estimated output Nm
+        float estimated_nm = val * base_nm * scale;
+
+        static char buf[64];
+        // Display as Percentage + Dynamic Nm
+        snprintf(buf, 64, "%.0f%% (~%.1f Nm)", val * 100.0f, estimated_nm); 
+        return buf;
+    };
+
+    // --- Helper: Format Standard Percentages ---
+    auto FormatPct = [&](float val) {
+        static char buf[32];
+        snprintf(buf, 32, "%.0f%%", val * 100.0f);
+        return buf;
+    };
+
+    // ... [General Settings] ...
+    
+    // Example: Understeer (Modifier - Remapped 0-50 to 0-100%)
+    // Note: We keep the internal variable range 0-50 for physics compatibility, 
+    // but display it as 0-100% to the user.
+    // Or better: Change the slider to 0.0-1.0 and multiply by 50 internally in engine.
+    // For now, let's just format the existing 0-50 range.
+    FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 50.0f, "%.1f"); 
+    // (Ideally, refactor Understeer to be 0.0-1.0 internally in a future pass)
+
+    // ... [SoP Section] ...
+
+    // Rear Align (Generator - Base ~6.0 Nm at max load)
+    FloatSetting("Rear Align Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, 
+                 FormatDecoupled(engine.m_rear_align_effect, 3.0f)); // 3.0 is approx base at gain 1.0
+
+    // Yaw Kick (Generator - Base ~5.0 Nm)
+    FloatSetting("SoP Yaw (Kick)", &engine.m_sop_yaw_gain, 0.0f, 2.0f, 
+                 FormatDecoupled(engine.m_sop_yaw_gain, 5.0f));
+
+    // ... [Textures Section] ...
+
+    // Slide (Generator - Base ~1.5 Nm)
+    FloatSetting("Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f, 
+                 FormatDecoupled(engine.m_slide_texture_gain, 1.5f));
+
+    // Road (Generator - Base ~2.5 Nm on avg curb)
+    FloatSetting("Road Gain", &engine.m_road_texture_gain, 0.0f, 2.0f, 
+                 FormatDecoupled(engine.m_road_texture_gain, 2.5f));
+```
+
+---
+
+## 5. Configuration Updates
+
+Since we are changing the effective strength of effects (by adding the scaling factor) and the slider ranges (e.g., Slide Gain max 5.0 -> 2.0), we must update the default presets to ensure a consistent experience.
+
+**File:** `src/Config.cpp`
+
+```cpp
+void Config::LoadPresets() {
+    presets.clear();
+    
+    // Update "Default (T300)"
+    // Since T300 uses MaxTorqueRef ~100Nm (Scale = 5.0),
+    // we need to lower the gains in the preset so the result isn't 5x stronger than before.
+    // Old Slide Gain: 0.39. New Scale: 5.0. 
+    // New Gain should be: 0.39 / 5.0 = ~0.08? 
+    // WAIT: The goal is that 0.39 *should* feel like 39%.
+    // If we decouple, setting it to 0.39 will result in (0.39 * 5.0) = 1.95x force.
+    // This is actually what we WANT. The previous 0.39 was too weak on T300.
+    // So we can likely keep the preset values, or tune them slightly down if they become too strong.
+    
+    presets.push_back(Preset("Default (T300)", true)
+        .SetMaxTorque(98.3f)
+        .SetSlide(true, 0.40f) // 40% strength
+        .SetRoad(false, 0.50f) // 50% strength
+        // ...
+    );
+}
+```
