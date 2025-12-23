@@ -498,7 +498,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         if (slip_ms > 20) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "(PHYSICS LATENCY: %d ms)", slip_ms);
         else ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "(Physics: %d ms - OK)", slip_ms);
         char fmt[32]; snprintf(fmt, sizeof(fmt), "%%.3f (%dms lag)", slip_ms);
-        FloatSetting("Slip Angle Smooth", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, fmt);
+        FloatSetting("Slip Angle Smoothing", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, fmt);
     }
 
     // =========================================================
