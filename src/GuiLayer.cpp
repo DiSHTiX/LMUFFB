@@ -67,11 +67,6 @@ bool GuiLayer::Init() {
 
     g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, 100, 100, 800, 600, NULL, NULL, wc.hInstance, NULL);
 
-    // NEW: Apply saved "Always on Top" setting immediately
-    if (Config::m_always_on_top) {
-        SetWindowAlwaysOnTop(g_hwnd, true);
-    }
-
     // Initialize Direct3D
     if (!CreateDeviceD3D(g_hwnd)) {
         CleanupDeviceD3D();
@@ -82,6 +77,11 @@ bool GuiLayer::Init() {
     // Show the window
     ::ShowWindow(g_hwnd, SW_SHOWDEFAULT);
     ::UpdateWindow(g_hwnd);
+
+    // Apply saved "Always on Top" setting now that window is shown
+    if (Config::m_always_on_top) {
+        SetWindowAlwaysOnTop(g_hwnd, true);
+    }
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -605,7 +605,8 @@ void SetWindowAlwaysOnTop(HWND hwnd, bool enabled) {
     if (!hwnd) return;
     HWND insertAfter = enabled ? HWND_TOPMOST : HWND_NOTOPMOST;
     // SWP_NOMOVE | SWP_NOSIZE means we only change Z-order, not position/size
-    ::SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    // SWP_NOACTIVATE prevents stealing focus, SWP_FRAMECHANGED ensures style bits are refreshed
+    ::SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
 void CleanupDeviceD3D() {

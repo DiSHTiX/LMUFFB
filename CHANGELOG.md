@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.48] - 2025-12-23
+### Fixed
+- **"Always on Top" Reliability**: 
+    - Resolved issue where the window state would not correctly persist or reflect in system style bits on some Windows configurations. 
+    - Added `SWP_FRAMECHANGED` and `SWP_NOACTIVATE` flags to `SetWindowPos` to ensure immediate UI refresh and prevent focus stealing.
+    - Optimized initialization order to apply the Window-on-Top state after the window has been fully shown.
+- **Test Suite Hardening**:
+    - Updated `test_window_always_on_top_behavior` to use visible windows and explicit return value validation, ensuring the platform-level verification is robust against environment variations.
+
 ## [0.4.47] - 2025-12-23
 ### Changed
 - **GUI Refinement**:

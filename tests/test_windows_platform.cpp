@@ -123,7 +123,8 @@ void test_window_always_on_top_behavior() {
     std::cout << "\nTest: Window Always on Top Behavior" << std::endl;
 
     // 1. Create a dummy window for testing
-    HWND hwnd = CreateWindowA("STATIC", "TestWindow", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, GetModuleHandle(NULL), NULL);
+    // Added WS_VISIBLE as SetWindowPos might behave differently for hidden windows in some environments
+    HWND hwnd = CreateWindowA("STATIC", "TestWindow", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, 100, 100, NULL, NULL, GetModuleHandle(NULL), NULL);
     ASSERT_TRUE(hwnd != NULL);
 
     // 2. Initial state: Should not be topmost
@@ -131,14 +132,17 @@ void test_window_always_on_top_behavior() {
     ASSERT_TRUE((initial_ex_style & WS_EX_TOPMOST) == 0);
 
     // 3. Apply "Always on Top" using the logic from GuiLayer (SetWindowPos)
-    ::SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    // Added SWP_FRAMECHANGED to ensure the system refreshes the window style bits
+    BOOL success1 = ::SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED);
+    ASSERT_TRUE(success1 != 0);
 
     // 4. Verify style bit
     LONG_PTR after_ex_style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
     ASSERT_TRUE((after_ex_style & WS_EX_TOPMOST) != 0);
 
     // 5. Apply "Always on Top" OFF
-    ::SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    BOOL success2 = ::SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED);
+    ASSERT_TRUE(success2 != 0);
 
     // 6. Verify style bit removed
     LONG_PTR final_ex_style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
