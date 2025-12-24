@@ -11,78 +11,30 @@ User report
 "potentially leave the ingame FFB as is and add the SoP effects ontop? (...) for DD users this could be an amazing feature. I tested it with VRS DFP Pro"
 if it is not possible to have both FFB coming from game and lmuFFB app, implement it by using the steering shaft torque as a surrogate of the game FFB (which is probably what the game FFB is based on). Try if we can remove the annoying "vibration" from this signal with an added smoothing filter, or other type of filter. This might reduce detail and get rid of the vibration. In fact, the game FFB seems less detailed than the raw steering shaft torque , and the reason might be an added smoothing filter.
 
-decouple the scale of sliders from main gain and ref torque.
-reorganize UI: understeer and oversterer groups of widgets , collapsible
-within oversteer, nester collapsible group called SoP. First widget Rear align torque (research to confirm proper name), then yaw kick, gyro damping, and others.
 
 loses wheel or connection to game when app not in focus
 (make the app always on top? auto reconnect game / rebind wheel when disconnected? other mechanisms to avoid these disconnections?)
 
-yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
+
 
 improvements to the formulas
+
+---
+
+## Troubleshooting 25
+
+test default values after 0-100% normalization of sliders
+
+test if some vibration effects are muted
+check lockup vibration effect, feel it before bracking up, enough to prevent it
+
+list effects affected by grip and load approximation, and list those that are not affected
 
 remove warnings about missing telemetry data
 
 add slider for optimal slip angle (and slip ratio)
 
----
+update tooltips
 
-GUI
-
-GUI reorganization
-
-* Core Settings, with FFB device selection , Rescan Devices button, Unbind Device button (leave unchanged)
-* Game status and retry connection (leave unchanged)
-* On a single line: Always on top checkbox, Show Troublehooting Graphs checkbox, Save Screenshot
-
-
-* Presets and Configuration (collapsible)
-    * Load Present  
-    * Save as New Preset
-    * Save Configuration button
-    * Reset Defaults button
-
-* General (collapsible)
-    * Master gain
-    * Max Torque ref
-    * Invert FFB Signal checkbox
-    * min force
-    * Load Cap (add tooltip and clarify if actually general or just related to SoP)(or to tyre load, all 4 or 2)
-
-* Understeer and front tyres (collapsible)
-    * Steering Shaft Gain
-    * Understeer (Grip): rename to clarify: its front tyres grip..
-    * Base Force Mode
-    * Signal filtering (collapsible)
-        Keep the same current elements:
-        * Dynamic Flatspot Suppression
-        * Static Noise Filter 
-        * Est. Freq | Theory
-
-* Oversteer and Rear Tyres (collapsible)
-    * Oversteer Boost
-
-    * SoP (collapsible)
-        * Rear Align Torque (Rename?
-        * Yaw Kick
-        * Gyroscopic Damping
-        * Lateral G
-        * -> advanced (collapsible)
-            * SoP smoothing
-            * Sop Scale
-
-
-* Grip and slip angle estimation (collapsible)
-    * Slip Angle Smoothing
-
-*  Haptics (Dynamic): make it collapsible
-    (keep the same elements inside)
-
-* Textures (make it collapsible)
-    (keep the same elements inside)
-
-Remove these elements:
-* Monitor FFB on vJoy (Axis X)
-* Clipping Visualization Placeholder 
-
+yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
+experiment with gyro damping to compensate yaw kick

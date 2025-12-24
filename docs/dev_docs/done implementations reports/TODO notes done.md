@@ -1109,3 +1109,70 @@ Should we have a slip angle plot for rear tires? (or does it make sense only for
 _avg longitudinal patch vel _: Should we use that value for brake lockup and slip calculation (or do we do already)?
 
 Investigate bug: "would have **sudden pulls/loss of FFB off centre at random times. Almost like the “reverse FFB” setting was working intermittently**. Obviously had my wheel base settings turned well down. Had a complete lock up on my wheel base fully pulled to the left too (bit like the old days of LMU in game FFB!). Has to restart the wheel base."
+
+
+# 24
+
+
+GUI
+
+GUI reorganization
+
+* Core Settings, with FFB device selection , Rescan Devices button, Unbind Device button (leave unchanged)
+* Game status and retry connection (leave unchanged)
+* On a single line: Always on top checkbox, Show Troublehooting Graphs checkbox, Save Screenshot
+
+
+* Presets and Configuration (collapsible)
+    * Load Present  
+    * Save as New Preset
+    * Save Configuration button
+    * Reset Defaults button
+
+* General (collapsible)
+    * Master gain
+    * Max Torque ref
+    * Invert FFB Signal checkbox
+    * min force
+    * Load Cap (add tooltip and clarify if actually general or just related to SoP)(or to tyre load, all 4 or 2)
+
+* Understeer and front tyres (collapsible)
+    * Steering Shaft Gain
+    * Understeer (Grip): rename to clarify: its front tyres grip..
+    * Base Force Mode
+    * Signal filtering (collapsible)
+        Keep the same current elements:
+        * Dynamic Flatspot Suppression
+        * Static Noise Filter 
+        * Est. Freq | Theory
+
+* Oversteer and Rear Tyres (collapsible)
+    * Oversteer Boost
+
+    * SoP (collapsible)
+        * Rear Align Torque (Rename?
+        * Yaw Kick
+        * Gyroscopic Damping
+        * Lateral G
+        * -> advanced (collapsible)
+            * SoP smoothing
+            * Sop Scale
+
+
+* Grip and slip angle estimation (collapsible)
+    * Slip Angle Smoothing
+
+*  Haptics (Dynamic): make it collapsible
+    (keep the same elements inside)
+
+* Textures (make it collapsible)
+    (keep the same elements inside)
+
+Remove these elements:
+* Monitor FFB on vJoy (Axis X)
+* Clipping Visualization Placeholder 
+
+
+decouple the scale of sliders from main gain and ref torque.
+reorganize UI: understeer and oversterer groups of widgets , collapsible
+within oversteer, nester collapsible group called SoP. First widget Rear align torque (research to confirm proper name), then yaw kick, gyro damping, and others.
