@@ -187,8 +187,10 @@ For feedback, questions, or support:
   https://github.com/coasting-nc/LMUFFB/issues
 
 
-For full documentation, advanced settings, and developer information, 
-see README.md or visit: https://github.com/coasting-nc/LMUFFB
+For full documentation, advanced settings, and tuning tips, 
+see README.md or visit:
+- FFB Tuning Recommendations: https://github.com/coasting-nc/LMUFFB/blob/main/docs/FFB%20Tuning%20Recommendations.md
+- Main Project Page: https://github.com/coasting-nc/LMUFFB
 
 
 ===============================================================================

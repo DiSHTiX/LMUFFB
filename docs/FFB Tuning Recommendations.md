@@ -1,4 +1,141 @@
 
+# LMUFFB Tuning Guide: The Physics of Feel
+
+This guide provides a systematic approach to tuning Force Feedback in LMUFFB. Instead of randomly moving sliders, follow this sequence to build a cohesive and informative force feedback profile.
+
+The philosophy is to build the signal in layers: **Calibration $\to$ Front Axle $\to$ Rear Axle $\to$ Textures $\to$ Refinement.**
+
+---
+
+## Phase 1: The Foundation (Calibration)
+
+Before adding effects, we must ensure the signal strength is correct for your hardware.
+
+### The Settings
+*   **Max Torque Ref (Nm):** The "Calibration Scale." It tells the app how strong the game's physics are.
+*   **Master Gain:** The "Volume Knob." It scales the final output sent to your wheel.
+
+### Tuning Steps
+1.  **Set Baseline:** Set `Master Gain` to **1.0** (100%).
+2.  **Set Reference:** Set `Max Torque Ref` based on your wheel:
+    *   **Logitech/Thrustmaster (Belt/Gear):** 30 - 40 Nm.
+    *   **Fanatec/Moza (Mid-Range DD):** 40 - 60 Nm.
+    *   **Simucube/VRS (High-End DD):** 60 - 100 Nm.
+3.  **Drive & Adjust:** Drive a high-downforce car (e.g., Hypercar) through high-speed corners (e.g., Porsche Curves).
+    *   *Goal:* The wheel should feel heavy and substantial, but **not** hit a "wall" of force where you lose detail.
+    *   *Check:* Open the **Troubleshooting Graphs**. If the "Clipping" graph hits 1.0 frequently, **increase** `Max Torque Ref`.
+
+---
+
+## Phase 2: The Front Axle (Grip & Connection)
+
+This layer communicates the connection between the front tires and the road.
+
+### The Settings
+*   **Steering Shaft Gain:** The raw aligning torque from the game physics.
+*   **Understeer Effect:** A modifier that *reduces* force when front grip is lost.
+
+### Tuning Steps
+1.  **Isolate:** Temporarily set `SoP Lateral G` to 0.0.
+2.  **Tune Weight:** Adjust `Steering Shaft Gain` until the car feels connected driving straight and turning slightly.
+3.  **Tune the Drop:** Drive into a corner too fast and turn the wheel past the grip limit (scrub the front tires).
+    *   **Adjust `Understeer Effect`:** Increase this slider until you feel the steering wheel go **light** or "hollow" the moment the car stops turning and starts sliding.
+    *   *Criteria:* You want a clear drop in weight that prompts you to unwind the wheel, but not so much that the wheel goes completely limp.
+
+---
+
+## Phase 3: The Rear Axle (Oversteer & Balance)
+
+This layer communicates what the rear of the car is doing. These effects interact to create the "Catch" sensation.
+
+### The Settings
+*   **SoP Lateral G:** Simulates chassis roll/weight transfer.
+*   **Yaw Kick:** Predictive impulse at the *start* of rotation.
+*   **Rear Align Torque:** Geometric counter-steering pull *during* the slide.
+*   **Lateral G Boost (Slide):** Adds weight/inertia *during* the slide.
+
+### Tuning Steps (The Sequence)
+1.  **SoP Lateral G (The Body):** Drive a clean lap. Adjust this until you feel the "weight" of the car leaning into corners. It should add heaviness, not twitchiness.
+2.  **Rear Align Torque (The Direction):** Induce a slide (power oversteer).
+    *   Adjust until the wheel actively **spins** in the counter-steer direction.
+    *   *Criteria:* The wheel should guide your hands to the correct angle to catch the slide.
+3.  **Lateral G Boost (Slide) (The Momentum):**
+    *   Increase this to add "heaviness" to the slide.
+    *   *Interaction:* Combined with Rear Align, this creates a "Heavy Counter-Steer" feel. The wheel pulls correctly (Rear Align) but feels like it has mass behind it (Boost).
+4.  **SoP Yaw Kick (The Warning):**
+    *   Adjust this to feel a sharp "jolt" the exact millisecond the rear tires break traction.
+    *   *Criteria:* This is your early warning system. It should be a quick impulse, not a sustained force.
+
+---
+
+## Phase 4: Textures & Immersion (The Surface)
+
+These are high-frequency vibrations that sit "on top" of the forces.
+
+### The Settings
+*   **Road Texture:** Vertical bumps and curbs.
+*   **Slide Texture:** Lateral scrubbing vibration (Sandpaper feel).
+*   **Scrub Drag:** Constant resistance (friction) when sliding.
+
+### Tuning Steps
+1.  **Road Texture:** Drive over curbs. Increase until you feel the impact, but ensure it doesn't rattle your teeth on straights.
+    *   *Tip:* Use `Load Cap` (General Settings) if curbs are too violent in high-speed corners.
+2.  **Slide Texture:** Induce understeer or oversteer.
+    *   Adjust until you feel a gritty "grinding" sensation.
+    *   *Criteria:* This confirms the tires are sliding. It should be distinct from road bumps.
+3.  **Scrub Drag:** (Optional) Increase to add a "thick" resistance when sliding sideways. This mimics the friction of rubber dragging across asphalt.
+
+---
+
+## Phase 5: Haptics (Pedals on Wheel)
+
+These simulate pedal feel through the wheel rim.
+
+### The Settings
+*   **Lockup Vibration:** Triggers when wheels stop rotating under braking.
+*   **Spin Vibration:** Triggers when rear wheels spin up under power.
+
+### Tuning Steps
+1.  **Lockup:** Brake hard (without ABS). Adjust until the vibration scares you into releasing the brake.
+2.  **Spin:** Mash the throttle in 1st gear. Adjust until you feel the "revving" vibration.
+
+---
+
+## Phase 6: Refinement (Signal Conditioning)
+
+The final polish to match your specific hardware capabilities.
+
+### The Settings
+*   **SoP Smoothing:** Filters the Lateral G signal.
+*   **Slip Angle Smoothing:** Filters the tire physics calculation.
+*   **Gyroscopic Damping:** Adds resistance to rapid movements.
+
+### Tuning Steps
+1.  **Smoothing (Latency vs. Noise):**
+    *   **Direct Drive:** Aim for **Low Latency** (Green text). Set SoP Smoothing to ~0.90 and Slip Smoothing to ~0.005.
+    *   **Belt/Gear:** Aim for **Medium Latency**. Set SoP Smoothing to ~0.60 and Slip Smoothing to ~0.030.
+    *   *Criteria:* Lower the smoothing until the wheel feels "grainy" or "robotic," then raise it just enough to make it smooth again.
+2.  **Gyroscopic Damping (Stability):**
+    *   If the wheel oscillates (wobbles left/right) on straights or snaps too violently when catching a slide ("Tank Slapper"), **increase** Gyro Damping.
+    *   *Criteria:* The wheel should feel "viscous" or fluid-like during rapid movements, not like a spring.
+
+---
+
+## Summary Checklist
+
+| Step | Goal | Primary Control | Success Criteria |
+| :--- | :--- | :--- | :--- |
+| **1** | **Calibrate** | `Max Torque Ref` | Strong forces without constant clipping. |
+| **2** | **Front Feel** | `Understeer Effect` | Wheel goes light when pushing too hard. |
+| **3** | **Body Roll** | `SoP Lateral G` | Wheel feels heavy in corners. |
+| **4** | **Slide Catch** | `Rear Align Torque` | Wheel spins to counter-steer automatically. |
+| **5** | **Slide Weight** | `Lat G Boost (Slide)` | Counter-steer feels heavy/substantial. |
+| **6** | **Slide Onset** | `Yaw Kick` | Sharp jolt when traction breaks. |
+| **7** | **Texture** | `Slide Texture` | Gritty vibration during slides. |
+| **8** | **Stability** | `Gyro Damping` | No oscillation on straights or catches. |
+
+---
+
 ## Rear Align Torque, Lateral G Boost (Slide), and Yaw Kick
 
 The interaction between "Lateral G Boost (Slide)" (formerly Oversteer Weight) and "Rear Align Torque" is crucial for a natural and intuitive oversteer feel.
