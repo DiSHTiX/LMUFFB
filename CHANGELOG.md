@@ -12,6 +12,16 @@ All notable changes to this project will be documented in this file.
     - **Stability**: Prevents "Slide Texture" vibration (40-200Hz) from being misinterpreted by physics as Yaw Acceleration spikes, which previously caused feedback loops/explosions.
     - **Responsiveness**: Improved reaction time to snap oversteer. 10ms provides the optimal balance: fast enough for car rotation (<5Hz) while effectively filtering high-frequency noise (>40Hz).
     - **Detailed Technical Comments**: Added comprehensive documentation in `FFBEngine.h` regarding the impact of different smoothing levels (3.2ms to 31.8ms) on feedback loops and "raw" feel.
+- **Expanded Rear Axle (Oversteer) Tooltips**:
+    - **Lateral G Boost (Slide)** (formerly Oversteer Boost): Expanded to explain the relationship with car mass inertia and momentum.
+    - **Rear Align Torque**: Added guidance on buildup speed and its role as the active "pull" during counter-steering.
+    - **Yaw Kick**: Clarified its role as the sharp, momentary impulse signaling the onset of rotation.
+    - **Tuning Goals**: Integrated explicit tuning goals into the tooltips to help users balance the "active pull" (Rear Align) against the "sustained effort" (Lateral G Boost).
+- **Renamed "Oversteer Boost" to "Lateral G Boost (Slide)"**:
+    - Updated GUI label and Troubleshooting graphs for better clarity on the effect's physical mechanism.
+    - Synchronized all internal documentation, code comments, and unit tests with the new nomenclature.
+
+
 
 
 ## [0.5.8] - 2025-12-24

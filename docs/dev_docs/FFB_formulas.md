@@ -122,7 +122,7 @@ This injects lateral G-force and rear-axle aligning torque to simulate the car b
         *   This filters out high-frequency noise while preserving actual rotation kicks regardless of frame rate.
     *   $K_{\text{yaw}}$: User setting `m_sop_yaw_gain` (0.0 - 2.0).
 
-4.  **Oversteer Boost**:
+4.  **Lateral G Boost (Slide)**:
     If Front Grip > Rear Grip:
 
     $$

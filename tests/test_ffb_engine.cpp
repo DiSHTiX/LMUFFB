@@ -805,7 +805,7 @@ static void test_suspension_bottoming() {
 }
 
 static void test_oversteer_boost() {
-    std::cout << "\nTest: Oversteer Boost (Rear Grip Loss)" << std::endl;
+    std::cout << "\nTest: Lateral G Boost (Slide)" << std::endl;
     FFBEngine engine;
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
@@ -1176,7 +1176,7 @@ static void test_rear_grip_fallback() {
     // We want to simulate that rear is NOT sliding (grip should be high)
     // but telemetry says 0.
     // If fallback works, it should calculate slip angle ~0, grip ~1.0.
-    // If fallback fails, it uses 0.0 -> Grip Delta = 1.0 - 0.0 = 1.0 -> Massive Oversteer Boost.
+    // If fallback fails, it uses 0.0 -> Grip Delta = 1.0 - 0.0 = 1.0 -> Massive Lateral G Boost (Slide).
     
     // Set minimal slip
     data.mWheel[2].mLongitudinalGroundVel = 20.0;
@@ -1198,7 +1198,7 @@ static void test_rear_grip_fallback() {
     
     // Verify calculated rear grip was high (restored)
     // With 0 slip, grip should be 1.0.
-    // engine doesn't expose avg_rear_grip publically, but we can infer from oversteer boost.
+    // engine doesn't expose avg_rear_grip publically, but we can infer from Lateral G Boost (Slide).
     // If grip restored to 1.0, delta = 1.0 - 1.0 = 0.0. No boost.
     // If grip is 0.0, delta = 1.0. Boost applied.
     
@@ -1207,10 +1207,10 @@ static void test_rear_grip_fallback() {
     if (!batch.empty()) {
         float boost = batch.back().oversteer_boost;
         if (std::abs(boost) < 0.001) {
-             std::cout << "[PASS] Oversteer boost correctly suppressed (Rear Grip restored)." << std::endl;
+             std::cout << "[PASS] Lateral G Boost (Slide) correctly suppressed (Rear Grip restored)." << std::endl;
              g_tests_passed++;
         } else {
-             std::cout << "[FAIL] False oversteer boost detected: " << boost << std::endl;
+             std::cout << "[FAIL] False Lateral G Boost (Slide) detected: " << boost << std::endl;
              g_tests_failed++;
         }
     } else {
@@ -2984,7 +2984,7 @@ static void test_rear_force_workaround() {
     // Engine Configuration
     // ========================================
     engine.m_sop_effect = 1.0;        // Enable SoP effect
-    engine.m_oversteer_boost = 1.0;   // Enable oversteer boost (multiplies rear torque)
+    engine.m_oversteer_boost = 1.0;   // Enable Lateral G Boost (Slide) (multiplies rear torque)
     engine.m_gain = 1.0;              // Full gain
     engine.m_sop_scale = 10.0;        // Moderate SoP scaling
     engine.m_rear_align_effect = 1.0f; // Fix effect gain for test calculation (Default is now 5.0)

@@ -49,7 +49,7 @@ The `ImGui::PlotLines` function accepts `scale_min` and `scale_max`.
 *   **Group A: Macro Forces (Keep ±20.0)**
     *   Base Torque
     *   SoP (Base Chassis G)
-    *   Oversteer Boost
+    *   Lateral G Boost (Slide)
     *   Rear Align Torque
     *   Scrub Drag Force
     *   Understeer Cut

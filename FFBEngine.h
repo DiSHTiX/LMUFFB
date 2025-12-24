@@ -1051,7 +1051,7 @@ public:
         
         // Use SMOOTHED value for the kick
         // Scaled by BASE_NM_YAW_KICK (5.0 Nm at Gain 1.0)
-        // Added AFTER Oversteer Boost to provide a clean, independent cue.
+        // Added AFTER Lateral G Boost (Slide) to provide a clean, independent cue.
         // v0.4.20 FIX: Invert to provide counter-steering torque
         // Positive yaw accel (right rotation) -> Negative force (left pull)
         double yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * (double)BASE_NM_YAW_KICK * decoupling_scale;

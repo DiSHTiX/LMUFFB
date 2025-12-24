@@ -179,7 +179,7 @@ The current implementation uses **Lateral Acceleration**, not Yaw.
 *   **SoP (Seat of Pants):** Using **Lateral G** is correct for simulating the weight transfer feel. It tells the driver "The car is turning hard."
 *   **Oversteer:** Using Lateral G alone is sometimes imperfect for detecting oversteer.
     *   *Scenario:* If the rear tires break loose completely (drifting), Lateral G might actually *drop* or plateau, while Yaw Rate spikes.
-    *   *Your Implementation:* To compensate for this, your code adds the **Rear Aligning Torque** (calculated from Slip Angle) and **Oversteer Boost** (calculated from Grip Delta). These help detect the slide even if Lateral G isn't telling the whole story.
+    *   *Your Implementation:* To compensate for this, your code adds the **Rear Aligning Torque** (calculated from Slip Angle) and **Lateral G Boost (Slide)** (calculated from Grip Delta). These help detect the slide even if Lateral G isn't telling the whole story.
 
 **Summary:** You are currently calculating forces based on the **sideways push** (Lateral G), not the **rotation speed** (Yaw).
 
