@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.9] - 2025-12-24
+### Changed
+- **Improved Load Cap widget**:
+    - Moved the slider under the  "Tactile Textures" section, since it only affects Texture and Vibration effects: Road Textures (Bumps/Curbs), Slide, Lockup.
+    - More informative Tooltip text.
+
 ## [0.5.8] - 2025-12-24
 ### Added
 - **Aggressive FFB Recovery with Smart Throttling**: Implemented more robust DirectInput connection recovery.

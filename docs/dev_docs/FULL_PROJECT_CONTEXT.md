@@ -451,6 +451,12 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.9] - 2025-12-24
+### Changed
+- **Improved Load Cap widget**:
+    - Moved the slider under the  "Tactile Textures" section, since it only affects Texture and Vibration effects: Road Textures (Bumps/Curbs), Slide, Lockup.
+    - More informative Tooltip text.
+
 ## [0.5.8] - 2025-12-24
 ### Added
 - **Aggressive FFB Recovery with Smart Throttling**: Implemented more robust DirectInput connection recovery.
@@ -23388,7 +23394,6 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         FloatSetting("Master Gain", &engine.m_gain, 0.0f, 2.0f, FormatPct(engine.m_gain));
         FloatSetting("Max Torque Ref", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm", "The torque value that equals 100% FFB output.\nFor T300/G29, try 60-100 Nm.");
         FloatSetting("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f");
-        FloatSetting("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.2fx", "Limits the maximum tire load factor used for scaling effects (Textures, etc).\nPrevents massive force spikes during high-downforce compressions.");
         
         ImGui::TreePop();
     } else { 
@@ -23550,6 +23555,8 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     if (ImGui::TreeNodeEx("Tactile Textures", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
         
+        FloatSetting("Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.2fx", "Safety Limiter specific to Texture and Vibration effects, \nwhich are scaled by tire load.\nPrevents violent shaking when under high downforce or compression.\nAffects high-freq. effects: Road Text. (Bumps/Curbs), Slide, Lockup.\nLower this if curbs feel too violent in fast corners.");
+
         BoolSetting("Slide Rumble", &engine.m_slide_texture_enabled);
         if (engine.m_slide_texture_enabled) {
             FloatSetting("  Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_slide_texture_gain, FFBEngine::BASE_NM_SLIDE_TEXTURE));
