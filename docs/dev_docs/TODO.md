@@ -23,7 +23,7 @@ improvements to the formulas
 
 ## Troubleshooting 25
 
-remove warnings about missing telemetry data
+DONE: remove warnings about missing telemetry data
 
 add slider for optimal slip angle (and slip ratio)
 list effects affected by grip and load approximation, and list those that are not affected
