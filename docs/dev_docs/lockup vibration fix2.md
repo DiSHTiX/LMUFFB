@@ -194,6 +194,76 @@ While the current implementation introduces a hardcoded **Quadratic ($x^2$)** ra
 *   **Implementation Logic:**
     $$ \text{Amplitude} = \text{BaseAmp} \times (\text{NormalizedSeverity})^{\gamma} $$
 
+
+
+Here is the detailed implementation plan subsection for the future Non-Linearity feature.
+
+#### 5.1 Implementation Plan: Configurable Vibration Gamma (v0.6.0)
+
+To transition from the hardcoded Quadratic curve to a fully user-tunable response, the following changes will be required.
+
+##### A. Physics Engine (`FFBEngine.h`)
+
+1.  **Add Member Variable:**
+    ```cpp
+    float m_lockup_gamma = 2.0f; // Default: 2.0 (Quadratic)
+    ```
+
+2.  **Update Calculation Logic:**
+    Replace the hardcoded multiplication with `std::pow`.
+
+    ```cpp
+    // Inside Lockup Logic...
+    
+    // 1. Normalize slip into 0.0 - 1.0 range (Linear Severity)
+    double normalized = (slip_abs - start_ratio) / window;
+    double severity = (std::min)(1.0, (std::max)(0.0, normalized));
+    
+    // 2. Apply Configurable Gamma Curve
+    // Gamma 1.0 = Linear
+    // Gamma 2.0 = Quadratic (Current behavior)
+    // Gamma 3.0 = Cubic (Late attack)
+    severity = std::pow(severity, (double)m_lockup_gamma);
+
+    // 3. Calculate Final Amplitude
+    double amp = severity * m_lockup_gain * ...;
+    ```
+
+##### B. Configuration (`src/Config.h` / `.cpp`)
+
+1.  **Update `Preset` Struct:**
+    ```cpp
+    struct Preset {
+        // ...
+        float lockup_gamma = 2.0f;
+        
+        Preset& SetLockupGamma(float g) { lockup_gamma = g; return *this; }
+    };
+    ```
+2.  **Update Persistence:** Add `lockup_gamma` to `Save`, `Load`, and `UpdateFromEngine`.
+
+##### C. GUI Layer (`src/GuiLayer.cpp`)
+
+Add the control slider to the "Lockup Vibration" section, ideally below the Threshold sliders.
+
+```cpp
+// Inside DrawTuningWindow -> Lockup Section
+
+FloatSetting("  Response Curve", &engine.m_lockup_gamma, 0.5f, 3.0f, "Gamma: %.1f");
+
+if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Controls the 'feel' of the vibration buildup.\n\n"
+        "1.0 = Linear: Vibration builds steadily from Start to Full.\n"
+        "2.0 = Quadratic (Default): Subtle warning, sharp increase at the limit.\n"
+        "3.0 = Cubic: Silent until the very last moment (Pro feel).\n"
+        "0.5 = Aggressive: Strong vibration immediately after Start threshold."
+    );
+}
+```
+
+---
+
 ### 6. Future Enhancement: Predictive Lockup via Angular Deceleration
 
 To achieve a true "ABS-like" prediction that triggers *before* significant slip occurs, we can implement **Wheel Angular Deceleration** monitoring.
