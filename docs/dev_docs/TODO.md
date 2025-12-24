@@ -43,3 +43,22 @@ check lockup vibration effect, feel it before bracking up, enough to prevent it
 yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
 experiment with gyro damping to compensate yaw kick
 
+console prints, add timestamp
+
+the game exited from the session, and there were still forces
+in particular self align torque and slide vibratio
+improve logic of detecting when not driving / not live, and stop ffb
+
+lockup vibration is not working
+help me troubleshoot
+error in formula?
+raw telemetry values missing?
+
+check other 2 telemetry raw values that might be missing
+
+spin vibration might also not be working
+
+check screenshot
+
+we need a button for ..disconnect from game? reset data from dame? signal session finished?
+the telemetry persist even after quitting the game (slide texture and rear align torque)
