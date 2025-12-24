@@ -57,3 +57,6 @@ check other 2 telemetry raw values that might be missing
 spin vibration might also not be working
 
 check screenshot
+
+we need a button for ..disconnect from game? reset data from dame? signal session finished?
+the telemetry persist even after quitting the game (slide texture and rear align torque)
