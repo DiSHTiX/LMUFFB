@@ -7,7 +7,7 @@
 bool Config::m_ignore_vjoy_version_warning = false;
 bool Config::m_enable_vjoy = false;
 bool Config::m_output_ffb_to_vjoy = false;
-bool Config::m_always_on_top = false;
+bool Config::m_always_on_top = true;
 std::string Config::m_last_device_guid = "";
 
 // Window Geometry Defaults (v0.5.5)

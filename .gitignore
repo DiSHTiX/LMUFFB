@@ -133,3 +133,5 @@ build_test/CMakeFiles/3.26.0-msvc3/x64/Debug/VCTargetsPath.tlog/VCTargetsPath.la
 docs/dev_docs/code_reviews/CRITICAL_FIXES_REQUIRED_v0.4.49.md
 build_test/CMakeCache.txt
 build_test/
+tests/build-tests/run_tests_win32.vcxproj
+tests/build-tests/run_tests_win32.vcxproj.filters

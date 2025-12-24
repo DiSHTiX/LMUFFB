@@ -11,11 +11,13 @@
 #include <windows.h>
 #include <psapi.h>
 #include <dinput.h>
+#include <iomanip> // For std::hex
 #endif
 
 // Constants
 namespace {
     constexpr DWORD DIAGNOSTIC_LOG_INTERVAL_MS = 1000; // Rate limit diagnostic logging to 1 second
+    constexpr DWORD RECOVERY_COOLDOWN_MS = 2000;       // Wait 2 seconds between recovery attempts
 }
 
 // Keep existing implementations
@@ -300,41 +302,55 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
         if (FAILED(hr)) {
             // 1. Identify the Error
             std::string errorType = "Unknown";
-            bool recoverable = false;
+            // FIX: Default to TRUE. If update failed, we must try to reconnect.
+            bool recoverable = true; 
 
             if (hr == DIERR_INPUTLOST) {
-                errorType = "DIERR_INPUTLOST (Physical disconnect or Driver reset)";
-                recoverable = true;
+                errorType = "DIERR_INPUTLOST";
             } else if (hr == DIERR_NOTACQUIRED) {
-                errorType = "DIERR_NOTACQUIRED (Lost focus/lock)";
-                recoverable = true;
+                errorType = "DIERR_NOTACQUIRED";
             } else if (hr == DIERR_OTHERAPPHASPRIO) {
-                errorType = "DIERR_OTHERAPPHASPRIO (Another app stole the device!)";
-                recoverable = true;
+                errorType = "DIERR_OTHERAPPHASPRIO";
+            } else if (hr == E_HANDLE) {
+                errorType = "E_HANDLE";
             }
 
             // 2. Log the Context (Rate limited)
             static DWORD lastLogTime = 0;
             if (GetTickCount() - lastLogTime > DIAGNOSTIC_LOG_INTERVAL_MS) {
-                std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType << std::endl;
+                std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType 
+                          << " (0x" << std::hex << hr << std::dec << ")" << std::endl;
                 std::cerr << "           Active Window: [" << GetActiveWindowTitle() << "]" << std::endl;
                 lastLogTime = GetTickCount();
             }
 
-            // 3. Attempt Recovery
+            // 3. Attempt Recovery (with Smart Cool-down)
             if (recoverable) {
-                HRESULT hrAcq = m_pDevice->Acquire();
+                // Throttle recovery attempts to prevent CPU spam when device is locked
+                static DWORD lastRecoveryAttempt = 0;
+                DWORD now = GetTickCount();
                 
-                if (SUCCEEDED(hrAcq)) {
-                    std::cout << "[DI RECOVERY] Device Re-Acquired successfully." << std::endl;
+                // Only attempt recovery if cooldown period has elapsed
+                if (now - lastRecoveryAttempt > RECOVERY_COOLDOWN_MS) {
+                    lastRecoveryAttempt = now; // Mark this attempt
                     
-                    // CRITICAL FIX: Restart the effect
-                    // Often, re-acquiring is not enough; the effect must be restarted.
-                    m_pEffect->Start(1, 0); 
+                    HRESULT hrAcq = m_pDevice->Acquire();
                     
-                    // Retry the update immediately
-                    m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
-                } 
+                    if (SUCCEEDED(hrAcq)) {
+                        // Log recovery success (rate-limited for diagnostics)
+                        static DWORD lastSuccessLog = 0;
+                        if (GetTickCount() - lastSuccessLog > 5000) { // 5 second cooldown
+                            std::cout << "[DI RECOVERY] Device re-acquired successfully. FFB motor restarted." << std::endl;
+                            lastSuccessLog = GetTickCount();
+                        }
+                        
+                        // Restart the effect to ensure motor is active
+                        m_pEffect->Start(1, 0); 
+                        
+                        // Retry the update immediately
+                        m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+                    }
+                }
             }
         }
     }

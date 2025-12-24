@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.8] - 2025-12-24
+### Added
+- **Aggressive FFB Recovery with Smart Throttling**: Implemented more robust DirectInput connection recovery.
+    - **Universal Detection**: The engine now treats *all* `SetParameters` failures as recoverable, ensuring that "Unknown" DirectInput errors (often caused by focus loss) trigger a re-acquisition attempt.
+    - **Smart Cool-down**: Recovery attempts are now throttled to once every 2 seconds to prevent CPU spam and "Tug of War" issues when the game has exclusive control of the device. This eliminates the 400Hz retry loop that could cause stuttering.
+    - **Immediate Re-Acquisition**: Logs `HRESULT` error codes in hexadecimal (e.g., `0x80070005`) to assist with deep troubleshooting of focus-stealing apps.
+    - **FFB Motor Restart**: Explicitly calls `m_pEffect->Start(1, 0)` upon successful recovery, ensuring force feedback resumes immediately without requiring an app restart.
+- **Configuration Safety Validation**: Added `test_config_safety_validation_v057()` to verify that invalid grip parameters (e.g., zero values that would cause division-by-zero) are automatically reset to safe defaults when loading corrupted config files.
+
+### Changed
+- **Default "Always on Top"**: Changed `m_always_on_top` to `true` by default. This ensures the LMUFFB window remains visible and prioritized by the OS scheduler out-of-the-box, preventing background deprioritization and focus loss during gameplay.
 
 ## [0.5.7] - 2025-12-24
 ### Added
@@ -13,6 +24,7 @@ All notable changes to this project will be documented in this file.
     - **Optimal Slip Ratio**: Allows defining the peak longitudinal grip threshold (percentage).
     - **Enhanced Grip Reconstruction**: The underlying grip approximation logic (used when telemetry is blocked or missing) now utilizes these configurable parameters instead of hardcoded defaults.
 - **Improved Test Coverage**: Added `test_grip_threshold_sensitivity()` and `test_steering_shaft_smoothing()` to verify physics integrity and filter convergence.
+
 
 ## [0.5.6] - 2025-12-24
 ### Changed

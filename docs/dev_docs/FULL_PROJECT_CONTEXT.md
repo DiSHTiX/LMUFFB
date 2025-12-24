@@ -366,7 +366,7 @@ See: docs\dev_docs\avg_load_issue.md
 ## Update app version, compile main app, compile all tests (including windows tests), all in one single command:
 & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build; cmake --build build --config Release --clean-first
 
-# Run all tests that had already been compiled:
+## Run all tests that had already been compiled:
 .\build\tests\Release\run_tests.exe; .\build\tests\Release\run_tests_win32.exe
 
 ## Compile and run tests (physics only, no windows tests) in one command
@@ -450,6 +450,29 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [0.5.8] - 2025-12-24
+### Added
+- **Aggressive FFB Recovery with Smart Throttling**: Implemented more robust DirectInput connection recovery.
+    - **Universal Detection**: The engine now treats *all* `SetParameters` failures as recoverable, ensuring that "Unknown" DirectInput errors (often caused by focus loss) trigger a re-acquisition attempt.
+    - **Smart Cool-down**: Recovery attempts are now throttled to once every 2 seconds to prevent CPU spam and "Tug of War" issues when the game has exclusive control of the device. This eliminates the 400Hz retry loop that could cause stuttering.
+    - **Immediate Re-Acquisition**: Logs `HRESULT` error codes in hexadecimal (e.g., `0x80070005`) to assist with deep troubleshooting of focus-stealing apps.
+    - **FFB Motor Restart**: Explicitly calls `m_pEffect->Start(1, 0)` upon successful recovery, ensuring force feedback resumes immediately without requiring an app restart.
+- **Configuration Safety Validation**: Added `test_config_safety_validation_v057()` to verify that invalid grip parameters (e.g., zero values that would cause division-by-zero) are automatically reset to safe defaults when loading corrupted config files.
+
+### Changed
+- **Default "Always on Top"**: Changed `m_always_on_top` to `true` by default. This ensures the LMUFFB window remains visible and prioritized by the OS scheduler out-of-the-box, preventing background deprioritization and focus loss during gameplay.
+
+## [0.5.7] - 2025-12-24
+### Added
+- **Steering Shaft Smoothing**: New "Steering Shaft Smooth" slider in the GUI.
+    - **Signal Conditioning**: Applies a Time-Corrected Low Pass Filter specifically to the `mSteeringShaftTorque` input, reducing mechanical graininess and high-frequency "fizz" from the game's physics engine.
+    - **Latency Awareness**: Displays real-time latency readout (ms) with color-coding (Green for < 15ms, Red for >= 15ms) to guide tuning decisions.
+- **Configurable Optimal Slip Parameters**: Added sliders to customize the tire physics model in the "Grip Estimation" section.
+    - **Optimal Slip Angle**: Allows users to define the peak lateral grip threshold (radians). Tunable for different car categories (e.g., lower for Hypercars, higher for GT3).
+    - **Optimal Slip Ratio**: Allows defining the peak longitudinal grip threshold (percentage).
+    - **Enhanced Grip Reconstruction**: The underlying grip approximation logic (used when telemetry is blocked or missing) now utilizes these configurable parameters instead of hardcoded defaults.
+- **Improved Test Coverage**: Added `test_grip_threshold_sensitivity()` and `test_steering_shaft_smoothing()` to verify physics integrity and filter convergence.
 
 
 ## [0.5.6] - 2025-12-24
@@ -1545,6 +1568,13 @@ public:
 
     float m_slip_angle_smoothing = 0.015f; // v0.4.40: Expose tau (Smoothing Time Constant in seconds)
     
+    // NEW: Grip Estimation Settings (v0.5.7)
+    float m_optimal_slip_angle = 0.10f; // Default 0.10 rad (5.7 deg)
+    float m_optimal_slip_ratio = 0.12f; // Default 0.12 (12%)
+    
+    // NEW: Steering Shaft Smoothing (v0.5.7)
+    float m_steering_shaft_smoothing = 0.0f; // Time constant in seconds (0.0 = off)
+    
     // v0.4.41: Signal Filtering Settings
     bool m_flatspot_suppression = false;
     float m_notch_q = 2.0f; // Default Q-Factor
@@ -1587,6 +1617,9 @@ public:
     
     // Yaw Acceleration Smoothing State (v0.4.18)
     double m_yaw_accel_smoothed = 0.0;
+
+    // Internal state for Steering Shaft Smoothing (v0.5.7)
+    double m_steering_shaft_torque_smoothed = 0.0;
 
     // Kinematic Smoothing State (v0.4.38)
     double m_accel_x_smoothed = 0.0;
@@ -1834,14 +1867,17 @@ public:
                 // v0.4.38: Combined Friction Circle (Advanced Reconstruction)
                 
                 // 1. Lateral Component (Alpha)
-                double lat_metric = std::abs(result.slip_angle) / 0.10; // Normalize (0.10 rad peak)
+                // USE CONFIGURABLE THRESHOLD (v0.5.7)
+                double lat_metric = std::abs(result.slip_angle) / (double)m_optimal_slip_angle;
 
                 // 2. Longitudinal Component (Kappa)
                 // Calculate manual slip for both wheels and average the magnitude
                 double ratio1 = calculate_manual_slip_ratio(w1, car_speed);
                 double ratio2 = calculate_manual_slip_ratio(w2, car_speed);
                 double avg_ratio = (std::abs(ratio1) + std::abs(ratio2)) / 2.0;
-                double long_metric = avg_ratio / 0.12; // Normalize (12% peak)
+
+                // USE CONFIGURABLE THRESHOLD (v0.5.7)
+                double long_metric = avg_ratio / (double)m_optimal_slip_ratio;
 
                 // 3. Combined Vector (Friction Circle)
                 double combined_slip = std::sqrt((lat_metric * lat_metric) + (long_metric * long_metric));
@@ -1974,7 +2010,23 @@ public:
         const TelemWheelV01& fr = data->mWheel[1];
 
         // Critical: Use mSteeringShaftTorque instead of mSteeringArmForce
+        // Explanation: LMU 1.2 introduced mSteeringShaftTorque (Nm) as the definitive FFB output.
+        // Legacy mSteeringArmForce (N) is often 0.0 or inaccurate for Hypercars due to 
+        // complex power steering modeling in the new engine.
         double game_force = data->mSteeringShaftTorque;
+
+        // --- NEW: Steering Shaft Smoothing (v0.5.7) ---
+        if (m_steering_shaft_smoothing > 0.0001f) {
+            double tau_shaft = (double)m_steering_shaft_smoothing;
+            double alpha_shaft = dt / (tau_shaft + dt);
+            // Safety clamp
+            alpha_shaft = (std::min)(1.0, (std::max)(0.001, alpha_shaft));
+            
+            m_steering_shaft_torque_smoothed += alpha_shaft * (game_force - m_steering_shaft_torque_smoothed);
+            game_force = m_steering_shaft_torque_smoothed;
+        } else {
+            m_steering_shaft_torque_smoothed = game_force; // Reset state
+        }
 
         // --- v0.4.41: Frequency Estimator & Dynamic Notch Filter ---
         
@@ -21217,7 +21269,7 @@ Please refer to `docs/porting_guide_rust.md` in the root directory for instructi
 bool Config::m_ignore_vjoy_version_warning = false;
 bool Config::m_enable_vjoy = false;
 bool Config::m_output_ffb_to_vjoy = false;
-bool Config::m_always_on_top = false;
+bool Config::m_always_on_top = true;
 std::string Config::m_last_device_guid = "";
 
 // Window Geometry Defaults (v0.5.5)
@@ -21568,6 +21620,9 @@ void Config::LoadPresets() {
                         else if (key == "flatspot_strength") current_preset.flatspot_strength = std::stof(value);
                         else if (key == "static_notch_enabled") current_preset.static_notch_enabled = std::stoi(value);
                         else if (key == "static_notch_freq") current_preset.static_notch_freq = std::stof(value);
+                        else if (key == "optimal_slip_angle") current_preset.optimal_slip_angle = std::stof(value);
+                        else if (key == "optimal_slip_ratio") current_preset.optimal_slip_ratio = std::stof(value);
+                        else if (key == "steering_shaft_smoothing") current_preset.steering_shaft_smoothing = std::stof(value);
                     } catch (...) {}
                 }
             }
@@ -21659,6 +21714,9 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "flatspot_strength=" << engine.m_flatspot_strength << "\n";
         file << "static_notch_enabled=" << engine.m_static_notch_enabled << "\n";
         file << "static_notch_freq=" << engine.m_static_notch_freq << "\n";
+        file << "optimal_slip_angle=" << engine.m_optimal_slip_angle << "\n";
+        file << "optimal_slip_ratio=" << engine.m_optimal_slip_ratio << "\n";
+        file << "steering_shaft_smoothing=" << engine.m_steering_shaft_smoothing << "\n";
         
         // 3. User Presets
         file << "\n[Presets]\n";
@@ -21697,6 +21755,9 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "flatspot_strength=" << p.flatspot_strength << "\n";
                 file << "static_notch_enabled=" << p.static_notch_enabled << "\n";
                 file << "static_notch_freq=" << p.static_notch_freq << "\n";
+                file << "optimal_slip_angle=" << p.optimal_slip_angle << "\n";
+                file << "optimal_slip_ratio=" << p.optimal_slip_ratio << "\n";
+                file << "steering_shaft_smoothing=" << p.steering_shaft_smoothing << "\n";
                 file << "\n";
             }
         }
@@ -21773,12 +21834,28 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "flatspot_strength") engine.m_flatspot_strength = std::stof(value);
                     else if (key == "static_notch_enabled") engine.m_static_notch_enabled = std::stoi(value);
                     else if (key == "static_notch_freq") engine.m_static_notch_freq = std::stof(value);
+                    else if (key == "optimal_slip_angle") engine.m_optimal_slip_angle = std::stof(value);
+                    else if (key == "optimal_slip_ratio") engine.m_optimal_slip_ratio = std::stof(value);
+                    else if (key == "steering_shaft_smoothing") engine.m_steering_shaft_smoothing = std::stof(value);
                 } catch (...) {
                     std::cerr << "[Config] Error parsing line: " << line << std::endl;
                 }
             }
         }
     }
+    
+    // v0.5.7: Safety Validation - Prevent Division by Zero in Grip Calculation
+    if (engine.m_optimal_slip_angle < 0.01f) {
+        std::cerr << "[Config] Invalid optimal_slip_angle (" << engine.m_optimal_slip_angle 
+                  << "), resetting to default 0.10" << std::endl;
+        engine.m_optimal_slip_angle = 0.10f;
+    }
+    if (engine.m_optimal_slip_ratio < 0.01f) {
+        std::cerr << "[Config] Invalid optimal_slip_ratio (" << engine.m_optimal_slip_ratio 
+                  << "), resetting to default 0.12" << std::endl;
+        engine.m_optimal_slip_ratio = 0.12f;
+    }
+    
     std::cout << "[Config] Loaded from " << filename << std::endl;
 }
 
@@ -21833,6 +21910,11 @@ struct Preset {
     
     float steering_shaft_gain = 1.0f;
     int base_force_mode = 0; // 0=Native
+    
+    // NEW: Grip & Smoothing (v0.5.7)
+    float optimal_slip_angle = 0.10f;
+    float optimal_slip_ratio = 0.12f;
+    float steering_shaft_smoothing = 0.0f;
 
     // v0.4.41: Signal Filtering
     bool flatspot_suppression = false;
@@ -21891,6 +21973,13 @@ struct Preset {
         return *this;
     }
 
+    Preset& SetOptimalSlip(float angle, float ratio) {
+        optimal_slip_angle = angle;
+        optimal_slip_ratio = ratio;
+        return *this;
+    }
+    Preset& SetShaftSmoothing(float v) { steering_shaft_smoothing = v; return *this; }
+
     // Apply this preset to an engine instance
     void Apply(FFBEngine& engine) const {
         engine.m_gain = gain;
@@ -21925,6 +22014,9 @@ struct Preset {
         engine.m_flatspot_strength = flatspot_strength;
         engine.m_static_notch_enabled = static_notch_enabled;
         engine.m_static_notch_freq = static_notch_freq;
+        engine.m_optimal_slip_angle = optimal_slip_angle;
+        engine.m_optimal_slip_ratio = optimal_slip_ratio;
+        engine.m_steering_shaft_smoothing = steering_shaft_smoothing;
     }
 
     // NEW: Capture current engine state into this preset
@@ -21961,6 +22053,9 @@ struct Preset {
         flatspot_strength = engine.m_flatspot_strength;
         static_notch_enabled = engine.m_static_notch_enabled;
         static_notch_freq = engine.m_static_notch_freq;
+        optimal_slip_angle = engine.m_optimal_slip_angle;
+        optimal_slip_ratio = engine.m_optimal_slip_ratio;
+        steering_shaft_smoothing = engine.m_steering_shaft_smoothing;
     }
 };
 
@@ -22012,11 +22107,13 @@ public:
 #include <windows.h>
 #include <psapi.h>
 #include <dinput.h>
+#include <iomanip> // For std::hex
 #endif
 
 // Constants
 namespace {
     constexpr DWORD DIAGNOSTIC_LOG_INTERVAL_MS = 1000; // Rate limit diagnostic logging to 1 second
+    constexpr DWORD RECOVERY_COOLDOWN_MS = 2000;       // Wait 2 seconds between recovery attempts
 }
 
 // Keep existing implementations
@@ -22301,41 +22398,55 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
         if (FAILED(hr)) {
             // 1. Identify the Error
             std::string errorType = "Unknown";
-            bool recoverable = false;
+            // FIX: Default to TRUE. If update failed, we must try to reconnect.
+            bool recoverable = true; 
 
             if (hr == DIERR_INPUTLOST) {
-                errorType = "DIERR_INPUTLOST (Physical disconnect or Driver reset)";
-                recoverable = true;
+                errorType = "DIERR_INPUTLOST";
             } else if (hr == DIERR_NOTACQUIRED) {
-                errorType = "DIERR_NOTACQUIRED (Lost focus/lock)";
-                recoverable = true;
+                errorType = "DIERR_NOTACQUIRED";
             } else if (hr == DIERR_OTHERAPPHASPRIO) {
-                errorType = "DIERR_OTHERAPPHASPRIO (Another app stole the device!)";
-                recoverable = true;
+                errorType = "DIERR_OTHERAPPHASPRIO";
+            } else if (hr == E_HANDLE) {
+                errorType = "E_HANDLE";
             }
 
             // 2. Log the Context (Rate limited)
             static DWORD lastLogTime = 0;
             if (GetTickCount() - lastLogTime > DIAGNOSTIC_LOG_INTERVAL_MS) {
-                std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType << std::endl;
+                std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType 
+                          << " (0x" << std::hex << hr << std::dec << ")" << std::endl;
                 std::cerr << "           Active Window: [" << GetActiveWindowTitle() << "]" << std::endl;
                 lastLogTime = GetTickCount();
             }
 
-            // 3. Attempt Recovery
+            // 3. Attempt Recovery (with Smart Cool-down)
             if (recoverable) {
-                HRESULT hrAcq = m_pDevice->Acquire();
+                // Throttle recovery attempts to prevent CPU spam when device is locked
+                static DWORD lastRecoveryAttempt = 0;
+                DWORD now = GetTickCount();
                 
-                if (SUCCEEDED(hrAcq)) {
-                    std::cout << "[DI RECOVERY] Device Re-Acquired successfully." << std::endl;
+                // Only attempt recovery if cooldown period has elapsed
+                if (now - lastRecoveryAttempt > RECOVERY_COOLDOWN_MS) {
+                    lastRecoveryAttempt = now; // Mark this attempt
                     
-                    // CRITICAL FIX: Restart the effect
-                    // Often, re-acquiring is not enough; the effect must be restarted.
-                    m_pEffect->Start(1, 0); 
+                    HRESULT hrAcq = m_pDevice->Acquire();
                     
-                    // Retry the update immediately
-                    m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
-                } 
+                    if (SUCCEEDED(hrAcq)) {
+                        // Log recovery success (rate-limited for diagnostics)
+                        static DWORD lastSuccessLog = 0;
+                        if (GetTickCount() - lastSuccessLog > 5000) { // 5 second cooldown
+                            std::cout << "[DI RECOVERY] Device re-acquired successfully. FFB motor restarted." << std::endl;
+                            lastSuccessLog = GetTickCount();
+                        }
+                        
+                        // Restart the effect to ensure motor is active
+                        m_pEffect->Start(1, 0); 
+                        
+                        // Retry the update immediately
+                        m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+                    }
+                }
             }
         }
     }
@@ -22710,6 +22821,9 @@ static HWND                     g_hwnd = NULL;
 static const float CONFIG_PANEL_WIDTH = 500.0f;  // Width of config panel when graphs are visible
 static const int MIN_WINDOW_WIDTH = 400;         // Minimum window width to keep UI usable
 static const int MIN_WINDOW_HEIGHT = 600;        // Minimum window height to keep UI usable
+
+// v0.5.7 Latency Warning Threshold
+static const int LATENCY_WARNING_THRESHOLD_MS = 15; // Green if < 15ms, Red if >= 15ms
 
 // Forward declarations of helper functions
 bool CreateDeviceD3D(HWND hWnd);
@@ -23287,6 +23401,23 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn(); ImGui::NextColumn();
         
         FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 1.0f, FormatPct(engine.m_steering_shaft_gain), "Attenuates raw game force without affecting telemetry.");
+        
+        // --- NEW: Steering Shaft Smoothing (v0.5.7) ---
+        ImGui::Text("Steering Shaft Smoothing");
+        ImGui::NextColumn();
+        
+        int shaft_ms = (int)(engine.m_steering_shaft_smoothing * 1000.0f + 0.5f);
+        ImVec4 shaft_color = (shaft_ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+        ImGui::TextColored(shaft_color, "Latency: %d ms - %s", shaft_ms, (shaft_ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+        
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderFloat("##ShaftSmooth", &engine.m_steering_shaft_smoothing, 0.000f, 0.100f, "%.3f s")) selected_preset = -1;
+        if (ImGui::IsItemHovered()) {
+             ImGui::SetTooltip("Low Pass Filter applied ONLY to the raw game force.\nUse this to smooth out 'grainy' FFB from the game engine.\nWarning: Adds latency.");
+        }
+        ImGui::NextColumn();
+        // -------------------------------------
+
         // Display with 2 decimals to show fine arrow key adjustments (step 0.01 on 0-50 range)
         FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 50.0f, "%.2f", "Strength of the force drop when front grip is lost.");
         
@@ -23341,8 +23472,8 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn();
         
         int lat_ms = (int)((1.0f - engine.m_sop_smoothing_factor) * 100.0f + 0.5f);
-        ImVec4 lat_color = (lat_ms < 15) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-        ImGui::TextColored(lat_color, "Latency: %d ms - %s", lat_ms, (lat_ms < 15) ? "OK" : "High");
+        ImVec4 lat_color = (lat_ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+        ImGui::TextColored(lat_color, "Latency: %d ms - %s", lat_ms, (lat_ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
         
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f")) selected_preset = -1;
@@ -23376,8 +23507,8 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn();
         
         int slip_ms = (int)(engine.m_slip_angle_smoothing * 1000.0f + 0.5f);
-        ImVec4 slip_color = (slip_ms < 15) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-        ImGui::TextColored(slip_color, "Latency: %d ms - %s", slip_ms, (slip_ms < 15) ? "OK" : "High");
+        ImVec4 slip_color = (slip_ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+        ImGui::TextColored(slip_color, "Latency: %d ms - %s", slip_ms, (slip_ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
 
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##Slip Angle Smoothing", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, "%.3f s")) selected_preset = -1;
@@ -23393,6 +23524,19 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             if (!changed) ImGui::SetTooltip("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
         }
         ImGui::NextColumn();
+
+        // --- NEW: Optimal Slip Sliders (v0.5.7) ---
+        FloatSetting("Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad", 
+            "The slip angle where peak grip occurs.\n"
+            "Lower = Earlier understeer warning (Hypercars ~0.06).\n"
+            "Higher = Later warning (GT3 ~0.10).\n"
+            "Affects: Understeer Effect, Oversteer Boost, Slide Texture.");
+
+        FloatSetting("Optimal Slip Ratio", &engine.m_optimal_slip_ratio, 0.05f, 0.20f, "%.2f", 
+            "The longitudinal slip ratio (braking/accel) where peak grip occurs.\n"
+            "Typical: 0.12 - 0.15 (12-15%).\n"
+            "Affects: How much braking/acceleration contributes to calculated grip loss.");
+        // ---------------------------------
 
         BoolSetting("Manual Slip Calc", &engine.m_use_manual_slip, "Uses local velocity instead of game's slip telemetry.");
         
@@ -25515,6 +25659,43 @@ static void test_frequency_estimator(); // Forward declaration (v0.4.41)
 static void test_static_notch_integration(); // Forward declaration (v0.4.43)
 static void test_gain_compensation(); // Forward declaration (v0.4.50)
 static void test_config_safety_clamping(); // Forward declaration (v0.4.50)
+static void test_grip_threshold_sensitivity(); // Forward declaration (v0.5.7)
+static void test_steering_shaft_smoothing(); // Forward declaration (v0.5.7)
+static void test_config_defaults_v057(); // Forward declaration (v0.5.7)
+static void test_config_safety_validation_v057(); // Forward declaration (v0.5.7)
+
+// --- Test Helper Functions (v0.5.7) ---
+
+/**
+ * Creates a standardized TelemInfoV01 structure for testing.
+ * Reduces code duplication across tests by providing common setup.
+ * 
+ * @param speed Car speed in m/s (default 20.0)
+ * @param slip_angle Slip angle in radians (default 0.0)
+ * @return Initialized TelemInfoV01 structure with realistic values
+ */
+static TelemInfoV01 CreateBasicTestTelemetry(double speed = 20.0, double slip_angle = 0.0) {
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+    
+    // Time
+    data.mDeltaTime = 0.01; // 100Hz
+    
+    // Velocity
+    data.mLocalVel.z = -speed; // Game uses -Z for forward
+    
+    // Wheel setup (all 4 wheels)
+    for (int i = 0; i < 4; i++) {
+        data.mWheel[i].mGripFract = 0.0; // Trigger approximation mode
+        data.mWheel[i].mTireLoad = 4000.0; // Realistic load
+        data.mWheel[i].mStaticUndeflectedRadius = 30; // 0.3m radius
+        data.mWheel[i].mRotation = speed * 3.33f; // Match speed (rad/s)
+        data.mWheel[i].mLongitudinalGroundVel = speed;
+        data.mWheel[i].mLateralPatchVel = slip_angle * speed; // Convert to m/s
+    }
+    
+    return data;
+}
 
 
 
@@ -28062,6 +28243,12 @@ int main() {
     test_static_notch_integration(); // v0.4.43
     test_gain_compensation(); // v0.4.50
     test_config_safety_clamping(); // v0.4.50
+
+    // New Physics Tuning Tests (v0.5.7)
+    test_grip_threshold_sensitivity();
+    test_steering_shaft_smoothing();
+    test_config_defaults_v057();
+    test_config_safety_validation_v057();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -29934,6 +30121,189 @@ static void test_config_safety_clamping() {
     // Clean up test file
     std::remove(test_file);
 }
+
+static void test_grip_threshold_sensitivity() {
+    std::cout << "\nTest: Grip Threshold Sensitivity (v0.5.7)" << std::endl;
+    FFBEngine engine;
+    
+    // Use helper function to create test data with 0.07 rad slip angle
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0, 0.07);
+
+    // Case 1: High Sensitivity (Hypercar style)
+    engine.m_optimal_slip_angle = 0.06f;
+    data.mWheel[0].mLateralPatchVel = 0.06 * 20.0; // Exact peak
+    data.mWheel[1].mLateralPatchVel = 0.06 * 20.0;
+    
+    // Settle LPF
+    for (int i = 0; i < 10; i++) engine.calculate_force(&data);
+    float grip_sensitive = engine.GetDebugBatch().back().calc_front_grip;
+
+    // Now increase slip slightly beyond peak (0.07)
+    data.mWheel[0].mLateralPatchVel = 0.07 * 20.0;
+    data.mWheel[1].mLateralPatchVel = 0.07 * 20.0;
+    for (int i = 0; i < 10; i++) engine.calculate_force(&data);
+    float grip_sensitive_post = engine.GetDebugBatch().back().calc_front_grip;
+
+    // Case 2: Low Sensitivity (GT3 style)
+    engine.m_optimal_slip_angle = 0.12f;
+    data.mWheel[0].mLateralPatchVel = 0.07 * 20.0; // Same slip as sensitive post
+    data.mWheel[1].mLateralPatchVel = 0.07 * 20.0;
+    for (int i = 0; i < 10; i++) engine.calculate_force(&data);
+    float grip_gt3 = engine.GetDebugBatch().back().calc_front_grip;
+
+    // Verify: post-peak sensitive car should have LESS grip than GT3 car at same slip
+    if (grip_sensitive_post < grip_gt3) {
+        std::cout << "[PASS] Sensitive car (0.06) lost more grip at 0.07 slip than GT3 car (0.12)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Sensitivity threshold not working. S: " << grip_sensitive_post << " G: " << grip_gt3 << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_steering_shaft_smoothing() {
+    std::cout << "\nTest: Steering Shaft Smoothing (v0.5.7)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+
+    engine.m_steering_shaft_smoothing = 0.050f; // 50ms tau
+    engine.m_gain = 1.0;
+    engine.m_max_torque_ref = 1.0;
+    engine.m_understeer_effect = 0.0; // Neutralize modifiers
+    engine.m_sop_effect = 0.0f;      // Disable SoP
+    engine.m_invert_force = false;   // Disable inversion
+    data.mDeltaTime = 0.01; // 100Hz
+
+    // Step input: 0.0 -> 1.0
+    data.mSteeringShaftTorque = 1.0;
+
+    // After 1 frame (10ms) with 50ms tau:
+    // alpha = dt / (tau + dt) = 10 / (50 + 10) = 1/6 ≈ 0.166
+    // Expected force: 0.166
+    double force = engine.calculate_force(&data);
+
+    if (std::abs(force - 0.166) < 0.01) {
+        std::cout << "[PASS] Shaft Smoothing delayed the step input (Frame 1: " << force << ")." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Shaft Smoothing mismatch. Got " << force << " Expected ~0.166." << std::endl;
+        g_tests_failed++;
+    }
+
+    // After 10 frames (100ms) it should be near 1.0 (approx 86% of target)
+    for (int i = 0; i < 9; i++) engine.calculate_force(&data);
+    force = engine.calculate_force(&data);
+
+    if (force > 0.8 && force < 0.95) {
+        std::cout << "[PASS] Shaft Smoothing converged correctly (Frame 11: " << force << ")." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Shaft Smoothing convergence failure. Got " << force << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_config_defaults_v057() {
+    std::cout << "\nTest: Config Defaults (v0.5.7)" << std::endl;
+    
+    // Verify "Always on Top" is enabled by default
+    // This ensures the app prioritizes visibility/process priority out-of-the-box
+    if (Config::m_always_on_top == true) {
+        std::cout << "[PASS] 'Always on Top' is ENABLED by default." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] 'Always on Top' is DISABLED by default (Regression)." << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_config_safety_validation_v057() {
+    std::cout << "\nTest: Config Safety Validation (v0.5.7)" << std::endl;
+    
+    // Create a temporary config file with invalid values that would cause division-by-zero
+    const char* test_file = "tmp_invalid_grip_config_test.ini";
+    {
+        std::ofstream file(test_file);
+        if (!file.is_open()) {
+            std::cout << "[FAIL] Could not create test config file." << std::endl;
+            g_tests_failed++;
+            return;
+        }
+        
+        // Write dangerous values that would cause division-by-zero in grip calculations
+        file << "optimal_slip_angle=0.0\n";      // Invalid: would cause division by zero
+        file << "optimal_slip_ratio=0.0\n";      // Invalid: would cause division by zero
+        file << "gain=1.5\n";                    // Valid value to ensure file is parsed
+        file.close();
+    }
+    
+    // Load the unsafe config
+    FFBEngine engine;
+    Config::Load(engine, test_file);
+    
+    // Verify that invalid values were reset to safe defaults
+    bool all_safe = true;
+    
+    // Check optimal_slip_angle was reset to default 0.10
+    if (engine.m_optimal_slip_angle == 0.10f) {
+        std::cout << "[PASS] Invalid optimal_slip_angle (0.0) reset to safe default (0.10)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] optimal_slip_angle not reset. Got: " << engine.m_optimal_slip_angle << " Expected: 0.10" << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Check optimal_slip_ratio was reset to default 0.12
+    if (engine.m_optimal_slip_ratio == 0.12f) {
+        std::cout << "[PASS] Invalid optimal_slip_ratio (0.0) reset to safe default (0.12)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] optimal_slip_ratio not reset. Got: " << engine.m_optimal_slip_ratio << " Expected: 0.12" << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Verify that valid values were still loaded correctly
+    if (engine.m_gain == 1.5f) {
+        std::cout << "[PASS] Valid config values still loaded correctly (gain=1.5)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Valid values not loaded. Got gain: " << engine.m_gain << " Expected: 1.5" << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Test edge case: very small but non-zero values (should also be reset)
+    {
+        std::ofstream file(test_file);
+        file << "optimal_slip_angle=0.005\n";    // Below 0.01 threshold
+        file << "optimal_slip_ratio=0.008\n";    // Below 0.01 threshold
+        file.close();
+    }
+    
+    FFBEngine engine2;
+    Config::Load(engine2, test_file);
+    
+    if (engine2.m_optimal_slip_angle == 0.10f && engine2.m_optimal_slip_ratio == 0.12f) {
+        std::cout << "[PASS] Very small values (<0.01) correctly reset to defaults." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Small value validation failed. Angle: " << engine2.m_optimal_slip_angle 
+                  << " Ratio: " << engine2.m_optimal_slip_ratio << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Clean up test file
+    std::remove(test_file);
+    
+    if (all_safe) {
+        std::cout << "[SUMMARY] All division-by-zero protections working correctly." << std::endl;
+    }
+}
+
 
 ```
 

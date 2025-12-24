@@ -69,6 +69,8 @@ static void test_gain_compensation(); // Forward declaration (v0.4.50)
 static void test_config_safety_clamping(); // Forward declaration (v0.4.50)
 static void test_grip_threshold_sensitivity(); // Forward declaration (v0.5.7)
 static void test_steering_shaft_smoothing(); // Forward declaration (v0.5.7)
+static void test_config_defaults_v057(); // Forward declaration (v0.5.7)
+static void test_config_safety_validation_v057(); // Forward declaration (v0.5.7)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -2653,6 +2655,8 @@ int main() {
     // New Physics Tuning Tests (v0.5.7)
     test_grip_threshold_sensitivity();
     test_steering_shaft_smoothing();
+    test_config_defaults_v057();
+    test_config_safety_validation_v057();
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -4607,3 +4611,104 @@ static void test_steering_shaft_smoothing() {
         g_tests_failed++;
     }
 }
+
+static void test_config_defaults_v057() {
+    std::cout << "\nTest: Config Defaults (v0.5.7)" << std::endl;
+    
+    // Verify "Always on Top" is enabled by default
+    // This ensures the app prioritizes visibility/process priority out-of-the-box
+    if (Config::m_always_on_top == true) {
+        std::cout << "[PASS] 'Always on Top' is ENABLED by default." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] 'Always on Top' is DISABLED by default (Regression)." << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_config_safety_validation_v057() {
+    std::cout << "\nTest: Config Safety Validation (v0.5.7)" << std::endl;
+    
+    // Create a temporary config file with invalid values that would cause division-by-zero
+    const char* test_file = "tmp_invalid_grip_config_test.ini";
+    {
+        std::ofstream file(test_file);
+        if (!file.is_open()) {
+            std::cout << "[FAIL] Could not create test config file." << std::endl;
+            g_tests_failed++;
+            return;
+        }
+        
+        // Write dangerous values that would cause division-by-zero in grip calculations
+        file << "optimal_slip_angle=0.0\n";      // Invalid: would cause division by zero
+        file << "optimal_slip_ratio=0.0\n";      // Invalid: would cause division by zero
+        file << "gain=1.5\n";                    // Valid value to ensure file is parsed
+        file.close();
+    }
+    
+    // Load the unsafe config
+    FFBEngine engine;
+    Config::Load(engine, test_file);
+    
+    // Verify that invalid values were reset to safe defaults
+    bool all_safe = true;
+    
+    // Check optimal_slip_angle was reset to default 0.10
+    if (engine.m_optimal_slip_angle == 0.10f) {
+        std::cout << "[PASS] Invalid optimal_slip_angle (0.0) reset to safe default (0.10)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] optimal_slip_angle not reset. Got: " << engine.m_optimal_slip_angle << " Expected: 0.10" << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Check optimal_slip_ratio was reset to default 0.12
+    if (engine.m_optimal_slip_ratio == 0.12f) {
+        std::cout << "[PASS] Invalid optimal_slip_ratio (0.0) reset to safe default (0.12)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] optimal_slip_ratio not reset. Got: " << engine.m_optimal_slip_ratio << " Expected: 0.12" << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Verify that valid values were still loaded correctly
+    if (engine.m_gain == 1.5f) {
+        std::cout << "[PASS] Valid config values still loaded correctly (gain=1.5)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Valid values not loaded. Got gain: " << engine.m_gain << " Expected: 1.5" << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Test edge case: very small but non-zero values (should also be reset)
+    {
+        std::ofstream file(test_file);
+        file << "optimal_slip_angle=0.005\n";    // Below 0.01 threshold
+        file << "optimal_slip_ratio=0.008\n";    // Below 0.01 threshold
+        file.close();
+    }
+    
+    FFBEngine engine2;
+    Config::Load(engine2, test_file);
+    
+    if (engine2.m_optimal_slip_angle == 0.10f && engine2.m_optimal_slip_ratio == 0.12f) {
+        std::cout << "[PASS] Very small values (<0.01) correctly reset to defaults." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Small value validation failed. Angle: " << engine2.m_optimal_slip_angle 
+                  << " Ratio: " << engine2.m_optimal_slip_ratio << std::endl;
+        g_tests_failed++;
+        all_safe = false;
+    }
+    
+    // Clean up test file
+    std::remove(test_file);
+    
+    if (all_safe) {
+        std::cout << "[SUMMARY] All division-by-zero protections working correctly." << std::endl;
+    }
+}
+
