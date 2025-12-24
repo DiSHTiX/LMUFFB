@@ -854,7 +854,7 @@ public:
         double base_input = 0.0;
         
         if (m_base_force_mode == 0) {
-            // Mode 0: Native (Physics)
+            // Mode 0: Native (Steering Shaft Torque)
             base_input = game_force;
         } else if (m_base_force_mode == 1) {
             // Mode 1: Synthetic (Constant with Direction)

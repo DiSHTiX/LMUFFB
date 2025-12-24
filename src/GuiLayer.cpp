@@ -504,7 +504,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         // Display with 2 decimals to show fine arrow key adjustments (step 0.01 on 0-50 range)
         FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 50.0f, "%.2f", "Strength of the force drop when front grip is lost.");
         
-        const char* base_modes[] = { "Native (Physics)", "Synthetic (Constant)", "Muted (Off)" };
+        const char* base_modes[] = { "Native (Steering Shaft Torque)", "Synthetic (Constant)", "Muted (Off)" };
         IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes)/sizeof(base_modes[0]), "Debug tool to isolate effects.");
 
         if (ImGui::TreeNodeEx("Signal Filtering", ImGuiTreeNodeFlags_DefaultOpen)) {
