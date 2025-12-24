@@ -7,6 +7,12 @@ All notable changes to this project will be documented in this file.
 - **Improved Load Cap widget**:
     - Moved the slider under the  "Tactile Textures" section, since it only affects Texture and Vibration effects: Road Textures (Bumps/Curbs), Slide, Lockup.
     - More informative Tooltip text.
+- **Improved Slip Angle Smoothing tooltip**: Added detailed technical explanation of the filter behavior and influenced effects.
+- **Optimized Yaw Kick Smoothing**: Reduced default smoothing latency from 22.5ms (7Hz) to **10.0ms (~16Hz)**.
+    - **Stability**: Prevents "Slide Texture" vibration (40-200Hz) from being misinterpreted by physics as Yaw Acceleration spikes, which previously caused feedback loops/explosions.
+    - **Responsiveness**: Improved reaction time to snap oversteer. 10ms provides the optimal balance: fast enough for car rotation (<5Hz) while effectively filtering high-frequency noise (>40Hz).
+    - **Detailed Technical Comments**: Added comprehensive documentation in `FFBEngine.h` regarding the impact of different smoothing levels (3.2ms to 31.8ms) on feedback loops and "raw" feel.
+
 
 ## [0.5.8] - 2025-12-24
 ### Added

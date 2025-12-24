@@ -456,6 +456,7 @@ All notable changes to this project will be documented in this file.
 - **Improved Load Cap widget**:
     - Moved the slider under the  "Tactile Textures" section, since it only affects Texture and Vibration effects: Road Textures (Bumps/Curbs), Slide, Lockup.
     - More informative Tooltip text.
+- **Improved Slip Angle Smoothing tooltip**: Added detailed technical explanation of the filter behavior and influenced effects.
 
 ## [0.5.8] - 2025-12-24
 ### Added
@@ -23526,7 +23527,15 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
                 engine.m_slip_angle_smoothing = (std::max)(0.000f, (std::min)(0.100f, engine.m_slip_angle_smoothing)); 
                 selected_preset = -1; 
             }
-            if (!changed) ImGui::SetTooltip("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
+            if (!changed) {
+                ImGui::BeginTooltip();
+                ImGui::Text("Applies a time-based filter (LPF) to the Calculated Slip Angle used to estimate tire grip.\n"
+                            "Smooths the high fluctuations from lateral and longitudinal velocity,\nespecially over bumps or curbs.\n"
+                            "Affects: Understeer effect, Rear Aligning Torque.");
+                ImGui::Separator();
+                ImGui::Text("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
+                ImGui::EndTooltip();
+            }
         }
         ImGui::NextColumn();
 

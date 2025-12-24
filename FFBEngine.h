@@ -1038,10 +1038,13 @@ public:
         }
         
         // Apply Smoothing (Low Pass Filter)
-        // v0.4.37: Time Corrected Alpha
-        // Target: Alpha 0.1 at 400Hz (dt=0.0025). 
-        // tau approx 0.0225s
-        const double tau_yaw = 0.0225;
+        // Yaw Kick Smoothing (LPF): Prevents "Slide Texture" vibration (40-200Hz) from being 
+        // misinterpreted by physics as Yaw Acceleration spikes, which causes feedback loops.
+        // - 31.8ms (5Hz): Car body motion; too laggy.
+        // - 22.5ms (7Hz): Aggressive; turns sharp "Kick" into soft "Push", delays reaction.
+        // - 10.0ms (~16Hz): Optimal balance; responsive and filters the 40Hz+ vibration.
+        // - 3.2ms (50Hz): "Raw" feel; kills electrical buzz but risks feedback loops.
+        const double tau_yaw = 0.010; // 10ms (Fast reaction, filters >16Hz noise)
         double alpha_yaw = dt / (tau_yaw + dt);
         
         m_yaw_accel_smoothed = m_yaw_accel_smoothed + alpha_yaw * (raw_yaw_accel - m_yaw_accel_smoothed);
