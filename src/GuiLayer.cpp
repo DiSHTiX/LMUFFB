@@ -345,7 +345,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         SetWindowAlwaysOnTop(g_hwnd, Config::m_always_on_top);
     }
     ImGui::SameLine();
-    ImGui::Checkbox("Debug Graphs", &m_show_debug_window);
+    ImGui::Checkbox("Graphs", &m_show_debug_window);
     ImGui::SameLine();
     if (ImGui::Button("Save Screenshot")) {
         time_t now = time(0);
