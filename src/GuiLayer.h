@@ -21,8 +21,9 @@ private:
     static void DrawTuningWindow(FFBEngine& engine);
     static void DrawDebugWindow(FFBEngine& engine);
     
-    // UI State
-    static bool m_show_debug_window;
+    // UI State (Persistent state managed via Config::show_graphs)
+    // Note: Removed redundant GuiLayer::m_show_debug_window static variable in v0.5.5
+    // to consolidate state management in Config class for better persistence across sessions
 };
 
 #endif // GUILAYER_H

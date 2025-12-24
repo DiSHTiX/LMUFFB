@@ -452,6 +452,16 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 All notable changes to this project will be documented in this file.
 
 
+## [0.5.5] - 2025-12-24
+### Added
+- **"Smart Container" Dynamic Resizing**: The OS window now automatically resizes based on the GUI state.
+    - **Reactive Layout**: Toggling "Graphs" expands the window to a wide "Analysis" view and contracting it back to a narrow "Config" view.
+    - **Independent Persistence**: Saves and restores the window position and dimensions for both "Small" (Config) and "Large" (Graphs) states independently.
+- **Docked Window Management**: Implemented "hard-docking" for internal ImGui windows.
+    - **Auto-Fill**: Tuning and Debug windows now automatically dock to the edges of the OS window, filling all available space without floating title bars or borders.
+    - **Zero Clutter**: Removed overlapping window borders and unnecessary window decorations for a native-app feel.
+- **Regression Tests**: Added `test_window_config_persistence()` to verify that window states (x, y, width, height, graphs-on/off) are correctly saved and loaded.
+
 ## [0.5.3] - 2025-12-24
 ### Fixed
 - **Restored Latency Display**: Re-implemented the missing latency indicators for "SoP Smoothing" and "Slip Angle Smoothing" sliders that were accidentally removed in the v0.5.0 overhaul.
@@ -21196,6 +21206,15 @@ bool Config::m_output_ffb_to_vjoy = false;
 bool Config::m_always_on_top = false;
 std::string Config::m_last_device_guid = "";
 
+// Window Geometry Defaults (v0.5.5)
+int Config::win_pos_x = 100;
+int Config::win_pos_y = 100;
+int Config::win_w_small = 500;   // Narrow (Config Only)
+int Config::win_h_small = 800;
+int Config::win_w_large = 1400;  // Wide (Config + Graphs)
+int Config::win_h_large = 800;
+bool Config::show_graphs = false;
+
 std::vector<Preset> Config::presets;
 
 void Config::LoadPresets() {
@@ -21584,6 +21603,15 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "output_ffb_to_vjoy=" << m_output_ffb_to_vjoy << "\n";
         file << "always_on_top=" << m_always_on_top << "\n";
         file << "last_device_guid=" << m_last_device_guid << "\n";
+        
+        // Window Geometry (v0.5.5)
+        file << "win_pos_x=" << win_pos_x << "\n";
+        file << "win_pos_y=" << win_pos_y << "\n";
+        file << "win_w_small=" << win_w_small << "\n";
+        file << "win_h_small=" << win_h_small << "\n";
+        file << "win_w_large=" << win_w_large << "\n";
+        file << "win_h_large=" << win_h_large << "\n";
+        file << "show_graphs=" << show_graphs << "\n";
         file << "gain=" << engine.m_gain << "\n";
         file << "sop_smoothing_factor=" << engine.m_sop_smoothing_factor << "\n";
         file << "slip_angle_smoothing=" << engine.m_slip_angle_smoothing << "\n";
@@ -21686,6 +21714,14 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "output_ffb_to_vjoy") m_output_ffb_to_vjoy = std::stoi(value);
                     else if (key == "always_on_top") m_always_on_top = std::stoi(value);
                     else if (key == "last_device_guid") m_last_device_guid = value;
+                    // Window Geometry (v0.5.5)
+                    else if (key == "win_pos_x") win_pos_x = std::stoi(value);
+                    else if (key == "win_pos_y") win_pos_y = std::stoi(value);
+                    else if (key == "win_w_small") win_w_small = std::stoi(value);
+                    else if (key == "win_h_small") win_h_small = std::stoi(value);
+                    else if (key == "win_w_large") win_w_large = std::stoi(value);
+                    else if (key == "win_h_large") win_h_large = std::stoi(value);
+                    else if (key == "show_graphs") show_graphs = std::stoi(value);
                     else if (key == "gain") engine.m_gain = std::stof(value);
                     else if (key == "sop_smoothing_factor") engine.m_sop_smoothing_factor = std::stof(value);
                     else if (key == "sop_scale") engine.m_sop_scale = std::stof(value);
@@ -21935,6 +21971,12 @@ public:
     static bool m_enable_vjoy;        // Acquire vJoy device (Driver Enabled)
     static bool m_output_ffb_to_vjoy; // Output FFB signal to vJoy Axis X (Monitor)
     static bool m_always_on_top;      // NEW: Keep window on top
+
+    // Window Geometry Persistence (v0.5.5)
+    static int win_pos_x, win_pos_y;
+    static int win_w_small, win_h_small; // Dimensions for Config Only
+    static int win_w_large, win_h_large; // Dimensions for Config + Graphs
+    static bool show_graphs;             // Remember if graphs were open
 };
 
 #endif
@@ -22656,7 +22698,30 @@ void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-void SetWindowAlwaysOnTop(HWND hwnd, bool enabled); // NEW
+void SetWindowAlwaysOnTop(HWND hwnd, bool enabled); 
+
+// v0.5.5 Helpers
+void ResizeWindow(HWND hwnd, int x, int y, int w, int h) {
+    ::SetWindowPos(hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void SaveCurrentWindowGeometry(bool is_graph_mode) {
+    RECT rect;
+    if (::GetWindowRect(g_hwnd, &rect)) {
+        Config::win_pos_x = rect.left;
+        Config::win_pos_y = rect.top;
+        int w = rect.right - rect.left;
+        int h = rect.bottom - rect.top;
+
+        if (is_graph_mode) {
+            Config::win_w_large = w;
+            Config::win_h_large = h;
+        } else {
+            Config::win_w_small = w;
+            Config::win_h_small = h;
+        }
+    }
+}
 
 // External linkage to FFB loop status
 extern std::atomic<bool> g_running;
@@ -22727,7 +22792,15 @@ bool GuiLayer::Init() {
     std::wstring wver(ver.begin(), ver.end());
     std::wstring title = L"LMUFFB v" + wver;
 
-    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, 100, 100, 800, 600, NULL, NULL, wc.hInstance, NULL);
+    // 1. Determine startup size
+    int start_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
+    int start_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
+
+    // 2. Create Window with saved position and size
+    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, 
+        Config::win_pos_x, Config::win_pos_y, 
+        start_w, start_h, 
+        NULL, NULL, wc.hInstance, NULL);
 
     // Initialize Direct3D
     if (!CreateDeviceD3D(g_hwnd)) {
@@ -22762,6 +22835,9 @@ bool GuiLayer::Init() {
 }
 
 void GuiLayer::Shutdown() {
+    // Capture the final position/size before destroying the window
+    SaveCurrentWindowGeometry(Config::show_graphs);
+
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
@@ -22800,7 +22876,7 @@ bool GuiLayer::Render(FFBEngine& engine) {
     DrawTuningWindow(engine);
     
     // Draw Debug Window (if enabled)
-    if (m_show_debug_window) {
+    if (Config::show_graphs) {
         DrawDebugWindow(engine);
     }
 
@@ -22889,9 +22965,23 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     // LOCK MUTEX to prevent race condition with FFB Thread
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
-    // Show Version in title bar or top text
-    std::string title = std::string("LMUFFB v") + LMUFFB_VERSION + " - Configuration";
-    ImGui::Begin(title.c_str());
+    // --- A. LAYOUT CALCULATION (v0.5.5 Smart Container) ---
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float CONFIG_PANEL_WIDTH = 500.0f; 
+
+    // Calculate width: Full viewport if graphs off, fixed width if graphs on
+    float current_width = Config::show_graphs ? CONFIG_PANEL_WIDTH : viewport->Size.x;
+
+    // Lock the ImGui window to the left side of the OS window
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(ImVec2(current_width, viewport->Size.y));
+    
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    ImGui::Begin("MainUI", nullptr, flags);
+
+    // Header Text
+    ImGui::TextColored(ImVec4(1, 1, 1, 0.4f), "LMUFFB v%s", LMUFFB_VERSION);
+    ImGui::Separator();
 
     // Connection Status
     bool connected = GameConnector::Get().IsConnected();
@@ -22963,7 +23053,27 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         SetWindowAlwaysOnTop(g_hwnd, Config::m_always_on_top);
     }
     ImGui::SameLine();
-    ImGui::Checkbox("Graphs", &m_show_debug_window);
+    
+    // --- B. THE CHECKBOX LOGIC (v0.5.5 Reactive Resize) ---
+    bool toggled = Config::show_graphs;
+    if (ImGui::Checkbox("Graphs", &toggled)) {
+        // 1. Save the geometry of the OLD state before switching
+        SaveCurrentWindowGeometry(Config::show_graphs);
+        
+        // 2. Update state
+        Config::show_graphs = toggled;
+        
+        // 3. Apply geometry of the NEW state
+        int target_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
+        int target_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
+        
+        // Resize the OS window immediately
+        ResizeWindow(g_hwnd, Config::win_pos_x, Config::win_pos_y, target_w, target_h);
+        
+        // Force immediate save of state
+        Config::Save(engine);
+    }
+    
     ImGui::SameLine();
     if (ImGui::Button("Save Screenshot")) {
         time_t now = time(0);
@@ -23538,12 +23648,26 @@ static bool g_warn_grip = false;
 static bool g_warn_dt = false;
 
 // Toggle State
-bool GuiLayer::m_show_debug_window = false;
+// Redundant variable removed (using Config::show_graphs)
 
 void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
-    ImGui::Begin("FFB Analysis", &m_show_debug_window);
+    // Only draw if enabled
+    if (!Config::show_graphs) return;
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float CONFIG_PANEL_WIDTH = 500.0f; 
+
+    // Position: Start after the config panel
+    ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + CONFIG_PANEL_WIDTH, viewport->Pos.y));
     
-    // Retrieve latest snapshots from the FFB thread
+    // Size: Fill the rest of the width
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x - CONFIG_PANEL_WIDTH, viewport->Size.y));
+    
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    ImGui::Begin("FFB Analysis", nullptr, flags);
+
+    // Ensure snapshots are processed
+    // (Existing snapshot processing logic follows)
     auto snapshots = engine.GetDebugBatch();
     
     // Update buffers with the latest snapshot (if available)
@@ -23888,8 +24012,7 @@ private:
     static void DrawTuningWindow(FFBEngine& engine);
     static void DrawDebugWindow(FFBEngine& engine);
     
-    // UI State
-    static bool m_show_debug_window;
+    // UI State (Persistent state managed via Config::show_graphs)
 };
 
 #endif // GUILAYER_H
@@ -30325,6 +30448,50 @@ static void test_latency_display_regression() {
     }
 }
 
+static void test_window_config_persistence() {
+    std::cout << "\nTest: Window Config Persistence (Size/Position/State)" << std::endl;
+    std::cout << "  RUNNING PERSISTENCE ASSERTIONS" << std::endl;
+
+    // 1. Setup
+    std::string test_file = "test_config_window.ini";
+    FFBEngine engine;
+    
+    // 2. Set specific values
+    Config::win_pos_x = 250;
+    Config::win_pos_y = 350;
+    Config::win_w_small = 600;
+    Config::win_h_small = 900;
+    Config::win_w_large = 1500;
+    Config::win_h_large = 950;
+    Config::show_graphs = true;
+
+    // 3. Save
+    Config::Save(engine, test_file);
+
+    // 4. Reset to different values
+    Config::win_pos_x = 0;
+    Config::win_pos_y = 0;
+    Config::win_w_small = 0;
+    Config::win_h_small = 0;
+    Config::win_w_large = 0;
+    Config::win_h_large = 0;
+    Config::show_graphs = false;
+
+    // 5. Load
+    Config::Load(engine, test_file);
+
+    // 6. Assert
+    ASSERT_TRUE(Config::win_pos_x == 250);
+    ASSERT_TRUE(Config::win_pos_y == 350);
+    ASSERT_TRUE(Config::win_w_small == 600);
+    ASSERT_TRUE(Config::win_h_small == 900);
+    ASSERT_TRUE(Config::win_w_large == 1500);
+    ASSERT_TRUE(Config::win_h_large == 950);
+    ASSERT_TRUE(Config::show_graphs == true);
+
+    // Cleanup
+    remove(test_file.c_str());
+}
 
 int main() {
     std::cout << "=== Running Windows Platform Tests ===" << std::endl;
@@ -30339,6 +30506,7 @@ int main() {
     test_slider_precision_display();
     test_slider_precision_regression();
     test_latency_display_regression();
+    test_window_config_persistence();
 
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

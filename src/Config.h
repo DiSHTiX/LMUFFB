@@ -197,6 +197,12 @@ public:
     static bool m_enable_vjoy;        // Acquire vJoy device (Driver Enabled)
     static bool m_output_ffb_to_vjoy; // Output FFB signal to vJoy Axis X (Monitor)
     static bool m_always_on_top;      // NEW: Keep window on top
+
+    // Window Geometry Persistence (v0.5.5)
+    static int win_pos_x, win_pos_y;
+    static int win_w_small, win_h_small; // Dimensions for Config Only
+    static int win_w_large, win_h_large; // Dimensions for Config + Graphs
+    static bool show_graphs;             // Remember if graphs were open
 };
 
 #endif

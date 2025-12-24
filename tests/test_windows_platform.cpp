@@ -558,6 +558,50 @@ static void test_latency_display_regression() {
     }
 }
 
+static void test_window_config_persistence() {
+    std::cout << "\nTest: Window Config Persistence (Size/Position/State)" << std::endl;
+    std::cout << "  RUNNING PERSISTENCE ASSERTIONS" << std::endl;
+
+    // 1. Setup
+    std::string test_file = "test_config_window.ini";
+    FFBEngine engine;
+    
+    // 2. Set specific values
+    Config::win_pos_x = 250;
+    Config::win_pos_y = 350;
+    Config::win_w_small = 600;
+    Config::win_h_small = 900;
+    Config::win_w_large = 1500;
+    Config::win_h_large = 950;
+    Config::show_graphs = true;
+
+    // 3. Save
+    Config::Save(engine, test_file);
+
+    // 4. Reset to different values
+    Config::win_pos_x = 0;
+    Config::win_pos_y = 0;
+    Config::win_w_small = 0;
+    Config::win_h_small = 0;
+    Config::win_w_large = 0;
+    Config::win_h_large = 0;
+    Config::show_graphs = false;
+
+    // 5. Load
+    Config::Load(engine, test_file);
+
+    // 6. Assert
+    ASSERT_TRUE(Config::win_pos_x == 250);
+    ASSERT_TRUE(Config::win_pos_y == 350);
+    ASSERT_TRUE(Config::win_w_small == 600);
+    ASSERT_TRUE(Config::win_h_small == 900);
+    ASSERT_TRUE(Config::win_w_large == 1500);
+    ASSERT_TRUE(Config::win_h_large == 950);
+    ASSERT_TRUE(Config::show_graphs == true);
+
+    // Cleanup
+    remove(test_file.c_str());
+}
 
 int main() {
     std::cout << "=== Running Windows Platform Tests ===" << std::endl;
@@ -572,6 +616,7 @@ int main() {
     test_slider_precision_display();
     test_slider_precision_regression();
     test_latency_display_regression();
+    test_window_config_persistence();
 
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

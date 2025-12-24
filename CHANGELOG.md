@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.5.5] - 2025-12-24
+### Added
+- **"Smart Container" Dynamic Resizing**: The OS window now automatically resizes based on the GUI state.
+    - **Reactive Layout**: Toggling "Graphs" expands the window to a wide "Analysis" view and contracting it back to a narrow "Config" view.
+    - **Independent Persistence**: Saves and restores the window position and dimensions for both "Small" (Config) and "Large" (Graphs) states independently.
+- **Docked Window Management**: Implemented "hard-docking" for internal ImGui windows.
+    - **Auto-Fill**: Tuning and Debug windows now automatically dock to the edges of the OS window, filling all available space without floating title bars or borders.
+    - **Zero Clutter**: Removed overlapping window borders and unnecessary window decorations for a native-app feel.
+- **Regression Tests**: Added `test_window_config_persistence()` to verify that window states (x, y, width, height, graphs-on/off) are correctly saved and loaded.
+
+### Changed
+- **Code Quality Improvements** (Post-Review Refinements):
+    - **Minimum Window Size Enforcement**: Added validation to prevent window dimensions from falling below 400x600, ensuring UI remains usable even if config file is corrupted.
+    - **Window Position Validation**: Implemented bounds checking to detect and correct off-screen window positions (e.g., after monitor configuration changes).
+    - **Eliminated Magic Number Duplication**: Defined `CONFIG_PANEL_WIDTH` as a file-level constant to eliminate duplication between `DrawTuningWindow` and `DrawDebugWindow`.
+    - **Enhanced Documentation**: Improved inline comments for helper functions with detailed descriptions and parameter documentation.
+
 ## [0.5.3] - 2025-12-24
 ### Fixed
 - **Restored Latency Display**: Re-implemented the missing latency indicators for "SoP Smoothing" and "Slip Angle Smoothing" sliders that were accidentally removed in the v0.5.0 overhaul.

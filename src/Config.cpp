@@ -10,6 +10,15 @@ bool Config::m_output_ffb_to_vjoy = false;
 bool Config::m_always_on_top = false;
 std::string Config::m_last_device_guid = "";
 
+// Window Geometry Defaults (v0.5.5)
+int Config::win_pos_x = 100;
+int Config::win_pos_y = 100;
+int Config::win_w_small = 500;   // Narrow (Config Only)
+int Config::win_h_small = 800;
+int Config::win_w_large = 1400;  // Wide (Config + Graphs)
+int Config::win_h_large = 800;
+bool Config::show_graphs = false;
+
 std::vector<Preset> Config::presets;
 
 void Config::LoadPresets() {
@@ -398,6 +407,15 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "output_ffb_to_vjoy=" << m_output_ffb_to_vjoy << "\n";
         file << "always_on_top=" << m_always_on_top << "\n";
         file << "last_device_guid=" << m_last_device_guid << "\n";
+        
+        // Window Geometry (v0.5.5)
+        file << "win_pos_x=" << win_pos_x << "\n";
+        file << "win_pos_y=" << win_pos_y << "\n";
+        file << "win_w_small=" << win_w_small << "\n";
+        file << "win_h_small=" << win_h_small << "\n";
+        file << "win_w_large=" << win_w_large << "\n";
+        file << "win_h_large=" << win_h_large << "\n";
+        file << "show_graphs=" << show_graphs << "\n";
         file << "gain=" << engine.m_gain << "\n";
         file << "sop_smoothing_factor=" << engine.m_sop_smoothing_factor << "\n";
         file << "slip_angle_smoothing=" << engine.m_slip_angle_smoothing << "\n";
@@ -500,6 +518,14 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "output_ffb_to_vjoy") m_output_ffb_to_vjoy = std::stoi(value);
                     else if (key == "always_on_top") m_always_on_top = std::stoi(value);
                     else if (key == "last_device_guid") m_last_device_guid = value;
+                    // Window Geometry (v0.5.5)
+                    else if (key == "win_pos_x") win_pos_x = std::stoi(value);
+                    else if (key == "win_pos_y") win_pos_y = std::stoi(value);
+                    else if (key == "win_w_small") win_w_small = std::stoi(value);
+                    else if (key == "win_h_small") win_h_small = std::stoi(value);
+                    else if (key == "win_w_large") win_w_large = std::stoi(value);
+                    else if (key == "win_h_large") win_h_large = std::stoi(value);
+                    else if (key == "show_graphs") show_graphs = std::stoi(value);
                     else if (key == "gain") engine.m_gain = std::stof(value);
                     else if (key == "sop_smoothing_factor") engine.m_sop_smoothing_factor = std::stof(value);
                     else if (key == "sop_scale") engine.m_sop_scale = std::stof(value);

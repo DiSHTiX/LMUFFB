@@ -32,13 +32,60 @@ static IDXGISwapChain*          g_pSwapChain = NULL;
 static ID3D11RenderTargetView*  g_mainRenderTargetView = NULL;
 static HWND                     g_hwnd = NULL;
 
+// v0.5.5 Layout Constants
+static const float CONFIG_PANEL_WIDTH = 500.0f;  // Width of config panel when graphs are visible
+static const int MIN_WINDOW_WIDTH = 400;         // Minimum window width to keep UI usable
+static const int MIN_WINDOW_HEIGHT = 600;        // Minimum window height to keep UI usable
+
 // Forward declarations of helper functions
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-void SetWindowAlwaysOnTop(HWND hwnd, bool enabled); // NEW
+void SetWindowAlwaysOnTop(HWND hwnd, bool enabled); 
+
+// v0.5.5 Window Management Helpers
+
+/**
+ * Resizes the OS window with minimum size enforcement.
+ * Ensures window dimensions never fall below usability thresholds.
+ */
+void ResizeWindow(HWND hwnd, int x, int y, int w, int h) {
+    // Enforce minimum dimensions to prevent UI from becoming unusable
+    if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
+    if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
+    
+    ::SetWindowPos(hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+/**
+ * Saves current window geometry to Config static variables.
+ * Stores position and dimensions based on current mode (small vs large).
+ * 
+ * @param is_graph_mode If true, saves to win_w_large/win_h_large; otherwise to win_w_small/win_h_small
+ */
+void SaveCurrentWindowGeometry(bool is_graph_mode) {
+    RECT rect;
+    if (::GetWindowRect(g_hwnd, &rect)) {
+        Config::win_pos_x = rect.left;
+        Config::win_pos_y = rect.top;
+        int w = rect.right - rect.left;
+        int h = rect.bottom - rect.top;
+
+        // Enforce minimum dimensions before saving
+        if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
+        if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
+
+        if (is_graph_mode) {
+            Config::win_w_large = w;
+            Config::win_h_large = h;
+        } else {
+            Config::win_w_small = w;
+            Config::win_h_small = h;
+        }
+    }
+}
 
 // External linkage to FFB loop status
 extern std::atomic<bool> g_running;
@@ -109,7 +156,36 @@ bool GuiLayer::Init() {
     std::wstring wver(ver.begin(), ver.end());
     std::wstring title = L"LMUFFB v" + wver;
 
-    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, 100, 100, 800, 600, NULL, NULL, wc.hInstance, NULL);
+    // 1. Determine startup size with validation
+    int start_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
+    int start_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
+    
+    // Enforce minimum dimensions
+    if (start_w < MIN_WINDOW_WIDTH) start_w = MIN_WINDOW_WIDTH;
+    if (start_h < MIN_WINDOW_HEIGHT) start_h = MIN_WINDOW_HEIGHT;
+    
+    // 2. Validate window position (ensure it's on-screen)
+    int pos_x = Config::win_pos_x;
+    int pos_y = Config::win_pos_y;
+    
+    // Get primary monitor work area
+    RECT workArea;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+    
+    // If saved position would place window completely off-screen, reset to default
+    if (pos_x < workArea.left - 100 || pos_x > workArea.right - 100 ||
+        pos_y < workArea.top - 100 || pos_y > workArea.bottom - 100) {
+        pos_x = 100;  // Reset to safe default
+        pos_y = 100;
+        Config::win_pos_x = pos_x;  // Update config
+        Config::win_pos_y = pos_y;
+    }
+
+    // 3. Create Window with validated position and size
+    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, 
+        pos_x, pos_y, 
+        start_w, start_h, 
+        NULL, NULL, wc.hInstance, NULL);
 
     // Initialize Direct3D
     if (!CreateDeviceD3D(g_hwnd)) {
@@ -144,6 +220,9 @@ bool GuiLayer::Init() {
 }
 
 void GuiLayer::Shutdown() {
+    // Capture the final position/size before destroying the window
+    SaveCurrentWindowGeometry(Config::show_graphs);
+
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
@@ -182,7 +261,7 @@ bool GuiLayer::Render(FFBEngine& engine) {
     DrawTuningWindow(engine);
     
     // Draw Debug Window (if enabled)
-    if (m_show_debug_window) {
+    if (Config::show_graphs) {
         DrawDebugWindow(engine);
     }
 
@@ -271,9 +350,22 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     // LOCK MUTEX to prevent race condition with FFB Thread
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
-    // Show Version in title bar or top text
-    std::string title = std::string("LMUFFB v") + LMUFFB_VERSION + " - Configuration";
-    ImGui::Begin(title.c_str());
+    // --- A. LAYOUT CALCULATION (v0.5.5 Smart Container) ---
+    ImGuiViewport* viewport = ImGui::GetMainViewport(); 
+
+    // Calculate width: Full viewport if graphs off, fixed width if graphs on
+    float current_width = Config::show_graphs ? CONFIG_PANEL_WIDTH : viewport->Size.x;
+
+    // Lock the ImGui window to the left side of the OS window
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(ImVec2(current_width, viewport->Size.y));
+    
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    ImGui::Begin("MainUI", nullptr, flags);
+
+    // Header Text
+    ImGui::TextColored(ImVec4(1, 1, 1, 0.4f), "LMUFFB v%s", LMUFFB_VERSION);
+    ImGui::Separator();
 
     // Connection Status
     bool connected = GameConnector::Get().IsConnected();
@@ -345,7 +437,27 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         SetWindowAlwaysOnTop(g_hwnd, Config::m_always_on_top);
     }
     ImGui::SameLine();
-    ImGui::Checkbox("Graphs", &m_show_debug_window);
+    
+    // --- B. THE CHECKBOX LOGIC (v0.5.5 Reactive Resize) ---
+    bool toggled = Config::show_graphs;
+    if (ImGui::Checkbox("Graphs", &toggled)) {
+        // 1. Save the geometry of the OLD state before switching
+        SaveCurrentWindowGeometry(Config::show_graphs);
+        
+        // 2. Update state
+        Config::show_graphs = toggled;
+        
+        // 3. Apply geometry of the NEW state
+        int target_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
+        int target_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
+        
+        // Resize the OS window immediately
+        ResizeWindow(g_hwnd, Config::win_pos_x, Config::win_pos_y, target_w, target_h);
+        
+        // Force immediate save of state
+        Config::Save(engine);
+    }
+    
     ImGui::SameLine();
     if (ImGui::Button("Save Screenshot")) {
         time_t now = time(0);
@@ -920,12 +1032,25 @@ static bool g_warn_grip = false;
 static bool g_warn_dt = false;
 
 // Toggle State
-bool GuiLayer::m_show_debug_window = false;
+// Redundant variable removed (using Config::show_graphs)
 
 void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
-    ImGui::Begin("FFB Analysis", &m_show_debug_window);
+    // Only draw if enabled
+    if (!Config::show_graphs) return;
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport(); 
+
+    // Position: Start after the config panel
+    ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + CONFIG_PANEL_WIDTH, viewport->Pos.y));
     
-    // Retrieve latest snapshots from the FFB thread
+    // Size: Fill the rest of the width
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x - CONFIG_PANEL_WIDTH, viewport->Size.y));
+    
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    ImGui::Begin("FFB Analysis", nullptr, flags);
+
+    // Ensure snapshots are processed
+    // (Existing snapshot processing logic follows)
     auto snapshots = engine.GetDebugBatch();
     
     // Update buffers with the latest snapshot (if available)
