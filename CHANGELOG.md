@@ -2,7 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.49] - 2025-12-23
+
+## [0.4.50] - 2025-12-24
+### Added
+- **FFB Signal Gain Compensation (Decoupling)**: Implemented automatic scaling for Generator effects to resolve "signal compression" on high-torque wheels.
+    - **Effect Decoupling**: "Generator" effects (SoP, Rear Align, Yaw Kick, Textures) are now automatically scaled up when `Max Torque Ref` increases. This ensures that a 10% road texture feel remains equally perceptible whether using a 2.5 Nm G29 or a 25 Nm DD wheel.
+    - **Physical Force Estimation**: GUI sliders now display estimated real-world torque in Newton-meters (e.g., `~2.5 Nm`) based on current gain and wheel calibration.
+    - **Modifier Protection**: Modifiers like "Understeer Effect" and "Oversteer Boost" remain unscaled to avoid double-amplification, maintaining predictable physics behavior.
+- **GUI Standardization**:
+    - **Standardized Ranges**: Updated all effect sliders to use a common `0% - 200%` range (0.0 - 2.0 internal) for better consistency.
+    - **Percentage Display**: Switched all gain sliders to use percentage formatting (e.g., `85%`) for more intuitive tuning.
+- **Unit Tests**: Added `test_gain_compensation` to verify mathematical decoupling and differentiate between Generators and Modifiers.
+
+### Changed
+- **Optimized Slider Ranges**:
+    - Reduced extreme 20.0x multipliers to a more manageable 2.0x (200%) baseline, as the new decoupling logic handles the heavy lifting for high-torque hardware.
+
 ### Changed
 - **Visual Design Overhaul (Dark Theme & Grid Layout)**:
     - Improved visual design and readability of the app.

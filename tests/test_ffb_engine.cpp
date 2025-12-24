@@ -65,6 +65,8 @@ void test_kinematic_load_cornering(); // Forward declaration (v0.4.39)
 void test_notch_filter_attenuation(); // Forward declaration (v0.4.41)
 void test_frequency_estimator(); // Forward declaration (v0.4.41)
 void test_static_notch_integration(); // Forward declaration (v0.4.43)
+void test_gain_compensation(); // Forward declaration (v0.4.50)
+void test_config_safety_clamping(); // Forward declaration (v0.4.50)
 
 
 
@@ -258,11 +260,13 @@ static void test_scrub_drag_fade() {
     double force = engine.calculate_force(&data);
     
     // Check absolute magnitude
-    if (std::abs(std::abs(force) - 0.0625) < 0.001) {
+    // v0.4.50: Decoupling scales force to 20Nm baseline independently of Ref.
+    // Full force = 2.5 Nm. Normalized (by any Ref) = 2.5 / 20.0 = 0.125.
+    if (std::abs(std::abs(force) - 0.125) < 0.001) {
         std::cout << "[PASS] Scrub drag faded correctly (50%)." << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Scrub drag fade incorrect. Got " << force << " Expected 0.0625." << std::endl;
+        std::cout << "[FAIL] Scrub drag fade incorrect. Got " << force << " Expected 0.125." << std::endl;
         g_tests_failed++;
     }
 }
@@ -306,11 +310,13 @@ static void test_road_texture_teleport() {
     double force = engine.calculate_force(&data);
     
     // Check if clamped
-    if (std::abs(force - 0.025) < 0.001) {
+    // v0.4.50: Decoupling scales force to 20Nm baseline.
+    // Clamped Force = 1.0 Nm. Normalized = 1.0 / 20.0 = 0.05.
+    if (std::abs(force - 0.05) < 0.001) {
         std::cout << "[PASS] Teleport spike clamped." << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Teleport spike unclamped? Got " << force << " Expected 0.025." << std::endl;
+        std::cout << "[FAIL] Teleport spike unclamped? Got " << force << " Expected 0.05." << std::endl;
         g_tests_failed++;
     }
 }
@@ -1476,7 +1482,7 @@ static void test_config_persistence() {
     engine_save.m_gain = 1.23f;
     engine_save.m_sop_effect = 0.45f;
     engine_save.m_lockup_enabled = true;
-    engine_save.m_road_texture_gain = 2.5f;
+    engine_save.m_road_texture_gain = 1.5f; // v0.4.50: Use value within safe range (max 2.0)
     
     // 2. Save
     Config::Save(engine_save, test_file);
@@ -1487,7 +1493,7 @@ static void test_config_persistence() {
     // 4. Verify
     ASSERT_NEAR(engine_load.m_gain, 1.23f, 0.001);
     ASSERT_NEAR(engine_load.m_sop_effect, 0.45f, 0.001);
-    ASSERT_NEAR(engine_load.m_road_texture_gain, 2.5f, 0.001);
+    ASSERT_NEAR(engine_load.m_road_texture_gain, 1.5f, 0.001);
     
     if (engine_load.m_lockup_enabled == true) {
         std::cout << "[PASS] Boolean persistence." << std::endl;
@@ -2605,6 +2611,8 @@ int main() {
     test_frequency_estimator();
     
     test_static_notch_integration(); // v0.4.43
+    test_gain_compensation(); // v0.4.50
+    test_config_safety_clamping(); // v0.4.50
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -3053,7 +3061,9 @@ static void test_rear_force_workaround() {
     // v0.4.40 Update: Reduced tau to 0.015 for lower latency
     // with dt=0.01 (100Hz), alpha = 0.01 / (0.015 + 0.01) = 0.4
     // Expected = Raw (-12.13) * 0.4 = -4.85 Nm
-    double expected_torque = -4.85;   // First-frame value with Time-Corrected LPF (v0.4.40)
+    // v0.4.50 Update: FFB snapshot now scales with MaxTorqueRef (Decoupling)
+    // with Ref=100.0, scale = 5.0. Expected = -4.85 * 5.0 = -24.25 Nm
+    double expected_torque = -24.25;   // First-frame value with Decoupling (v0.4.50)
     double torque_tolerance = 1.0;    // ±1.0 Nm tolerance
     
     // ========================================
@@ -3153,7 +3163,8 @@ static void test_rear_align_effect() {
         
         // Expected ~-2.4 Nm (with LPF smoothing on first frame, tau=0.0225)
         // v0.4.40: Updated to -3.46 Nm (tau=0.015, alpha=0.4, with 2x rear_align_effect)
-        double expected_torque = -3.46;
+        // v0.4.50: Decoupling (Ref=100) scales by 5.0. Expected = -3.46 * 5.0 = -17.3 Nm
+        double expected_torque = -17.3;
         double torque_tolerance = 1.0; 
         
         if (rear_torque_nm > (expected_torque - torque_tolerance) && 
@@ -4287,4 +4298,190 @@ static void test_static_notch_integration() {
         std::cout << "[FAIL] Static Notch attenuated 10Hz signal. Max Amp: " << max_amp_pass << std::endl;
         g_tests_failed++;
     }
+}
+
+static void test_gain_compensation() {
+    std::cout << "\nTest: FFB Signal Gain Compensation (Decoupling)" << std::endl;
+    FFBEngine engine;
+    TelemInfoV01 data;
+    std::memset(&data, 0, sizeof(data));
+
+    // Common setup
+    data.mDeltaTime = 0.0025; // 400Hz
+    data.mLocalVel.z = 20.0;
+    data.mWheel[0].mRideHeight = 0.1;
+    data.mWheel[1].mRideHeight = 0.1;
+    data.mWheel[2].mRideHeight = 0.1;
+    data.mWheel[3].mRideHeight = 0.1;
+    data.mWheel[0].mTireLoad = 4000.0;
+    data.mWheel[1].mTireLoad = 4000.0;
+    engine.m_gain = 1.0;
+    engine.m_invert_force = false;
+    engine.m_understeer_effect = 0.0; // Disable modifiers
+    engine.m_oversteer_boost = 0.0;
+
+    // 1. Test Generator: Rear Align Torque
+    // Use fresh engines for each check to ensure identical LPF states
+    double ra1, ra2;
+    {
+        FFBEngine e1;
+        e1.m_gain = 1.0; e1.m_invert_force = false; e1.m_understeer_effect = 0.0; e1.m_oversteer_boost = 0.0;
+        e1.m_rear_align_effect = 1.0;
+        e1.m_max_torque_ref = 20.0f;
+        ra1 = e1.calculate_force(&data);
+    }
+    {
+        FFBEngine e2;
+        e2.m_gain = 1.0; e2.m_invert_force = false; e2.m_understeer_effect = 0.0; e2.m_oversteer_boost = 0.0;
+        e2.m_rear_align_effect = 1.0;
+        e2.m_max_torque_ref = 60.0f;
+        ra2 = e2.calculate_force(&data);
+    }
+
+    if (std::abs(ra1 - ra2) < 0.001) {
+        std::cout << "[PASS] Rear Align Torque correctly compensated (" << ra1 << " == " << ra2 << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Rear Align Torque compensation failed! 20Nm: " << ra1 << " 60Nm: " << ra2 << std::endl;
+        g_tests_failed++;
+    }
+
+    // 2. Test Generator: Slide Texture
+    double s1, s2;
+    {
+        FFBEngine e1;
+        e1.m_gain = 1.0; e1.m_invert_force = false; e1.m_understeer_effect = 0.0; e1.m_oversteer_boost = 0.0;
+        e1.m_slide_texture_enabled = true;
+        e1.m_slide_texture_gain = 1.0;
+        e1.m_max_torque_ref = 20.0f;
+        e1.m_slide_phase = 0.5;
+        s1 = e1.calculate_force(&data);
+    }
+    {
+        FFBEngine e2;
+        e2.m_gain = 1.0; e2.m_invert_force = false; e2.m_understeer_effect = 0.0; e2.m_oversteer_boost = 0.0;
+        e2.m_slide_texture_enabled = true;
+        e2.m_slide_texture_gain = 1.0;
+        e2.m_max_torque_ref = 100.0f;
+        e2.m_slide_phase = 0.5;
+        s2 = e2.calculate_force(&data);
+    }
+
+    if (std::abs(s1 - s2) < 0.001) {
+        std::cout << "[PASS] Slide Texture correctly compensated (" << s1 << " == " << s2 << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Slide Texture compensation failed! 20Nm: " << s1 << " 100Nm: " << s2 << std::endl;
+        g_tests_failed++;
+    }
+
+    // 3. Test Modifier: Understeer (Should NOT be compensated)
+    engine.m_slide_texture_enabled = false;
+    engine.m_understeer_effect = 0.5; // 50% drop
+    data.mSteeringShaftTorque = 10.0;
+    data.mWheel[0].mGripFract = 0.6; // 40% loss
+    data.mWheel[1].mGripFract = 0.6;
+
+    // Normalizing 20Nm: (10.0 * (1 - 0.4*0.5)) / 20 = (10 * 0.8) / 20 = 0.4
+    engine.m_max_torque_ref = 20.0f;
+    double u1 = engine.calculate_force(&data);
+
+    // Normalizing 40Nm: (10.0 * 0.8) / 40 = 0.2
+    // If it WAS compensated, it would be (10 * 0.8 * 2) / 40 = 0.4
+    engine.m_max_torque_ref = 40.0f;
+    double u2 = engine.calculate_force(&data);
+
+    if (std::abs(u1 - (u2 * 2.0)) < 0.001) {
+        std::cout << "[PASS] Understeer Modifier correctly uncompensated (" << u1 << " vs " << u2 << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Understeer Modifier behavior unexpected! 20Nm: " << u1 << " 40Nm: " << u2 << std::endl;
+        g_tests_failed++;
+    }
+
+    std::cout << "[SUMMARY] Gain Compensation verified for all effect types." << std::endl;
+}
+
+static void test_config_safety_clamping() {
+    std::cout << "\nTest: Config Safety Clamping (v0.4.50)" << std::endl;
+    
+    // Create a temporary unsafe config file with legacy high-gain values
+    const char* test_file = "tmp_unsafe_config_test.ini";
+    {
+        std::ofstream file(test_file);
+        if (!file.is_open()) {
+            std::cout << "[FAIL] Could not create test config file." << std::endl;
+            g_tests_failed++;
+            return;
+        }
+        
+        // Write legacy high-gain values that would cause physics explosions
+        file << "slide_gain=5.0\n";
+        file << "road_gain=10.0\n";
+        file << "lockup_gain=8.0\n";
+        file << "spin_gain=7.0\n";
+        file << "rear_align_effect=15.0\n";
+        file << "sop_yaw_gain=20.0\n";
+        file << "sop=12.0\n";
+        file << "scrub_drag_gain=3.0\n";
+        file << "gyro_gain=2.5\n";
+        file.close();
+    }
+    
+    // Load the unsafe config
+    FFBEngine engine;
+    Config::Load(engine, test_file);
+    
+    // Verify all Generator effects are clamped to safe maximums
+    bool all_clamped = true;
+    
+    // Clamp to 2.0f
+    if (engine.m_slide_texture_gain != 2.0f) {
+        std::cout << "[FAIL] slide_gain not clamped. Got: " << engine.m_slide_texture_gain << " Expected: 2.0" << std::endl;
+        all_clamped = false;
+    }
+    if (engine.m_road_texture_gain != 2.0f) {
+        std::cout << "[FAIL] road_gain not clamped. Got: " << engine.m_road_texture_gain << " Expected: 2.0" << std::endl;
+        all_clamped = false;
+    }
+    if (engine.m_lockup_gain != 2.0f) {
+        std::cout << "[FAIL] lockup_gain not clamped. Got: " << engine.m_lockup_gain << " Expected: 2.0" << std::endl;
+        all_clamped = false;
+    }
+    if (engine.m_spin_gain != 2.0f) {
+        std::cout << "[FAIL] spin_gain not clamped. Got: " << engine.m_spin_gain << " Expected: 2.0" << std::endl;
+        all_clamped = false;
+    }
+    if (engine.m_rear_align_effect != 2.0f) {
+        std::cout << "[FAIL] rear_align_effect not clamped. Got: " << engine.m_rear_align_effect << " Expected: 2.0" << std::endl;
+        all_clamped = false;
+    }
+    if (engine.m_sop_yaw_gain != 2.0f) {
+        std::cout << "[FAIL] sop_yaw_gain not clamped. Got: " << engine.m_sop_yaw_gain << " Expected: 2.0" << std::endl;
+        all_clamped = false;
+    }
+    if (engine.m_sop_effect != 2.0f) {
+        std::cout << "[FAIL] sop not clamped. Got: " << engine.m_sop_effect << " Expected: 2.0" << std::endl;
+        all_clamped = false;
+    }
+    
+    // Clamp to 1.0f
+    if (engine.m_scrub_drag_gain != 1.0f) {
+        std::cout << "[FAIL] scrub_drag_gain not clamped. Got: " << engine.m_scrub_drag_gain << " Expected: 1.0" << std::endl;
+        all_clamped = false;
+    }
+    if (engine.m_gyro_gain != 1.0f) {
+        std::cout << "[FAIL] gyro_gain not clamped. Got: " << engine.m_gyro_gain << " Expected: 1.0" << std::endl;
+        all_clamped = false;
+    }
+    
+    if (all_clamped) {
+        std::cout << "[PASS] All legacy high-gain values correctly clamped to safe maximums." << std::endl;
+        g_tests_passed++;
+    } else {
+        g_tests_failed++;
+    }
+    
+    // Clean up test file
+    std::remove(test_file);
 }

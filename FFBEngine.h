@@ -798,6 +798,12 @@ public:
         double safe_max = (std::min)(2.0, (double)m_max_load_factor);
         load_factor = (std::min)(safe_max, (std::max)(0.0, load_factor));
 
+        // --- 1. GAIN COMPENSATION (Decoupling) ---
+        // Baseline: 20.0 Nm (The standard reference where 1.0 gain was tuned).
+        // If MaxTorqueRef increases, we scale effects up to maintain relative intensity.
+        double decoupling_scale = (double)m_max_torque_ref / 20.0;
+        if (decoupling_scale < 0.1) decoupling_scale = 0.1; // Safety clamp
+
         // --- 1. Understeer Effect (Grip Modulation) ---
         // FRONT WHEEL GRIP CALCULATION (Refactored v0.4.5)
         
@@ -881,7 +887,7 @@ public:
 
         m_sop_lat_g_smoothed = m_sop_lat_g_smoothed + alpha * (lat_g - m_sop_lat_g_smoothed);
         
-        double sop_base_force = m_sop_lat_g_smoothed * m_sop_effect * (double)m_sop_scale;
+        double sop_base_force = m_sop_lat_g_smoothed * m_sop_effect * (double)m_sop_scale * decoupling_scale;
         double sop_total = sop_base_force;
         
         // REAR WHEEL GRIP CALCULATION (Refactored v0.4.5)
@@ -963,7 +969,7 @@ public:
         // Multiplied by m_rear_align_effect to allow user tuning of rear-end sensitivity.
         // v0.4.19: INVERTED to provide counter-steering (restoring) torque instead of destabilizing force
         // When rear slides left (+slip), we want left pull (-torque) to correct the slide
-        double rear_torque = -calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect; 
+        double rear_torque = -calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect * decoupling_scale; 
         sop_total += rear_torque;
 
         // --- 2b. Yaw Acceleration Injector (The "Kick") ---
@@ -1000,7 +1006,7 @@ public:
         // Added AFTER Oversteer Boost to provide a clean, independent cue.
         // v0.4.20 FIX: Invert to provide counter-steering torque
         // Positive yaw accel (right rotation) → Negative force (left pull)
-        double yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * 5.0;
+        double yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * 5.0 * decoupling_scale;
         sop_total += yaw_force;
         
         double total_force = output_force + sop_total;
@@ -1026,7 +1032,7 @@ public:
         m_steering_velocity_smoothed += alpha_gyro * (steer_vel - m_steering_velocity_smoothed);
         
         // Damping Force: Opposes velocity, scales with car speed
-        double gyro_force = -1.0 * m_steering_velocity_smoothed * m_gyro_gain * (car_speed / GYRO_SPEED_SCALE);
+        double gyro_force = -1.0 * m_steering_velocity_smoothed * m_gyro_gain * (car_speed / GYRO_SPEED_SCALE) * decoupling_scale;
         
         // Add to total
         total_force += gyro_force;
@@ -1077,7 +1083,7 @@ public:
                 m_lockup_phase += freq * dt * TWO_PI;
                 m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI); // Wrap correctly
 
-                double amp = severity * m_lockup_gain * 4.0; // Scaled for Nm (was 800)
+                double amp = severity * m_lockup_gain * 4.0 * decoupling_scale; // Scaled for Nm (was 800)
                 lockup_rumble = std::sin(m_lockup_phase) * amp;
                 total_force += lockup_rumble;
             }
@@ -1114,7 +1120,7 @@ public:
                 m_spin_phase = std::fmod(m_spin_phase, TWO_PI); // Wrap correctly
 
                 // Amplitude
-                double amp = severity * m_spin_gain * 2.5; // Scaled for Nm (was 500)
+                double amp = severity * m_spin_gain * 2.5 * decoupling_scale; // Scaled for Nm (was 500)
                 spin_rumble = std::sin(m_spin_phase) * amp;
                 
                 total_force += spin_rumble;
@@ -1166,7 +1172,7 @@ public:
                 // We use avg_grip (from understeer calc) which includes longitudinal slip.
                 double grip_scale = (std::max)(0.0, 1.0 - avg_grip);
                 
-                slide_noise = sawtooth * m_slide_texture_gain * 1.5 * load_factor * grip_scale;
+                slide_noise = sawtooth * m_slide_texture_gain * 1.5 * load_factor * grip_scale * decoupling_scale;
                 total_force += slide_noise;
             }
         }
@@ -1185,7 +1191,7 @@ public:
                     // Game: +X = Left, DirectInput: +Force = Right
                     // If sliding left (+vel), we want left torque (-force) to resist the slide
                     double drag_dir = (avg_lat_vel > 0.0) ? -1.0 : 1.0;
-                    scrub_drag_force = drag_dir * m_scrub_drag_gain * 5.0 * fade; // Scaled & Faded
+                    scrub_drag_force = drag_dir * m_scrub_drag_gain * 5.0 * fade * decoupling_scale; // Scaled & Faded
                     total_force += scrub_drag_force;
                 }
             }
@@ -1214,10 +1220,10 @@ public:
             delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
 
             // Amplify sudden changes
-            double road_noise = (delta_l + delta_r) * 50.0 * m_road_texture_gain; // Scaled for Nm (was 5000)
+            double road_noise_val = (delta_l + delta_r) * 50.0 * m_road_texture_gain * decoupling_scale; // Scaled for Nm (was 5000)
             
             // Apply LOAD FACTOR: Bumps feel harder under compression
-            road_noise *= load_factor;
+            road_noise = road_noise_val * load_factor;
             
             total_force += road_noise;
         }
@@ -1274,7 +1280,7 @@ public:
 
             if (triggered) {
                 // Non-linear response (Square root softens the initial onset)
-                double bump_magnitude = intensity * m_bottoming_gain * 0.05 * 20.0; // Scaled for Nm
+                double bump_magnitude = intensity * m_bottoming_gain * 0.05 * 20.0 * decoupling_scale; // Scaled for Nm
                 
                 // FIX: Use a 50Hz "Crunch" oscillation instead of directional DC offset
                 double freq = 50.0; 

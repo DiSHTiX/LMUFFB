@@ -211,3 +211,47 @@ void Config::LoadPresets() {
     );
 }
 ```
+
+---
+
+## 6. Legacy Configuration Migration (Safety Strategy)
+
+### The Risk
+Previous versions of LMUFFB allowed users to set texture gains (Slide, Road, Lockup) up to **5.0** or even **20.0** to overcome the signal compression caused by high `Max Torque Ref` settings.
+
+With the new **Gain Compensation** logic:
+*   A user with `Max Torque Ref = 100 Nm` gets a **5x** internal boost automatically.
+*   If they load a legacy config with `Slide Gain = 5.0`:
+    *   **Result:** $5.0 \text{ (Gain)} \times 5.0 \text{ (Scale)} = 25.0 \text{ (Internal Force)}$.
+    *   **Consequence:** Immediate hard clipping and potentially violent wheel oscillation on startup.
+
+### The Fix: Load-Time Clamping
+We must implement a safety layer in `Config::Load` to sanitize values coming from older `.ini` files.
+
+**Logic:**
+When parsing keys for **Generator** effects, we enforce the new maximums immediately.
+
+```cpp
+// Pseudo-code for Config::Load
+if (key == "slide_gain") {
+    float val = std::stof(value);
+    // Clamp legacy 5.0 values to new safe max of 2.0
+    engine.m_slide_texture_gain = (std::min)(2.0f, val); 
+}
+```
+
+**Keys to Clamp to 2.0f:**
+*   `rear_align_effect`
+*   `sop_yaw_gain`
+*   `sop_effect` (Lateral G)
+*   `lockup_gain`
+*   `spin_gain`
+*   `slide_gain`
+*   `road_gain`
+
+**Keys to Clamp to 1.0f:**
+*   `scrub_drag_gain`
+*   `gyro_gain`
+
+This ensures that the first run after the update is safe, even if the resulting FFB is still stronger than before (which is the intended improvement).
+

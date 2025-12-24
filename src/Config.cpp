@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 
 bool Config::m_ignore_vjoy_version_warning = false;
 bool Config::m_enable_vjoy = false;
@@ -317,31 +318,32 @@ void Config::LoadPresets() {
                         // Map keys to struct members
                         if (key == "gain") current_preset.gain = std::stof(value);
                         else if (key == "understeer") current_preset.understeer = std::stof(value);
-                        else if (key == "sop") current_preset.sop = std::stof(value);
+                        else if (key == "sop") current_preset.sop = (std::min)(2.0f, std::stof(value));
                         else if (key == "sop_scale") current_preset.sop_scale = std::stof(value);
                         else if (key == "sop_smoothing_factor") current_preset.sop_smoothing = std::stof(value);
                         else if (key == "min_force") current_preset.min_force = std::stof(value);
                         else if (key == "oversteer_boost") current_preset.oversteer_boost = std::stof(value);
                         else if (key == "lockup_enabled") current_preset.lockup_enabled = std::stoi(value);
-                        else if (key == "lockup_gain") current_preset.lockup_gain = std::stof(value);
+                        // v0.4.50: SAFETY CLAMPING for Generator Effects in User Presets
+                        else if (key == "lockup_gain") current_preset.lockup_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "spin_enabled") current_preset.spin_enabled = std::stoi(value);
-                        else if (key == "spin_gain") current_preset.spin_gain = std::stof(value);
+                        else if (key == "spin_gain") current_preset.spin_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "slide_enabled") current_preset.slide_enabled = std::stoi(value);
-                        else if (key == "slide_gain") current_preset.slide_gain = std::stof(value);
+                        else if (key == "slide_gain") current_preset.slide_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "slide_freq") current_preset.slide_freq = std::stof(value);
                         else if (key == "road_enabled") current_preset.road_enabled = std::stoi(value);
-                        else if (key == "road_gain") current_preset.road_gain = std::stof(value);
+                        else if (key == "road_gain") current_preset.road_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
                         else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
                         else if (key == "use_manual_slip") current_preset.use_manual_slip = std::stoi(value);
                         else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
-                        else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = std::stof(value);
-                        else if (key == "rear_align_effect") current_preset.rear_align_effect = std::stof(value);
-                        else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = std::stof(value);
+                        else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = (std::min)(1.0f, std::stof(value));
+                        else if (key == "rear_align_effect") current_preset.rear_align_effect = (std::min)(2.0f, std::stof(value));
+                        else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
                         else if (key == "slip_angle_smoothing") current_preset.slip_smoothing = std::stof(value);
                         else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
-                        else if (key == "gyro_gain") current_preset.gyro_gain = std::stof(value);
+                        else if (key == "gyro_gain") current_preset.gyro_gain = (std::min)(1.0f, std::stof(value));
                         else if (key == "flatspot_suppression") current_preset.flatspot_suppression = std::stoi(value);
                         else if (key == "notch_q") current_preset.notch_q = std::stof(value);
                         else if (key == "flatspot_strength") current_preset.flatspot_strength = std::stof(value);
@@ -505,33 +507,31 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "max_load_factor") engine.m_max_load_factor = std::stof(value);
                     else if (key == "smoothing") engine.m_sop_smoothing_factor = std::stof(value); // Legacy support
                     else if (key == "understeer") engine.m_understeer_effect = std::stof(value);
-                    else if (key == "sop") engine.m_sop_effect = std::stof(value);
+                    else if (key == "sop") engine.m_sop_effect = (std::min)(2.0f, std::stof(value));
                     else if (key == "min_force") engine.m_min_force = std::stof(value);
                     else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
+                    // v0.4.50: SAFETY CLAMPING for Generator Effects (Gain Compensation Migration)
+                    // Legacy configs may have high gains (e.g., 5.0) to compensate for lack of auto-scaling.
+                    // With new decoupling, these would cause 25x force explosions. Clamp to safe maximums.
                     else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
-                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
+                    else if (key == "lockup_gain") engine.m_lockup_gain = (std::min)(2.0f, std::stof(value));
                     else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
-                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
-                    else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
-                    else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
-                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
-                    else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
-                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
+                    else if (key == "spin_gain") engine.m_spin_gain = (std::min)(2.0f, std::stof(value));
                     else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
-                    else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
+                    else if (key == "slide_gain") engine.m_slide_texture_gain = (std::min)(2.0f, std::stof(value));
                     else if (key == "slide_freq") engine.m_slide_freq_scale = std::stof(value);
                     else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);
-                    else if (key == "road_gain") engine.m_road_texture_gain = std::stof(value);
+                    else if (key == "road_gain") engine.m_road_texture_gain = (std::min)(2.0f, std::stof(value));
                     else if (key == "invert_force") engine.m_invert_force = std::stoi(value);
                     else if (key == "max_torque_ref") engine.m_max_torque_ref = std::stof(value);
                     else if (key == "use_manual_slip") engine.m_use_manual_slip = std::stoi(value);
                     else if (key == "bottoming_method") engine.m_bottoming_method = std::stoi(value);
-                    else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = std::stof(value);
-                    else if (key == "rear_align_effect") engine.m_rear_align_effect = std::stof(value);
-                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = std::stof(value);
+                    else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = (std::min)(1.0f, std::stof(value));
+                    else if (key == "rear_align_effect") engine.m_rear_align_effect = (std::min)(2.0f, std::stof(value));
+                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = (std::min)(2.0f, std::stof(value));
                     else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
                     else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
-                    else if (key == "gyro_gain") engine.m_gyro_gain = std::stof(value);
+                    else if (key == "gyro_gain") engine.m_gyro_gain = (std::min)(1.0f, std::stof(value));
                     else if (key == "flatspot_suppression") engine.m_flatspot_suppression = std::stoi(value);
                     else if (key == "notch_q") engine.m_notch_q = std::stof(value);
                     else if (key == "flatspot_strength") engine.m_flatspot_strength = std::stof(value);
