@@ -25,10 +25,10 @@ improvements to the formulas
 
 DONE: remove warnings about missing telemetry data
 
-add slider for optimal slip angle (and slip ratio)
-list effects affected by grip and load approximation, and list those that are not affected
+DONE: add slider for optimal slip angle (and slip ratio)
+DONE: list effects affected by grip and load approximation, and list those that are not affected
 
-add smoothing (and slider) for steering shaft torque
+DONE: add smoothing (and slider) for steering shaft torque
 
 update tooltips
 
