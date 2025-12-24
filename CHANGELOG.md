@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - **Optimized Slider Ranges**:
     - Reduced extreme 20.0x multipliers to a more manageable 2.0x (200%) baseline, as the new decoupling logic handles the heavy lifting for high-torque hardware.
 
+## [0.4.49] 
 ### Changed
 - **Visual Design Overhaul (Dark Theme & Grid Layout)**:
     - Improved visual design and readability of the app.
