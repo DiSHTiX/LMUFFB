@@ -1,161 +1,179 @@
-Here is the analysis of your findings and the plan to address them.
+# Technical Report: Lockup Vibration Fixes & Enhancements
 
-### 1. Why "Manual Slip Calc" was broken (The Bug)
-You found that enabling "Manual Slip Calc" resulted in no vibration.
-**The Cause:** A coordinate system sign error.
-*   **The Code:** The engine passes `data->mLocalVel.z` to the calculator. In LMU, forward velocity is **Negative** (e.g., -60 m/s).
-*   **The Math:** The manual formula expects a positive speed scalar. By passing a negative value, the math became `(WheelSpeed - (-CarSpeed)) / CarSpeed`. This resulted in a **Positive** slip ratio (traction) instead of Negative (braking).
-*   **The Fix:** We must pass `std::abs(data->mLocalVel.z)` to the manual calculator.
-
-### 2. How to get "Early Warning" (Threshold Tuning)
-You feel the vibration too late (at -10% slip).
-**The Physics:** Modern GT/LMP tires generate peak braking force around **12-15% slip**. If we wait for -10% (`-0.1`) to trigger the effect, we are already at the limit.
-**The Fix:** We will lower the trigger threshold to **5% (`-0.05`)**.
-*   **0% to 5%:** Silent (Normal grip).
-*   **5% to 10%:** **"Pre-Lockup" Warning.** A subtle, high-frequency texture. This tells you "You are approaching the limit."
-*   **> 10%:** **Lockup.** The vibration becomes violent and lower frequency.
-
-### 3. Rear Differentiation
-We will apply your suggested values to make the rear lockup distinct and scary.
-*   **Frequency:** **0.3x** (Heavy thudding).
-*   **Amplitude:** **1.5x** (Stronger kick).
+**Date:** December 24, 2025
+**Subject:** Resolution of missing rear lockup effects, manual slip calculation bugs, and implementation of advanced tuning controls.
 
 ---
 
-### Implementation Plan
+## 1. Problem Statement
 
+User testing identified three critical deficiencies in the "Braking Lockup" FFB effect:
+1.  **Rear Lockups Ignored:** The application only monitored front wheels for slip. Locking the rear brakes (common in LMP2/Hypercars) produced no vibration, leading to unrecoverable spins without tactile warning.
+2.  **Late Warning:** The hardcoded trigger threshold of 10% slip (`-0.1`) was too high. By the time the effect triggered, the tires were already deep into the lockup phase, offering no opportunity for threshold braking modulation.
+3.  **Broken Manual Calculation:** The "Manual Slip Calc" fallback option produced no output due to a coordinate system sign error.
 
-### 1. Current Formula & Physics Analysis
+## 2. Root Cause Analysis
 
-**Current Formula:**
-Currently, we calculate the **Slip Ratio** ($\lambda$).
-$$ \lambda = \frac{V_{patch}}{V_{ground}} $$
-*   **Trigger:** If $\lambda < -0.10$ (10% slip).
-*   **Amplitude:** Linearly scales from 10% to 50% slip (hardcoded range).
-*   **Frequency:** Based on Car Speed.
-
-**Is this the best we can do?**
-Strictly speaking, **no**. While Slip Ratio is the standard metric, real-world ABS systems and pro drivers use an additional metric: **Wheel Angular Deceleration**.
-*   **The Concept:** Before the slip ratio becomes critical, the wheel's rotation speed drops rapidly. If the wheel is decelerating significantly faster than the car is decelerating, a lockup is imminent.
-*   **Can we use it?** Yes. We have `mRotation` (Angular Velocity). We can calculate its derivative (Acceleration).
-*   **Risk:** Derivatives are noisy. It might trigger false positives over bumps.
-*   **Recommendation:** For now, refining the **Slip Ratio** is safer and more robust. If that isn't enough, we can explore Angular Deceleration in v0.6.0.
-
-### 2. Manual Slip Calc vs. Game Data
-
-**Is Manual Calc inferior?**
-Technically, **yes**.
-*   **Game Data (`mLongitudinalPatchVel`):** Accounts for tire carcass deformation, pressure, and temperature. It is the "True Physics" slip.
-*   **Manual Calc:** Assumes the tire is a rigid disk with a fixed radius. It ignores that tires "stretch" under braking.
-*   **Integration:** We should not mix them. We should use Game Data as primary, and Manual Calc only if the Game Data is blocked (0.0).
-
-### 3. Dynamic Ramp & Thresholds
-
-You are absolutely correct. **20% is too late.**
-*   **Peak Braking:** Usually occurs around **12% to 15%** slip for slick tires.
-*   **The Goal:** You want 100% vibration intensity exactly at the **Peak (12-15%)**, not after it. If you feel max vibration, you know you are at max braking power. Pushing harder loses grip.
-
-**Proposed Customization (3 Sliders):**
-Instead of 3 separate thresholds (which is complex to tune), I propose defining the **Window**:
-
-1.  **Start Threshold (Warning):** When the vibration *starts* (0% Amp).
-    *   *Recommendation:* **4% - 6%**. (Just entering the braking zone).
-2.  **Full Effect Threshold (Limit):** When the vibration hits **100% Amp**.
-    *   *Recommendation:* **12% - 15%**. (The optimal peak).
-3.  **Rear Boost:** (As discussed).
-
-**Non-Linearity:**
-A **Square Curve** ($x^2$) is often better than Linear.
-*   *Linear:* Vibration builds up steadily.
-*   *Square:* Vibration stays subtle for longer, then ramps up sharply as you hit the limit. This creates a distinct "Wall" of vibration at the limit.
+*   **Rear Blindness:** The `calculate_force` loop explicitly checked only `mWheel[0]` and `mWheel[1]`. Telemetry analysis confirms LMU *does* provide valid longitudinal patch velocity for rear wheels, so this was a logic omission, not a data gap.
+*   **Manual Slip Bug:** The formula used `data->mLocalVel.z` directly. In LMU, forward velocity is **negative**. Passing a negative denominator to the slip ratio formula resulted in positive (traction) ratios during braking, failing the `< -0.1` check.
+*   **Thresholds:** The linear ramp from 10% to 50% slip did not align with the physics of slick tires, which typically peak around 12-15% slip.
 
 ---
 
-### Updated Implementation Plan
+## 3. Implementation Plan
 
-I will update the prompt to include:
-1.  **Fix Manual Slip:** Use `abs()` for velocity.
-2.  **Rear Differentiation:** Frequency 0.3x, Amplitude Boost slider.
-3.  **Configurable Ramp:**
-    *   **Start %:** Slider (1% - 10%).
-    *   **Full %:** Slider (5% - 20%).
-    *   **Curve:** We will use a **Quadratic Ramp** (Square) by default for that "sharp limit" feel.
+### A. Physics Engine (`FFBEngine.h`)
 
-Here is the prompt for the agent.
+We will implement a **4-Wheel Monitor** with **Axle Differentiation**.
+*   **Differentiation:** If the rear axle has a higher slip ratio than the front, the vibration frequency drops to **30%** (Heavy Judder) and amplitude is boosted. This allows the driver to distinguish between Understeer (Front Lock - High Pitch) and Instability (Rear Lock - Low Pitch).
+*   **Dynamic Ramp:** Instead of a fixed threshold, we introduce a configurable window:
+    *   **Start %:** Vibration begins (Early Warning).
+    *   **Full %:** Vibration hits max amplitude (Peak Limit).
+    *   **Curve:** Quadratic ($x^2$) ramp to provide a sharp, distinct "wall" of vibration as the limit is reached.
 
-***
+#### Code Changes
 
-## Prompt
+**1. Fix Manual Slip Calculation**
+```cpp
+// Inside calculate_force lambda
+auto get_slip_ratio = [&](const TelemWheelV01& w) {
+    if (m_use_manual_slip) {
+        // FIX: Use std::abs() because mLocalVel.z is negative (forward)
+        return calculate_manual_slip_ratio(w, std::abs(data->mLocalVel.z));
+    }
+    // ... existing fallback ...
+};
+```
 
-Please initialize this session by following the **Standard Task Workflow** defined in `AGENTS.md`.
+**2. New Member Variables**
+```cpp
+// Defaults
+float m_lockup_start_pct = 5.0f;      // Warning starts at 5% slip
+float m_lockup_full_pct = 15.0f;      // Max vibration at 15% slip
+float m_lockup_rear_boost = 1.5f;     // Rear lockups are 1.5x stronger
+```
 
-1.  **Sync**: Run `git fetch && git reset --hard origin/main` (or pull).
-2.  **Load Memory**: Read `AGENTS_MEMORY.md`.
-3.  **Load Rules**: Read `AGENTS.md`.
+**3. Updated Lockup Logic**
+```cpp
+// --- 2b. Progressive Lockup (4-Wheel Monitor) ---
+if (m_lockup_enabled && data->mUnfilteredBrake > 0.05) {
+    // 1. Calculate Slip for ALL wheels
+    double slip_fl = get_slip_ratio(data->mWheel[0]);
+    double slip_fr = get_slip_ratio(data->mWheel[1]);
+    double slip_rl = get_slip_ratio(data->mWheel[2]);
+    double slip_rr = get_slip_ratio(data->mWheel[3]);
 
-Perform the following task:
+    // 2. Find worst slip per axle (Slip is negative, so use min)
+    double max_slip_front = (std::min)(slip_fl, slip_fr);
+    double max_slip_rear  = (std::min)(slip_rl, slip_rr);
 
-**Task: Advanced Lockup Tuning (Thresholds, Rear Boost, Manual Slip Fix)**
+    // 3. Determine Source & Differentiation
+    double effective_slip = 0.0;
+    double freq_multiplier = 1.0;
+    double amp_multiplier = 1.0;
 
-**Reference Documents:**
-*   `FFBEngine.h`
-*   `src/Config.h` / `src/Config.cpp`
-*   `src/GuiLayer.cpp`
-*   `tests/test_ffb_engine.cpp`
+    if (max_slip_rear < max_slip_front) {
+        // REAR LOCKUP DETECTED
+        effective_slip = max_slip_rear;
+        freq_multiplier = 0.3; // Low Pitch (Judder/Thud)
+        amp_multiplier = m_lockup_rear_boost; // Configurable Boost
+    } else {
+        // FRONT LOCKUP DETECTED
+        effective_slip = max_slip_front;
+        freq_multiplier = 1.0; // Standard Pitch (Screech)
+        amp_multiplier = 1.0;
+    }
 
-**Context:**
-User testing revealed the need for precise tuning of the Lockup effect to act as an "Early Warning" system for threshold braking.
-1.  **Manual Slip Fix:** The "Manual Slip Calc" option is broken due to a sign error (negative velocity).
-2.  **Rear Differentiation:** Rear lockups need to be distinct (Lower Frequency) and have a configurable intensity boost.
-3.  **Configurable Ramp:** The user wants to define the slip window (Start % vs Full %) to match the tire's peak grip.
+    // 4. Dynamic Thresholds
+    double start_ratio = m_lockup_start_pct / 100.0;
+    double full_ratio = m_lockup_full_pct / 100.0;
+    
+    // Check if we crossed the start threshold
+    if (effective_slip < -start_ratio) {
+        // Normalize slip into 0.0 - 1.0 range based on window
+        double slip_abs = std::abs(effective_slip);
+        double window = full_ratio - start_ratio;
+        if (window < 0.01) window = 0.01; // Safety div/0
 
-**Implementation Requirements:**
+        double normalized = (slip_abs - start_ratio) / window;
+        double severity = (std::min)(1.0, normalized);
+        
+        // Apply Quadratic Curve (Sharp feel at limit)
+        severity = severity * severity;
 
-1.  **Update `FFBEngine.h`**:
-    *   **Add Members:**
-        *   `float m_lockup_start_pct = 5.0f;` (Default 5.0%).
-        *   `float m_lockup_full_pct = 15.0f;` (Default 15.0%).
-        *   `float m_lockup_rear_boost = 1.5f;` (Default 1.5x).
-    *   **Fix Manual Slip:** In `calculate_force`, wrap `data->mLocalVel.z` in `std::abs()` before passing to `calculate_manual_slip_ratio`.
-    *   **Update Lockup Logic:**
-        *   Calculate slip for **all 4 wheels**.
-        *   Determine if Rear Slip is worse than Front Slip.
-        *   **Frequency:** If Rear is worse, use `freq_multiplier = 0.3`. Else `1.0`.
-        *   **Amplitude Boost:** If Rear is worse, apply `m_lockup_rear_boost`.
-        *   **Ramp Logic:**
-            *   `start = m_lockup_start_pct / 100.0`
-            *   `full = m_lockup_full_pct / 100.0`
-            *   `width = full - start`
-            *   `normalized = (abs(slip) - start) / width`
-            *   `severity = clamp(normalized, 0.0, 1.0)`
-            *   **Curve:** Use `severity * severity` (Quadratic) to make the limit feel sharper.
+        // Frequency Calculation
+        double car_speed_ms = std::abs(data->mLocalVel.z); 
+        double base_freq = 10.0 + (car_speed_ms * 1.5); 
+        double final_freq = base_freq * freq_multiplier;
 
-2.  **Update Configuration (`src/Config` files)**:
-    *   Add `lockup_start_pct`, `lockup_full_pct`, and `lockup_rear_boost` to `Preset` struct.
-    *   Update `Save`, `Load`, `LoadPresets`, `Apply`, and `UpdateFromEngine`.
-    *   **Defaults:** Start=5.0, Full=15.0, RearBoost=1.5.
+        // Phase Integration
+        m_lockup_phase += final_freq * dt * TWO_PI;
+        m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI);
 
-3.  **Update GUI (`src/GuiLayer.cpp`)**:
-    *   In the "Lockup Vibration" section:
-        *   Add Slider: **"Start Slip %"** (Range: 1.0% to 10.0%). Tooltip: "Slip % where vibration begins (Early Warning)."
-        *   Add Slider: **"Full Slip %"** (Range: 5.0% to 25.0%). Tooltip: "Slip % where vibration hits 100% (Peak Grip Limit)."
-        *   Add Slider: **"Rear Boost"** (Range: 1.0x to 3.0x). Tooltip: "Amplitude multiplier for rear wheel lockups."
+        // Final Amplitude
+        double amp = severity * m_lockup_gain * 4.0 * decoupling_scale * amp_multiplier;
+        
+        total_force += std::sin(m_lockup_phase) * amp;
+    }
+}
+```
 
-4.  **Update Tests (`tests/test_ffb_engine.cpp`)**:
-    *   Update `test_rear_lockup_differentiation` to verify the frequency drop (0.3x).
-    *   Add `test_lockup_ramp_config` to verify that changing `m_lockup_start_pct` changes the trigger point.
-    *   Add `test_manual_slip_sign_fix` to verify manual calc works with negative velocity.
+---
 
-**Deliverables:**
-1.  Modified `FFBEngine.h`
-2.  Modified `src/Config.h` & `src/Config.cpp`
-3.  Modified `src/GuiLayer.cpp`
-4.  Modified `tests/test_ffb_engine.cpp`
-5.  Updated `CHANGELOG.md` & `VERSION`
+### B. Configuration (`src/Config.h` / `.cpp`)
 
-**Check-list for completion:**
-- [ ] Manual Slip uses `abs(vel)`.
-- [ ] Lockup logic uses configurable Start/Full thresholds.
-- [ ] Rear frequency 0.3x, Amplitude configurable.
-- [ ] GUI exposes 3 new sliders.
-- [ ] Tests pass.
+We need to persist the three new tuning parameters.
+
+**1. Update `Preset` Struct**
+```cpp
+struct Preset {
+    // ... existing ...
+    float lockup_start_pct = 5.0f;
+    float lockup_full_pct = 15.0f;
+    float lockup_rear_boost = 1.5f;
+    
+    // Add setters and update Apply/UpdateFromEngine methods
+    Preset& SetLockupThresholds(float start, float full, float rear_boost) {
+        lockup_start_pct = start;
+        lockup_full_pct = full;
+        lockup_rear_boost = rear_boost;
+        return *this;
+    }
+};
+```
+
+**2. Update Persistence**
+Add `lockup_start_pct`, `lockup_full_pct`, and `lockup_rear_boost` to the `config.ini` read/write logic.
+
+---
+
+### C. GUI Layer (`src/GuiLayer.cpp`)
+
+Expose the new controls in the "Tactile Textures" -> "Lockup Vibration" section.
+
+```cpp
+BoolSetting("Lockup Vibration", &engine.m_lockup_enabled);
+if (engine.m_lockup_enabled) {
+    // Existing Gain
+    FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 2.0f, ...);
+    
+    // NEW: Thresholds
+    FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", 
+        "Slip % where vibration begins (Early Warning).\nTypical: 4-6%.");
+        
+    FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", 
+        "Slip % where vibration hits 100% amplitude (Peak Grip).\nTypical: 12-15%.");
+        
+    // NEW: Rear Boost
+    FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 3.0f, "%.1fx", 
+        "Amplitude multiplier for rear wheel lockups.\nMakes rear instability feel more dangerous/distinct.");
+}
+```
+
+---
+
+## 4. Verification Strategy
+
+1.  **Manual Slip Test:** Enable "Manual Slip Calc". Drive. Brake hard. Verify vibration occurs (proving sign fix).
+2.  **Rear Lockup Test:** Drive LMP2. Bias brakes to rear (or engine brake heavily). Lock rear wheels. Verify vibration is **Lower Pitch** (thudding) compared to front lockup.
+3.  **Threshold Test:** Set "Start %" to 1.0%. Lightly brake. Verify subtle vibration starts immediately. Set "Start %" to 10%. Lightly brake. Verify silence until heavy braking.
