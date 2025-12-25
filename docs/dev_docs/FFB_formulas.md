@@ -15,7 +15,7 @@ $$
 where normalization divides by `m_max_torque_ref` (with a floor of 1.0 Nm).
 
 $$
-F_{\text{total}} = (F_{\text{base}} + F_{\text{sop}} + F_{\text{vib\\_lock}} + F_{\text{vib\\_spin}} + F_{\text{vib\\_slide}} + F_{\text{vib\\_road}} + F_{\text{vib\\_bottom}} + F_{\text{gyro}} + F_{\text{abs}})
+F_{\text{total}} = (F_{\text{base}} + F_{\text{sop}} + F_{\text{vib-lock}} + F_{\text{vib-spin}} + F_{\text{vib-slide}} + F_{\text{vib-road}} + F_{\text{vib-bottom}} + F_{\text{gyro}} + F_{\text{abs}})
 $$
 
 ---
@@ -34,11 +34,11 @@ To ensure consistent feel across different wheels (e.g. G29 vs Simucube), effect
 Texture and vibration effects are scaled by tire load to simulate connection with the road. To prevent dangerous force spikes during glitches or aero anomalies, "Load Factors" are clamped.
 
 1.  **Texture Load Factor (Road/Slide)**:
-    *   $F_{\text{load\\_texture}} = \text{Clamp}(\text{Load} / 4000.0, 0.0, m_{\text{texture\\_load\\_cap}})$
+    *   $F_{\text{load-texture}} = \text{Clamp}(\text{Load} / 4000.0, 0.0, m_{\text{texture-load-cap}})$
     *   Max Cap: 2.0.
 
 2.  **Brake Load Factor (Lockup)**:
-    *   $F_{\text{load\\_brake}} = \text{Clamp}(\text{Load} / 4000.0, 0.0, m_{\text{brake\\_load\\_cap}})$
+    *   $F_{\text{load-brake}} = \text{Clamp}(\text{Load} / 4000.0, 0.0, m_{\text{brake-load-cap}})$
     *   Max Cap: 3.0. (Allows stronger vibration under heavy braking).
 
 #### B. Base Force (Understeer / Grip Modulation)
@@ -46,10 +46,10 @@ Texture and vibration effects are scaled by tire load to simulate connection wit
 Modulates the raw steering torque (`mSteeringShaftTorque`) based on front tire grip.
 
 $$
-F_{\text{base}} = (T_{\text{shaft}} \times K_{\text{shaft\\_smooth}}) \times K_{\text{shaft\\_gain}} \times (1.0 - (\text{GripLoss} \times K_{\text{understeer}}))
+F_{\text{base}} = (T_{\text{shaft}} \times K_{\text{shaft-smooth}}) \times K_{\text{shaft-gain}} \times (1.0 - (\text{GripLoss} \times K_{\text{understeer}}))
 $$
 
-*   **Steering Shaft Smoothing**: Time-Corrected LPF ($\tau = m_{\text{shaft\\_smooth}}$) applied to raw torque.
+*   **Steering Shaft Smoothing**: Time-Corrected LPF ($\tau = m_{\text{shaft-smooth}}$) applied to raw torque.
 *   **Grip Approximation**: If telemetry grip is missing, it is estimated from **Slip Angle** ($\alpha$) and **Slip Ratio** ($\kappa$) using a **Combined Friction Circle**:
     *   $\text{Metric} = \sqrt{(\alpha / \text{OptAlpha})^2 + (\kappa / \text{OptRatio})^2}$
     *   Used only when valid suspension force is present (to avoid airborne glitches).
@@ -59,7 +59,7 @@ $$
 Simulates chassis rotation and weight transfer.
 
 1.  **Lateral G Force**:
-    $$ F_{\text{sop\\_base}} = G_{\text{smooth}} \times K_{\text{sop}} \times K_{\text{sop\\_scale}} \times K_{\text{decouple}} $$
+    $$ F_{\text{sop-base}} = G_{\text{smooth}} \times K_{\text{sop}} \times K_{\text{sop-scale}} \times K_{\text{decouple}} $$
     *   $G_{\text{smooth}}$: Time-Corrected LPF of `mLocalAccel.x`.
     *   **Inversion**: Removed in v0.4.30 (Signal is physically correct).
 
@@ -70,15 +70,15 @@ Simulates chassis rotation and weight transfer.
 
 3.  **Rear Aligning Torque**:
     *   Approximated as `SlipAngle_Rear * RearLoad * 15.0`.
-    *   $T_{\text{rear}} = -F_{\text{lat\\_rear}} \times 0.001 \times K_{\text{rear}} \times K_{\text{decouple}}$.
+    *   $T_{\text{rear}} = -F_{\text{lat-rear}} \times 0.001 \times K_{\text{rear}} \times K_{\text{decouple}}$.
     *   **Sign**: Negative to provide stabilizing (counter-steering) torque.
 
 4.  **Lateral G Boost (Slide)**:
-    *   Amplifies $F_{\text{sop\\_base}}$ when `FrontGrip > RearGrip` (Oversteer).
+    *   Amplifies $F_{\text{sop-base}}$ when `FrontGrip > RearGrip` (Oversteer).
 
 #### D. Braking & Lockup (Advanced)
 
-**1. Progressive Lockup ($F_{\text{vib\\_lock}}$)**
+**1. Progressive Lockup ($F_{\text{vib-lock}}$)**
 *   **Triggers**: `Brake > 2%` AND `Load > 50N`.
 *   **Predictive Logic (v0.6.0)**:
     *   Monitors wheel angular deceleration vs. car deceleration.
@@ -111,7 +111,7 @@ Simulates chassis rotation and weight transfer.
 **2. Road Texture**
 *   **Input**: Delta of `mVerticalTireDeflection`.
 *   **Scrub Drag**: Constant resistance force opposing lateral slide (`DragDir * K_drag`).
-*   **Force**: `(DeltaL + DeltaR) * 50.0 * K_road * F_load_texture * Scale`.
+*   **Force**: `(DeltaL + DeltaR) * 50.0 * K_road * F_{\text{load-texture}} * Scale`.
 
 **3. Suspension Bottoming**
 *   **Method A**: `RideHeight < 2mm`.
