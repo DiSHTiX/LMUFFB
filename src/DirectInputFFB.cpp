@@ -310,7 +310,9 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
             } else if (hr == DIERR_NOTACQUIRED) {
                 errorType = "DIERR_NOTACQUIRED";
             } else if (hr == DIERR_OTHERAPPHASPRIO) {
-                errorType = "DIERR_OTHERAPPHASPRIO";
+                errorType = "DIERR_OTHERAPPHASPRIO (Game has stolen priority! DISABLE IN-GAME FFB)";
+            } else if (hr == 0x80040205) {
+                errorType = "0x80040205 (Game has stolen priority! DISABLE IN-GAME FFB)";
             } else if (hr == E_HANDLE) {
                 errorType = "E_HANDLE";
             }

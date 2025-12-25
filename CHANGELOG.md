@@ -5,10 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [0.5.14] - 2025-12-25
 
 ### Changed
+- **Improved FFB Error Handling**: Explicitly handles `DIERR_OTHERAPPHASPRIO` (0x80040205) to provide a clear, actionable warning when the game steals Exclusive access to the steering wheel, instructing the user to disable in-game FFB.
 - **Project Structure Reorganization**: Moved `main.cpp` and `FFBEngine.h` from project root to `src/` directory for better organization and cleaner project structure.
   - All source code now consolidated in the `src/` directory
   - Updated all include paths across the codebase
   - Follows standard C++ project conventions
+
 
 
 
