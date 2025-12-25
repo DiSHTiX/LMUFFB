@@ -34,6 +34,8 @@ DONE: lockup vibration improvements
 
 Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing
 
+understeer effect: experiment to make it work.
+
 update tooltips
 
 test default values after 0-100% normalization of sliders
