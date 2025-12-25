@@ -30,6 +30,7 @@ DONE: list effects affected by grip and load approximation, and list those that 
 
 DONE: add smoothing (and slider) for steering shaft torque
 DONE: expose sliders for additional smoothing: yaw kick, gyroscopic damping, Chassis Inertia (Load)
+DONE: lockup vibration improvements
 
 Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing
 
@@ -49,21 +50,20 @@ the game exited from the session, and there were still forces
 in particular self align torque and slide vibratio
 improve logic of detecting when not driving / not live, and stop ffb
 
-lockup vibration is not working
-help me troubleshoot
-error in formula?
-raw telemetry values missing?
-
-check other 2 telemetry raw values that might be missing
-
 spin vibration might also not be working
 
-check screenshot
 
 we need a button for ..disconnect from game? reset data from dame? signal session finished?
 the telemetry persist even after quitting the game (slide texture and rear align torque)
 
+Bracking and lockup effects: implement wider ranges in the sliders
+
+Add more tooltips (many sliders are missing them)
 
 lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
 
 add a slider for the yaw kick thresshold to determine at which acceleration or force the yaw kick effect starts to be applied. There is still too much noise in the signal, and it does not actually work when needed (feeling a kick for the rear starting to step out).
+
+Implement "Jardier" wet grip effects.
+
+Implement adaptive (auto) optimal slip angle (and slip rate?)
