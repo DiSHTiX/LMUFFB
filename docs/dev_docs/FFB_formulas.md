@@ -16,13 +16,13 @@ $$
 
 where normalization divides by `m_max_torque_ref` (with a floor of 1.0 Nm).
 
-The total force is a summation of base physics, seat-of-pants effects, and dynamic vibrations:
+The total force is a summation of base physics, seat-of-pants effects, and dynamic vibrations, scaled by the **Traction Loss Multiplier**:
 
 $$
-F_{\text{total}} = (F_{\text{base}} + F_{\text{sop}} + F_{\text{vib-lock}} + F_{\text{vib-spin}} + F_{\text{vib-slide}} + F_{\text{vib-road}} + F_{\text{vib-bottom}} + F_{\text{gyro}} + F_{\text{abs}})
+F_{\text{total}} = (F_{\text{base}} + F_{\text{sop}} + F_{\text{vib-lock}} + F_{\text{vib-spin}} + F_{\text{vib-slide}} + F_{\text{vib-road}} + F_{\text{vib-bottom}} + F_{\text{gyro}} + F_{\text{abs}}) \times M_{\text{spin-drop}}
 $$
 
-*Note: Traction Loss ($F_{\text{vib-spin}}$) also applies a multiplicative reduction to the total force (see Section E.3).*
+*Note: $M_{\text{spin-drop}}$ reduces total force implementation during wheel spin (see Section E.3).*
 
 ---
 
@@ -42,7 +42,7 @@ Texture and vibration effects are scaled by normalized tire load (`Load / 4000N`
 
 1.  **Texture Load Factor (Road/Slide)**:
     *   **Input**: `AvgLoad = (FL.Load + FR.Load) / 2.0`.
-    *   **Robustness Check**: Uses a hysteresis counter; if `AvgLoad < 1.0` while moving, it falls back to **Kinematic Load** or **Approximate Load** logic.
+    *   **Robustness Check**: Uses a hysteresis counter; if `AvgLoad < 1.0` while `|Velocity| > 1.0 m/s`, it defaults to **4000N** (1.0 Load Factor) to prevent signal loss during telemetry glitches.
     *   $F_{\text{load-texture}} = \text{Clamp}(\text{AvgLoad} / 4000.0, 0.0, m_{\text{texture-load-cap}})$
     *   **Max Cap**: 2.0.
 
@@ -104,6 +104,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   **Conditioning**:
         *   **Low Speed Cutoff**: 0.0 if Speed < 5.0 m/s.
         *   **Noise Gate**: 0.0 if $|Accel| < 0.2$ rad/s².
+    *   **Logic**: Provides a "predictive kick" when car rotation starts, before lateral G builds up.
     *   **Formula**: $-\text{YawAccel}_{\text{smooth}} \times K_{\text{yaw}} \times 5.0 \text{Nm} \times K_{\text{decouple}}$.
     *   **Note**: Negative sign provides counter-steering torque.
 
@@ -116,13 +117,14 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 #### D. Braking & Lockup (Advanced)
 
 **1. Progressive Lockup ($F_{\text{vib-lock}}$)**
+*   **Safety Trap**: If `CarSpeed < 2.0 m/s`, Slip Ratio is forced to 0.0 to prevent false lockup detection at standstill.
 *   **Predictive Logic (v0.6.0)**: Triggers early if `WheelDecel > CarDecel * 2.0` (Wheel stopping faster than car).
 *   **Bump Rejection**: Logic disabled if `SuspVelocity > m_lockup_bump_reject` (e.g. 1.0 m/s).
 *   **Severity**: $\text{Severity} = \text{pow}(\text{NormSlip}, m_{\text{lockup-gamma}})$ (Quadratic).
 *   **Logic**:
     *   **Axle Diff**: Rear lockups use **0.3x Frequency** and **1.5x Amplitude**.
     *   **Pressure Scaling**: Scales with Brake Pressure (Bar). Fallback to 0.5 if engine braking (Pressure < 0.1 bar).
-*   **Oscillator**: `sin(Phase)` (Wrapped via `fmod`).
+*   **Oscillator**: `sin(Phase)` (Wrapped via `fmod` to prevent phase explosion on stutter).
 
 **2. ABS Pulse ($F_{\text{abs}}$)**
 *   **Trigger**: Brake > 50% AND Pressure Modulation Rate > 2.0 bar/s.
@@ -137,7 +139,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Note**: Work-based scaling `(1.0 - Grip)` ensures vibration only occurs during actual scrubbing.
 
 **2. Road Texture (Bumps)**
-*   **Main Input**: Delta of `mVerticalTireDeflection`.
+*   **Main Input**: Delta of `mVerticalTireDeflection` (effectively a **High-Pass Filter** on suspension movement).
 *   **Safety Clamp**: Delta is clamped to **+/- 0.01m** per frame to prevent physics explosions on teleport or restart.
 *   **Formula**: `(DeltaL + DeltaR) * 50.0 * K_road * F_load_texture * Scale`.
 *   **Scrub Drag (Fade-In)**:
@@ -148,8 +150,8 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 
 **3. Traction Loss (Wheel Spin)**
 *   **Trigger**: Throttle > 5% and SlipRatio > 0.2 (20%).
-*   **Torque Drop**: The *Total Output Force* is reduced to simulate "floating" front tires.
-    *   `F_total *= (1.0 - (Severity * K_spin * 0.6))`
+*   **Torque Drop ($M_{\text{spin-drop}}$)**: The *Total Output Force* is reduced to simulate "floating" front tires.
+    *   `M_spin-drop = (1.0 - (Severity * K_spin * 0.6))`
 *   **Vibration**:
     *   **Frequency**: $10\text{Hz} + (\text{SlipSpeed} \times 2.5)$. Cap 80Hz.
     *   **Formula**: $\sin(\phi) \times \text{Severity} \times K_{\text{spin}} \times 2.5\text{Nm} \times K_{\text{decouple}}$.
@@ -160,7 +162,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   Method B: `SuspForceRate > 100,000 N/s`.
     *   Legacy: `TireLoad > 8000.0 N`.
 *   **Formula**: `sin(50Hz) * K_bottom * 1.0Nm`. (Fixed sinusoidal crunch).
-*   **Legacy Intensity**: $\sqrt{\text{ExcessLoad}} \times 0.05$. (Retained for high-load bottoming; note scalar updated from 0.0025 to 0.05).
+*   **Legacy Intensity**: $\sqrt{\text{ExcessLoad}} \times 0.0025$. (Scalar restored to legacy value for accuracy).
 
 #### F. Post-Processing & Filters
 
