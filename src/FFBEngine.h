@@ -7,7 +7,7 @@
 #include <mutex>
 #include <iostream>
 #include <chrono>
-#include "src/lmu_sm_interface/InternalsPlugin.hpp"
+#include "lmu_sm_interface/InternalsPlugin.hpp"
 
 // Mathematical Constants
 static constexpr double PI = 3.14159265358979323846;

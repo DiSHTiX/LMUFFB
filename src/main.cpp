@@ -6,11 +6,11 @@
 #include <chrono>
 
 #include "FFBEngine.h"
-#include "src/GuiLayer.h"
-#include "src/Config.h"
-#include "src/DirectInputFFB.h"
-#include "src/DynamicVJoy.h"
-#include "src/GameConnector.h"
+#include "GuiLayer.h"
+#include "Config.h"
+#include "DirectInputFFB.h"
+#include "DynamicVJoy.h"
+#include "GameConnector.h"
 #include <optional>
 
 // Constants

@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <algorithm>
-#include "../FFBEngine.h"
+#include "../src/FFBEngine.h"
 #include "../src/lmu_sm_interface/InternalsPlugin.hpp"
 #include "../src/lmu_sm_interface/SharedMemoryInterface.hpp" // Added for GameState testing
 #include "../src/Config.h" // Added for Preset testing

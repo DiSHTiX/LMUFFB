@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.14] - 2025-12-25
+
+### Changed
+- **Project Structure Reorganization**: Moved `main.cpp` and `FFBEngine.h` from project root to `src/` directory for better organization and cleaner project structure.
+  - All source code now consolidated in the `src/` directory
+  - Updated all include paths across the codebase
+  - Follows standard C++ project conventions
+
+
+
 ## [0.5.13] - 2025-12-25
 
 ### Added
@@ -19,6 +29,11 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Manual Slip Calculation**: Corrected a sign error in the manual slip ratio calculation by properly handling forward velocity direction in `get_slip_ratio`.
 - **Axle Differentiation Refinement**: Improved the detection logic for dominant lockup source to ensure "Heavy Judder" triggers reliably when rear wheels lock harder than front wheels.
+### Improved
+- **Code Quality Enhancements**:
+  - **Extracted Magic Number**: Replaced hardcoded `0.01` hysteresis value in axle differentiation logic with named constant `AXLE_DIFF_HYSTERESIS` for better maintainability and documentation.
+  - **Test Baseline Alignment**: Updated `test_progressive_lockup` to use production defaults (5%/15% thresholds) instead of test-specific values, ensuring tests validate actual user experience.
+  - **Enhanced Test Precision**: Improved `test_split_load_caps` with explicit 3x ratio verification and separate assertions for road texture and brake load cap validation, providing better diagnostic output.
 
 ## [0.5.12] - 2025-12-25
 ### Changed

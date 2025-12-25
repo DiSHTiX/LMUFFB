@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include "../FFBEngine.h"
+#include "FFBEngine.h"
 #include <string>
 #include <vector>
 

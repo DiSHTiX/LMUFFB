@@ -1,7 +1,7 @@
 #ifndef GUILAYER_H
 #define GUILAYER_H
 
-#include "../FFBEngine.h"
+#include "FFBEngine.h"
 
 // Forward declaration to avoid pulling in ImGui headers here if not needed
 struct GuiContext; 
