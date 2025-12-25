@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [0.5.14] - 2025-12-25
 
 ### Changed
-- **Improved FFB Error Handling**: Explicitly handles `DIERR_OTHERAPPHASPRIO` (0x80040205) to provide a clear, actionable warning when the game steals Exclusive access to the steering wheel, instructing the user to disable in-game FFB.
+- **Improved FFB Error Handling**: 
+  - Implemented `GetDirectInputErrorString` helper to provide verbose, official Microsoft descriptions for all DirectInput success and error codes.
+  - Explicitly handles `DIERR_OTHERAPPHASPRIO` (0x80040205) with a clear, actionable warning: "Game has stolen priority! DISABLE IN-GAME FFB".
+  - Consolidated duplicate DirectInput error macros (e.g., `E_ACCESSDENIED`, `S_FALSE`) to ensure robust error identification across different Windows SDKs.
+  - Maintained connection recovery logic while providing deeper diagnostic insight into why FFB commands might fail.
 - **Project Structure Reorganization**: Moved `main.cpp` and `FFBEngine.h` from project root to `src/` directory for better organization and cleaner project structure.
   - All source code now consolidated in the `src/` directory
   - Updated all include paths across the codebase

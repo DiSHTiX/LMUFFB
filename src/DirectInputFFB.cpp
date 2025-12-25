@@ -12,6 +12,7 @@
 #include <psapi.h>
 #include <dinput.h>
 #include <iomanip> // For std::hex
+#include <string>
 #endif
 
 // Constants
@@ -69,6 +70,111 @@ GUID DirectInputFFB::StringToGuid(const std::string& str) {
         guid.Data4[6] = (unsigned char)p9; guid.Data4[7] = (unsigned char)p10;
     }
     return guid;
+}
+
+
+
+/**
+ * @brief Returns the description for a DirectInput return code.
+ * 
+ * Parsed from: https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee416869(v=vs.85)#constants
+ * 
+ * @param hr The HRESULT returned by a DirectInput method.
+ * @return const char* The description of the error or status code.
+ */
+const char* GetDirectInputErrorString(HRESULT hr) {
+    switch (hr) {
+        // Success Codes
+        case S_OK: // Also DI_OK
+            return "The operation completed successfully (S_OK).";
+        case S_FALSE: // Also DI_BUFFEROVERFLOW, DI_NOEFFECT, DI_NOTATTACHED, DI_PROPNOEFFECT
+            return "Operation technically succeeded but had no effect or hit a warning (S_FALSE). The device buffer overflowed and some input was lost. This value is equal to DI_BUFFEROVERFLOW, DI_NOEFFECT, DI_NOTATTACHED, DI_PROPNOEFFECT.";
+        case DI_DOWNLOADSKIPPED:
+            return "The parameters of the effect were successfully updated, but the effect could not be downloaded because the associated device was not acquired in exclusive mode.";
+        case DI_EFFECTRESTARTED:
+            return "The effect was stopped, the parameters were updated, and the effect was restarted.";
+        case DI_POLLEDDEVICE:
+            return "The device is a polled device.. As a result, device buffering does not collect any data and event notifications is not signaled until the IDirectInputDevice8 Interface method is called.";
+        case DI_SETTINGSNOTSAVED:
+            return "The action map was applied to the device, but the settings could not be saved.";
+        case DI_TRUNCATED:
+            return "The parameters of the effect were successfully updated, but some of them were beyond the capabilities of the device and were truncated to the nearest supported value.";
+        case DI_TRUNCATEDANDRESTARTED:
+            return "Equal to DI_EFFECTRESTARTED | DI_TRUNCATED.";
+        case DI_WRITEPROTECT:
+            return "A SUCCESS code indicating that settings cannot be modified.";
+
+        // Error Codes
+        case DIERR_ACQUIRED:
+            return "The operation cannot be performed while the device is acquired.";
+        case DIERR_ALREADYINITIALIZED:
+            return "This object is already initialized.";
+        case DIERR_BADDRIVERVER:
+            return "The object could not be created due to an incompatible driver version or mismatched or incomplete driver components.";
+        case DIERR_BETADIRECTINPUTVERSION:
+            return "The application was written for an unsupported prerelease version of DirectInput.";
+        case DIERR_DEVICEFULL:
+            return "The device is full.";
+        case DIERR_DEVICENOTREG: // Equal to REGDB_E_CLASSNOTREG
+            return "The device or device instance is not registered with DirectInput.";
+        case DIERR_EFFECTPLAYING:
+            return "The parameters were updated in memory but were not downloaded to the device because the device does not support updating an effect while it is still playing.";
+        case DIERR_GENERIC: // Equal to E_FAIL
+            return "An undetermined error occurred inside the DirectInput subsystem.";
+        case DIERR_HANDLEEXISTS: // Equal to E_ACCESSDENIED
+            return "Access denied or handle already exists. Another application may have exclusive access.";
+        case DIERR_HASEFFECTS:
+            return "The device cannot be reinitialized because effects are attached to it.";
+        case DIERR_INCOMPLETEEFFECT:
+            return "The effect could not be downloaded because essential information is missing. For example, no axes have been associated with the effect, or no type-specific information has been supplied.";
+        case DIERR_INPUTLOST:
+            return "Access to the input device has been lost. It must be reacquired.";
+        case DIERR_INVALIDPARAM: // Equal to E_INVALIDARG
+            return "An invalid parameter was passed to the returning function, or the object was not in a state that permitted the function to be called.";
+        case DIERR_MAPFILEFAIL:
+            return "An error has occurred either reading the vendor-supplied action-mapping file for the device or reading or writing the user configuration mapping file for the device.";
+        case DIERR_MOREDATA:
+            return "Not all the requested information fit into the buffer.";
+        case DIERR_NOAGGREGATION:
+            return "This object does not support aggregation.";
+        case DIERR_NOINTERFACE: // Equal to E_NOINTERFACE
+            return "The object does not support the specified interface.";
+        case DIERR_NOTACQUIRED:
+            return "The operation cannot be performed unless the device is acquired.";
+        case DIERR_NOTBUFFERED:
+            return "The device is not buffered. Set the DIPROP_BUFFERSIZE property to enable buffering.";
+        case DIERR_NOTDOWNLOADED:
+            return "The effect is not downloaded.";
+        case DIERR_NOTEXCLUSIVEACQUIRED:
+            return "The operation cannot be performed unless the device is acquired in DISCL_EXCLUSIVE mode.";
+        case DIERR_NOTFOUND:
+            return "The requested object does not exist (DIERR_NOTFOUND).";
+        // case DIERR_OBJECTNOTFOUND: // Duplicate of DIERR_NOTFOUND
+        //    return "The requested object does not exist.";
+        case DIERR_OLDDIRECTINPUTVERSION:
+            return "The application requires a newer version of DirectInput.";
+        // case DIERR_OTHERAPPHASPRIO: // Duplicate of DIERR_HANDLEEXISTS (E_ACCESSDENIED)
+        //    return "Another application has a higher priority level, preventing this call from succeeding.";
+        case DIERR_OUTOFMEMORY: // Equal to E_OUTOFMEMORY
+            return "The DirectInput subsystem could not allocate sufficient memory to complete the call.";
+        // case DIERR_READONLY: // Duplicate of DIERR_HANDLEEXISTS (E_ACCESSDENIED)
+        //    return "The specified property cannot be changed.";
+        case DIERR_REPORTFULL:
+            return "More information was requested to be sent than can be sent to the device.";
+        case DIERR_UNPLUGGED:
+            return "The operation could not be completed because the device is not plugged in.";
+        case DIERR_UNSUPPORTED: // Equal to E_NOTIMPL
+            return "The function called is not supported at this time.";
+        case E_HANDLE:
+            return "The HWND parameter is not a valid top-level window that belongs to the process.";
+        case E_PENDING:
+            return "Data is not yet available.";
+        case E_POINTER:
+            return "An invalid pointer, usually NULL, was passed as a parameter.";
+        
+        default:
+            return "Unknown DirectInput Error";
+    }
 }
 
 DirectInputFFB::~DirectInputFFB() {
@@ -301,21 +407,15 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
         // --- DIAGNOSTIC & RECOVERY LOGIC ---
         if (FAILED(hr)) {
             // 1. Identify the Error
-            std::string errorType = "Unknown";
+            std::string errorType = GetDirectInputErrorString(hr);
+
+            // Append Custom Advice for Priority/Exclusive Errors
+            if (hr == DIERR_OTHERAPPHASPRIO) {
+                errorType += " [CRITICAL: Game has stolen priority! DISABLE IN-GAME FFB]";
+            }
+
             // FIX: Default to TRUE. If update failed, we must try to reconnect.
             bool recoverable = true; 
-
-            if (hr == DIERR_INPUTLOST) {
-                errorType = "DIERR_INPUTLOST";
-            } else if (hr == DIERR_NOTACQUIRED) {
-                errorType = "DIERR_NOTACQUIRED";
-            } else if (hr == DIERR_OTHERAPPHASPRIO) {
-                errorType = "DIERR_OTHERAPPHASPRIO (Game has stolen priority! DISABLE IN-GAME FFB)";
-            } else if (hr == 0x80040205) {
-                errorType = "0x80040205 (Game has stolen priority! DISABLE IN-GAME FFB)";
-            } else if (hr == E_HANDLE) {
-                errorType = "E_HANDLE";
-            }
 
             // 2. Log the Context (Rate limited)
             static DWORD lastLogTime = 0;
