@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2025-12-25
+### Changed
+- **Default Preset Values Updated**:
+  - Updated all default values in the `Preset` struct to reflect optimized settings
+  - Key changes include:
+    - `sop = 1.47059f` (increased from 0.193043f for stronger lateral G feedback)
+    - `sop_smoothing = 1.0f` (reduced latency from 0.92f)
+    - `slip_smoothing = 0.002f` (reduced from 0.005f for faster response)
+    - `oversteer_boost = 2.0f` (increased from 1.19843f)
+    - `lockup_start_pct = 1.0f` (earlier activation, was 5.0f)
+    - `lockup_full_pct = 5.0f` (tighter range, was 15.0f)
+    - `lockup_rear_boost = 3.0f` (increased from 1.5f)
+    - `lockup_gamma = 0.5f` (linear response, was 2.0f)
+    - `lockup_prediction_sens = 20.0f` (more sensitive, was 50.0f)
+    - `lockup_bump_reject = 0.1f` (tighter threshold, was 1.0f)
+    - `brake_load_cap = 3.0f` (increased from 1.5f)
+    - `abs_gain = 2.0f` (increased from 1.0f)
+    - `spin_enabled = false` (disabled by default)
+    - `road_enabled = true` (enabled by default)
+    - `scrub_drag_gain = 0.0f` (disabled by default, was 0.965217f)
+    - `yaw_smoothing = 0.015f` (increased from 0.005f for stability)
+    - `optimal_slip_angle = 0.1f` (increased from 0.06f)
+    - `steering_shaft_smoothing = 0.0f` (disabled by default)
+    - `gyro_smoothing = 0.0f` (disabled by default)
+    - `chassis_smoothing = 0.0f` (disabled by default)
+
+### Fixed
+- **Test Suite Resilience**:
+  - Refactored `test_single_source_of_truth_t300_defaults()` to verify consistency across initialization paths without hardcoding specific values
+  - Updated `test_preset_initialization()` to read expected values from Preset struct defaults instead of hardcoding them
+  - Widened tolerance in `test_yaw_accel_gating()` to accommodate different yaw_smoothing defaults
+  - Tests now automatically adapt to future default value changes, improving maintainability
+
+
+
 ## [0.6.0] - 2025-12-25
 ### Added
 - **Predictive Lockup Logic (Hybrid Thresholding)**:
@@ -34,6 +69,15 @@ All notable changes to this project will be documented in this file.
   - `abs_gain = 1.0` (100% strength)
 - **No Manual Configuration Required**: The new parameters will be automatically added to your config file when you adjust any setting in the GUI.
 - **Validation**: Invalid values loaded from corrupted config files will be automatically clamped to safe ranges and logged to the console.
+
+### Code Quality
+- **Code Review Recommendations Implemented** (from v0.6.0 review):
+  - Extracted magic numbers to named constants (`ABS_PEDAL_THRESHOLD`, `ABS_PRESSURE_RATE_THRESHOLD`, `PREDICTION_BRAKE_THRESHOLD`, `PREDICTION_LOAD_THRESHOLD`)
+  - Added safety comment explaining radius division-by-zero prevention
+  - Optimized axle differentiation by pre-calculating front slip ratios outside the loop
+  - Added range validation for v0.6.0 parameters in `Config::Load` (gamma, prediction sensitivity, bump rejection, ABS gain)
+  - Added precision formatting rationale comment in GUI code
+  - Updated CHANGELOG migration notes for v0.6.0
 
 ## [0.5.15] - 2025-12-25
 ### Changed

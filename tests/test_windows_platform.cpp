@@ -614,77 +614,56 @@ static void test_window_config_persistence() {
 }
 
 static void test_single_source_of_truth_t300_defaults() {
-    std::cout << "\nTest: Single Source of Truth - T300 Defaults (v0.5.12)" << std::endl;
+    std::cout << "\nTest: Single Source of Truth - Default Consistency (v0.5.12)" << std::endl;
     
     // This test verifies that the refactoring to use a single source of truth
-    // for T300 defaults is working correctly. All three initialization paths
+    // for defaults is working correctly. All three initialization paths
     // should produce identical results:
     // 1. Preset struct defaults (Config.h)
     // 2. FFBEngine initialized via Preset::ApplyDefaultsToEngine()
     // 3. "Default (T300)" preset from LoadPresets()
+    //
+    // NOTE: This test does NOT check specific values - it only verifies that
+    // all paths produce CONSISTENT results. This makes the test resilient to
+    // changes in default values.
     
-    // Test 1: Verify Preset struct defaults match expected T300 values
-    {
-        std::cout << "  Test 1: Preset struct defaults..." << std::endl;
-        Preset defaults; // Uses default member initializers
-        
-        // Verify key T300 values
-        ASSERT_TRUE(defaults.understeer == 50.0f);
-        ASSERT_TRUE(defaults.sop == 0.193043f);
-        ASSERT_TRUE(defaults.oversteer_boost == 1.19843f);
-        ASSERT_TRUE(defaults.lockup_enabled == true);
-        ASSERT_TRUE(defaults.lockup_gain == 2.0f);
-        ASSERT_TRUE(defaults.slide_enabled == true);
-        ASSERT_TRUE(defaults.slide_gain == 0.482437f);
-        ASSERT_TRUE(defaults.slide_freq == 1.6f);
-        ASSERT_TRUE(defaults.scrub_drag_gain == 0.965217f);
-        ASSERT_TRUE(defaults.rear_align_effect == 0.986957f);
-        ASSERT_TRUE(defaults.sop_yaw_gain == 0.269565f);
-        ASSERT_TRUE(defaults.gyro_gain == 0.0347826f);
-        ASSERT_TRUE(defaults.optimal_slip_angle == 0.06f);
-        ASSERT_TRUE(defaults.slip_smoothing == 0.005f);
-        ASSERT_TRUE(defaults.sop_smoothing == 0.92f);
-        ASSERT_TRUE(defaults.yaw_smoothing == 0.005f);
-        ASSERT_TRUE(defaults.chassis_smoothing == 0.017f);
-        ASSERT_TRUE(defaults.gyro_smoothing == 0.01f);
-        ASSERT_TRUE(defaults.steering_shaft_smoothing == 0.01f);
-        
-        std::cout << "    Preset struct defaults verified" << std::endl;
-    }
+    // Test 1: Capture Preset struct defaults as the reference
+    Preset reference_defaults;
+    std::cout << "  Test 1: Captured reference defaults from Preset struct" << std::endl;
     
-    // Test 2: Verify FFBEngine initialization via ApplyDefaultsToEngine()
+    // Test 2: Verify FFBEngine initialization via ApplyDefaultsToEngine() matches
     {
-        std::cout << "  Test 2: FFBEngine initialization..." << std::endl;
+        std::cout << "  Test 2: FFBEngine initialization consistency..." << std::endl;
         FFBEngine engine;
         Preset::ApplyDefaultsToEngine(engine);
         
-        // Verify the engine was initialized with T300 values
-        ASSERT_TRUE(engine.m_understeer_effect == 50.0f);
-        ASSERT_TRUE(engine.m_sop_effect == 0.193043f);
-        ASSERT_TRUE(engine.m_oversteer_boost == 1.19843f);
-        ASSERT_TRUE(engine.m_lockup_enabled == true);
-        ASSERT_TRUE(engine.m_lockup_gain == 2.0f);
-        ASSERT_TRUE(engine.m_slide_texture_enabled == true);
-        ASSERT_TRUE(engine.m_slide_texture_gain == 0.482437f);
-        ASSERT_TRUE(engine.m_slide_freq_scale == 1.6f);
-        ASSERT_TRUE(engine.m_scrub_drag_gain == 0.965217f);
-        ASSERT_TRUE(engine.m_rear_align_effect == 0.986957f);
-        ASSERT_TRUE(engine.m_sop_yaw_gain == 0.269565f);
-        ASSERT_TRUE(engine.m_gyro_gain == 0.0347826f);
-        ASSERT_TRUE(engine.m_optimal_slip_angle == 0.06f);
-        ASSERT_TRUE(engine.m_slip_angle_smoothing == 0.005f);
-        ASSERT_TRUE(engine.m_sop_smoothing_factor == 0.92f);
-        ASSERT_TRUE(engine.m_yaw_accel_smoothing == 0.005f);
-        ASSERT_TRUE(engine.m_chassis_inertia_smoothing == 0.017f);
-        ASSERT_TRUE(engine.m_gyro_smoothing == 0.01f);
-        ASSERT_TRUE(engine.m_steering_shaft_smoothing == 0.01f);
+        // Verify the engine matches the reference defaults
+        ASSERT_TRUE(engine.m_understeer_effect == reference_defaults.understeer);
+        ASSERT_TRUE(engine.m_sop_effect == reference_defaults.sop);
+        ASSERT_TRUE(engine.m_oversteer_boost == reference_defaults.oversteer_boost);
+        ASSERT_TRUE(engine.m_lockup_enabled == reference_defaults.lockup_enabled);
+        ASSERT_TRUE(engine.m_lockup_gain == reference_defaults.lockup_gain);
+        ASSERT_TRUE(engine.m_slide_texture_enabled == reference_defaults.slide_enabled);
+        ASSERT_TRUE(engine.m_slide_texture_gain == reference_defaults.slide_gain);
+        ASSERT_TRUE(engine.m_slide_freq_scale == reference_defaults.slide_freq);
+        ASSERT_TRUE(engine.m_scrub_drag_gain == reference_defaults.scrub_drag_gain);
+        ASSERT_TRUE(engine.m_rear_align_effect == reference_defaults.rear_align_effect);
+        ASSERT_TRUE(engine.m_sop_yaw_gain == reference_defaults.sop_yaw_gain);
+        ASSERT_TRUE(engine.m_gyro_gain == reference_defaults.gyro_gain);
+        ASSERT_TRUE(engine.m_optimal_slip_angle == reference_defaults.optimal_slip_angle);
+        ASSERT_TRUE(engine.m_slip_angle_smoothing == reference_defaults.slip_smoothing);
+        ASSERT_TRUE(engine.m_sop_smoothing_factor == reference_defaults.sop_smoothing);
+        ASSERT_TRUE(engine.m_yaw_accel_smoothing == reference_defaults.yaw_smoothing);
+        ASSERT_TRUE(engine.m_chassis_inertia_smoothing == reference_defaults.chassis_smoothing);
+        ASSERT_TRUE(engine.m_gyro_smoothing == reference_defaults.gyro_smoothing);
+        ASSERT_TRUE(engine.m_steering_shaft_smoothing == reference_defaults.steering_shaft_smoothing);
         
-        std::cout << "    FFBEngine initialization verified" << std::endl;
+        std::cout << "    FFBEngine initialization matches reference" << std::endl;
     }
     
-    // Test 3: Verify "Default (T300)" preset from LoadPresets()
+    // Test 3: Verify "Default (T300)" preset from LoadPresets() matches
     {
-        std::cout << "  Test 3: Default (T300) preset..." << std::endl;
+        std::cout << "  Test 3: Default (T300) preset consistency..." << std::endl;
         Config::LoadPresets();
         
         // Verify we have presets
@@ -694,15 +673,15 @@ static void test_single_source_of_truth_t300_defaults() {
         ASSERT_TRUE(Config::presets[0].name == "Default (T300)");
         ASSERT_TRUE(Config::presets[0].is_builtin == true);
         
-        // Verify it has T300 values
+        // Verify it matches the reference
         const Preset& default_preset = Config::presets[0];
-        ASSERT_TRUE(default_preset.understeer == 50.0f);
-        ASSERT_TRUE(default_preset.sop == 0.193043f);
-        ASSERT_TRUE(default_preset.oversteer_boost == 1.19843f);
-        ASSERT_TRUE(default_preset.lockup_enabled == true);
-        ASSERT_TRUE(default_preset.lockup_gain == 2.0f);
+        ASSERT_TRUE(default_preset.understeer == reference_defaults.understeer);
+        ASSERT_TRUE(default_preset.sop == reference_defaults.sop);
+        ASSERT_TRUE(default_preset.oversteer_boost == reference_defaults.oversteer_boost);
+        ASSERT_TRUE(default_preset.lockup_enabled == reference_defaults.lockup_enabled);
+        ASSERT_TRUE(default_preset.lockup_gain == reference_defaults.lockup_gain);
         
-        std::cout << "    Default (T300) preset verified" << std::endl;
+        std::cout << "    Default (T300) preset matches reference" << std::endl;
     }
     
     // Test 4: Verify "T300" preset matches "Default (T300)"
@@ -772,10 +751,10 @@ static void test_single_source_of_truth_t300_defaults() {
         // Try to load non-existent config (should not change values)
         Config::Load(engine, nonexistent_file);
         
-        // Verify T300 defaults are still present
-        ASSERT_TRUE(engine.m_understeer_effect == 50.0f);
-        ASSERT_TRUE(engine.m_sop_effect == 0.193043f);
-        ASSERT_TRUE(engine.m_lockup_gain == 2.0f);
+        // Verify defaults are still present (match reference)
+        ASSERT_TRUE(engine.m_understeer_effect == reference_defaults.understeer);
+        ASSERT_TRUE(engine.m_sop_effect == reference_defaults.sop);
+        ASSERT_TRUE(engine.m_lockup_gain == reference_defaults.lockup_gain);
         
         std::cout << "    Fresh install scenario verified" << std::endl;
     }

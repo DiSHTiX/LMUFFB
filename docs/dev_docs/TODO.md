@@ -62,3 +62,8 @@ check screenshot
 
 we need a button for ..disconnect from game? reset data from dame? signal session finished?
 the telemetry persist even after quitting the game (slide texture and rear align torque)
+
+
+lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
+
+add a slider for the yaw kick thresshold to determine at which acceleration or force the yaw kick effect starts to be applied. There is still too much noise in the signal, and it does not actually work when needed (feeling a kick for the rear starting to step out).

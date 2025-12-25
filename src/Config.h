@@ -14,69 +14,69 @@ struct Preset {
     // - FFBEngine constructor (via ApplyDefaultsToEngine)
     // - "Default (T300)" preset in LoadPresets()
     // - "Reset Defaults" button in GUI
-    float gain = 1.0f;
-    float understeer = 50.0f; // T300 Calibrated
-    float sop = 0.193043f;    // T300 Calibrated
+   float gain = 1.0f;
+    float understeer = 50.0f;
+    float sop = 1.5f;
     float sop_scale = 1.0f;
-    float sop_smoothing = 0.92f;
-    float slip_smoothing = 0.005f;
+    float sop_smoothing = 1.0f;
+    float slip_smoothing = 0.002f;
     float min_force = 0.0f;
-    float oversteer_boost = 1.19843f; // T300 Calibrated
+    float oversteer_boost = 2.0f;
     
     bool lockup_enabled = true;
     float lockup_gain = 2.0f;
-    float lockup_start_pct = 5.0f;  // New v0.5.11
-    float lockup_full_pct = 15.0f;  // New v0.5.11
-    float lockup_rear_boost = 1.5f; // New v0.5.11
-    float lockup_gamma = 2.0f;           // New v0.6.0
-    float lockup_prediction_sens = 50.0f; // New v0.6.0
-    float lockup_bump_reject = 1.0f;     // New v0.6.0
-    float brake_load_cap = 1.5f;    // New v0.5.11
+    float lockup_start_pct = 1.0f;  // New v0.5.11
+    float lockup_full_pct = 5.0f;  // New v0.5.11
+    float lockup_rear_boost = 3.0f; // New v0.5.11
+    float lockup_gamma = 0.5f;           // New v0.6.0
+    float lockup_prediction_sens = 20.0f; // New v0.6.0
+    float lockup_bump_reject = 0.1f;     // New v0.6.0
+    float brake_load_cap = 3.0f;    // New v0.5.11
     
     bool abs_pulse_enabled = true;       // New v0.6.0
-    float abs_gain = 1.0f;               // New v0.6.0
+    float abs_gain = 2.0f;               // New v0.6.0
     
-    bool spin_enabled = true;
+    bool spin_enabled = false;
     float spin_gain = 0.5f;
     
     bool slide_enabled = true;
-    float slide_gain = 0.482437f;  // T300 Calibrated
-    float slide_freq = 1.6f;
+    float slide_gain = 0.39f;
+    float slide_freq = 1.0f;
     
-    bool road_enabled = false;
+    bool road_enabled = true;
     float road_gain = 0.5f;
     
     bool invert_force = true;
-    float max_torque_ref = 98.3f; // T300 Calibrated
+    float max_torque_ref = 100.0f; // T300 Calibrated
     
     bool use_manual_slip = false;
     int bottoming_method = 0;
-    float scrub_drag_gain = 0.965217f; // T300 Calibrated
+    float scrub_drag_gain = 0.0f;
     
-    float rear_align_effect = 0.986957f; // T300 Calibrated
-    float sop_yaw_gain = 0.269565f;      // T300 Calibrated
-    float gyro_gain = 0.0347826f;        // T300 Calibrated
+    float rear_align_effect = 1.0084f;
+    float sop_yaw_gain = 0.0504202f;
+    float gyro_gain = 0.0336134f;
     
     float steering_shaft_gain = 1.0f;
     int base_force_mode = 0; // 0=Native
     
     // NEW: Grip & Smoothing (v0.5.7)
-    float optimal_slip_angle = 0.06f;  // T300 Calibrated
+    float optimal_slip_angle = 0.1f;
     float optimal_slip_ratio = 0.12f;
-    float steering_shaft_smoothing = 0.01f; // T300 Calibrated
+    float steering_shaft_smoothing = 0.0f;
     
     // NEW: Advanced Smoothing (v0.5.8)
-    float gyro_smoothing = 0.01f;
-    float yaw_smoothing = 0.005f;      // T300 Calibrated
-    float chassis_smoothing = 0.017f;  // T300 Calibrated
+    float gyro_smoothing = 0.0f;
+    float yaw_smoothing = 0.015f;
+    float chassis_smoothing = 0.0f;
 
     // v0.4.41: Signal Filtering
     bool flatspot_suppression = false;
-    float notch_q = 2.19f;  // T300 Calibrated
+    float notch_q = 2.0f;
     float flatspot_strength = 1.0f;
     
     bool static_notch_enabled = false;
-    float static_notch_freq = 15.6f;  // T300 Calibrated
+    float static_notch_freq = 50.0f;
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
