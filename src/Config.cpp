@@ -24,32 +24,11 @@ std::vector<Preset> Config::presets;
 void Config::LoadPresets() {
     presets.clear();
     
-    // 1. Default (Uses the defaults defined in Config.h - Standardized on T300)
-    presets.push_back(Preset("Default (T300)", true)
-        .SetSmoothing(0.85f)
-        .SetSlipSmoothing(0.015f)
-        .SetYawSmoothing(0.010f)
-        .SetChassisSmoothing(0.025f)
-        .SetGyroSmoothing(0.020f)
-    );
+    // 1. Default (T300) - Uses Preset struct defaults from Config.h (Single Source of Truth)
+    presets.push_back(Preset("Default (T300)", true));
     
-    // 2. T300 (Redundant but kept for explicit selection)
-    presets.push_back(Preset("T300", true)
-        .SetGain(1.0f)
-        .SetUndersteer(0.61f)
-        .SetSoP(0.08f)
-        .SetSoPScale(1.0f)
-        .SetRearAlign(0.90f)
-        .SetSoPYaw(0.0f)
-        .SetMaxTorque(98.3f)
-        .SetInvert(true)
-        .SetSmoothing(0.85f)
-        .SetSlipSmoothing(0.015f)
-        .SetYawSmoothing(0.010f)
-        .SetChassisSmoothing(0.025f)
-        .SetGyroSmoothing(0.020f)
-        .SetSlide(true, 0.39f)
-    );
+    // 2. T300 (Explicit name for clarity) - Same as Default
+    presets.push_back(Preset("T300", true));
     
     // 3. Test: Game Base FFB Only
     presets.push_back(Preset("Test: Game Base FFB Only", true)

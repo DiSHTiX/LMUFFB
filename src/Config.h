@@ -9,60 +9,64 @@ struct Preset {
     std::string name;
     bool is_builtin = false; // NEW: Track if this is hardcoded or user-created
     
-    // 1. Define Defaults inline (Matches "Default" preset logic)
+    // 1. SINGLE SOURCE OF TRUTH: T300 Default Values
+    // These defaults are used by:
+    // - FFBEngine constructor (via ApplyDefaultsToEngine)
+    // - "Default (T300)" preset in LoadPresets()
+    // - "Reset Defaults" button in GUI
     float gain = 1.0f;
-    float understeer = 0.61f; // Calibrated from Image
-    float sop = 0.08f;        // Calibrated from Image
-    float sop_scale = 1.0f;   // Calibrated from Image
-    float sop_smoothing = 0.85f;
-    float slip_smoothing = 0.015f;
+    float understeer = 50.0f; // T300 Calibrated
+    float sop = 0.193043f;    // T300 Calibrated
+    float sop_scale = 1.0f;
+    float sop_smoothing = 0.92f;
+    float slip_smoothing = 0.005f;
     float min_force = 0.0f;
-    float oversteer_boost = 0.65f; // Calibrated from Image
+    float oversteer_boost = 1.19843f; // T300 Calibrated
     
-    bool lockup_enabled = false;
-    float lockup_gain = 0.5f;
+    bool lockup_enabled = true;
+    float lockup_gain = 2.0f;
     
-    bool spin_enabled = false;
+    bool spin_enabled = true;
     float spin_gain = 0.5f;
     
-    bool slide_enabled = true; // Enabled in Image
-    float slide_gain = 0.39f;  // Calibrated from Image
-    float slide_freq = 1.0f;    // NEW: Frequency Multiplier (v0.4.36)
+    bool slide_enabled = true;
+    float slide_gain = 0.482437f;  // T300 Calibrated
+    float slide_freq = 1.6f;
     
     bool road_enabled = false;
     float road_gain = 0.5f;
     
     bool invert_force = true;
-    float max_torque_ref = 98.3f; // Calibrated from Image
+    float max_torque_ref = 98.3f; // T300 Calibrated
     
     bool use_manual_slip = false;
     int bottoming_method = 0;
-    float scrub_drag_gain = 0.0f;
+    float scrub_drag_gain = 0.965217f; // T300 Calibrated
     
-    float rear_align_effect = 0.90f; // Calibrated from Image
-    float sop_yaw_gain = 0.0f;       // Calibrated from Image
-    float gyro_gain = 0.0f;
+    float rear_align_effect = 0.986957f; // T300 Calibrated
+    float sop_yaw_gain = 0.269565f;      // T300 Calibrated
+    float gyro_gain = 0.0347826f;        // T300 Calibrated
     
     float steering_shaft_gain = 1.0f;
     int base_force_mode = 0; // 0=Native
     
     // NEW: Grip & Smoothing (v0.5.7)
-    float optimal_slip_angle = 0.10f;
+    float optimal_slip_angle = 0.06f;  // T300 Calibrated
     float optimal_slip_ratio = 0.12f;
-    float steering_shaft_smoothing = 0.0f;
+    float steering_shaft_smoothing = 0.01f; // T300 Calibrated
     
     // NEW: Advanced Smoothing (v0.5.8)
-    float gyro_smoothing = 0.010f;
-    float yaw_smoothing = 0.010f;
-    float chassis_smoothing = 0.025f;
+    float gyro_smoothing = 0.01f;
+    float yaw_smoothing = 0.005f;      // T300 Calibrated
+    float chassis_smoothing = 0.017f;  // T300 Calibrated
 
     // v0.4.41: Signal Filtering
     bool flatspot_suppression = false;
-    float notch_q = 2.0f;
+    float notch_q = 2.19f;  // T300 Calibrated
     float flatspot_strength = 1.0f;
     
     bool static_notch_enabled = false;
-    float static_notch_freq = 50.0f;
+    float static_notch_freq = 15.6f;  // T300 Calibrated
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
@@ -123,6 +127,13 @@ struct Preset {
     Preset& SetGyroSmoothing(float v) { gyro_smoothing = v; return *this; }
     Preset& SetYawSmoothing(float v) { yaw_smoothing = v; return *this; }
     Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
+
+    // 4. Static method to apply defaults to FFBEngine (Single Source of Truth)
+    // This is called by FFBEngine constructor to initialize with T300 defaults
+    static void ApplyDefaultsToEngine(FFBEngine& engine) {
+        Preset defaults; // Uses default member initializers (T300 values)
+        defaults.Apply(engine);
+    }
 
     // Apply this preset to an engine instance
     void Apply(FFBEngine& engine) const {

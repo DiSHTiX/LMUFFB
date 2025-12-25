@@ -333,3 +333,45 @@ I recommend adding a **"Advanced Lockup Tuning"** collapsible section in the GUI
 **What to keep hidden (Hardcoded):**
 *   **Airborne Threshold (50N):** This is a physics constant. There is no competitive advantage to changing it.
 *   **Relative Decel Ratio (2x):** It is too abstract for users to tune alongside "Prediction Sensitivity." One slider for sensitivity is enough.
+
+## Preset
+
+[Preset:T300]
+gain=1
+understeer=50
+sop=0.193043
+sop_scale=1
+sop_smoothing_factor=0.92
+slip_angle_smoothing=0.005
+min_force=0
+oversteer_boost=1.19843
+lockup_enabled=1
+lockup_gain=2
+spin_enabled=1
+spin_gain=0.5
+slide_enabled=1
+slide_gain=0.482437
+slide_freq=1.6
+road_enabled=0
+road_gain=0.5
+invert_force=1
+max_torque_ref=98.3
+use_manual_slip=0
+bottoming_method=0
+scrub_drag_gain=0.965217
+rear_align_effect=0.986957
+sop_yaw_gain=0.269565
+steering_shaft_gain=1
+base_force_mode=0
+gyro_gain=0.0347826
+flatspot_suppression=0
+notch_q=2.19
+flatspot_strength=1
+static_notch_enabled=0
+static_notch_freq=15.6
+optimal_slip_angle=0.06
+optimal_slip_ratio=0.12
+steering_shaft_smoothing=0.01
+gyro_smoothing_factor=0.01
+yaw_accel_smoothing=0.005
+chassis_inertia_smoothing=0.017

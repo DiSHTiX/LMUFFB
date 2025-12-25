@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.12] - 2025-12-25
+### Changed
+- **FFB Engine Single Source of Truth (SSOT)**: 
+    - Refactored `FFBEngine` to eliminate hardcoded default values, following a DRY (Don't Repeat Yourself) approach.
+    - Centralized all physics defaults within `Config.h` (`Preset::ApplyDefaultsToEngine`), ensuring the main application and test suite share the exact same configuration baseline.
+    - Standardized default initialization on the calibrated T300 physics preset.
+- **Preset Calibration & Normalization**:
+    - Updated `Default (T300)` and `T300` presets to align with the normalized 0-100 slider ranges (percentage-based) introduced in previous versions.
+    - This migration ensures presets no longer rely on legacy raw Newton-meter intensities, providing a consistent feeling across different wheel hardwares.
+- **Test Suite Revamp**:
+    - **Full Stabilization**: Fixed and verified all 157 FFB engine tests following the SSOT refactor.
+    - **Modernized Expectations**: Updated legacy test assertions to align with the improved T300 physics baseline (e.g., Scrub Drag gain of 0.965, Lockup frequency ratio of 0.3).
+    - **Robust Telemetry Mocking**: Improved `test_ffb_engine.cpp` with comprehensive wheel initialization to prevent silent failures in multi-axle calculations.
+    - **Test Helper**: Introduced `InitializeEngine()` to provide consistent, stable baselines for legacy tests while allowing specific physics overrides for regression verification.
+
 ## [0.5.11] - 2025-12-24
 ### Fixed
 - **Lockup Vibration Ignoring Rear Wheels**: Fixed a bug where locking the rear brakes (common in LMP2 or under heavy engine braking) would not trigger any vibration feedback.

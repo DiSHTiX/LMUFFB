@@ -175,59 +175,61 @@ struct GripResult {
 class FFBEngine {
 public:
     // Settings (GUI Sliders)
-    float m_gain = 1.0f;          // Master Gain
-    float m_understeer_effect = 38.0f; // Grip Drop (T300 Default)
-    float m_sop_effect = 1.0f;    // Lateral G injection strength
-    float m_min_force = 0.0f;     // 0.0 - 0.20 (Deadzone removal)
+    // NOTE: These are initialized by Preset::ApplyDefaultsToEngine() in the constructor
+    // to maintain a single source of truth in Config.h (Preset struct defaults)
+    float m_gain;
+    float m_understeer_effect;
+    float m_sop_effect;
+    float m_min_force;
     
     // Configurable Smoothing & Caps (v0.3.9)
-    float m_sop_smoothing_factor = 0.85f; // 0.0 (Max Smoothing) - 1.0 (Raw). Default 0.85 for responsive feel (15ms lag).
-    float m_max_load_factor = 1.5f;      // Cap for load scaling (Default 1.5x)
-    float m_sop_scale = 1.0f;            // SoP base scaling factor (Default 20.0 was too high for Nm)
+    float m_sop_smoothing_factor;
+    float m_max_load_factor = 1.5f;  // Keep this as it's not in presets
+    float m_sop_scale;
     
     // v0.4.4 Features
-    float m_max_torque_ref = 100.0f;      // Reference torque for 100% output (Default 100.0 Nm)
-    bool m_invert_force = true;         // Invert final output signal
+    float m_max_torque_ref;
+    bool m_invert_force;
     
     // Base Force Debugging (v0.4.13)
-    float m_steering_shaft_gain = 1.0f; // 0.0 - 1.0 (Base force attenuation)
-    int m_base_force_mode = 0;          // 0=Native, 1=Synthetic, 2=Muted
+    float m_steering_shaft_gain;
+    int m_base_force_mode;
 
     // New Effects (v0.2)
-    float m_oversteer_boost = 1.0f; // Rear grip loss boost
-    float m_rear_align_effect = 5.0f; 
-    float m_sop_yaw_gain = 5.0f;      
-    float m_gyro_gain = 0.0f;         
-    float m_gyro_smoothing = 0.010f; // v0.5.8: Changed to Time Constant (Seconds). Default 10ms.
-    float m_yaw_accel_smoothing = 0.010f;      // v0.5.8: Time Constant (Seconds). Default 10ms.
-    float m_chassis_inertia_smoothing = 0.025f; // v0.5.8: Time Constant (Seconds). Default 25ms.
+    float m_oversteer_boost;
+    float m_rear_align_effect;
+    float m_sop_yaw_gain;
+    float m_gyro_gain;
+    float m_gyro_smoothing;
+    float m_yaw_accel_smoothing;
+    float m_chassis_inertia_smoothing;
     
-    bool m_lockup_enabled = false;
-    float m_lockup_gain = 0.5f;
+    bool m_lockup_enabled;
+    float m_lockup_gain;
     
-    bool m_spin_enabled = false;
-    float m_spin_gain = 0.5f;
+    bool m_spin_enabled;
+    float m_spin_gain;
 
     // Texture toggles
-    bool m_slide_texture_enabled = false; // Default off (T300 standard)
-    float m_slide_texture_gain = 0.5f; // 0.0 - 5.0
-    float m_slide_freq_scale = 1.0f;   // NEW: Frequency Multiplier (v0.4.36)
+    bool m_slide_texture_enabled;
+    float m_slide_texture_gain;
+    float m_slide_freq_scale;
     
-    bool m_road_texture_enabled = false;
-    float m_road_texture_gain = 0.5f; // 0.0 - 1.0
+    bool m_road_texture_enabled;
+    float m_road_texture_gain;
     
     // Bottoming Effect (v0.3.2)
-    bool m_bottoming_enabled = true;
-    float m_bottoming_gain = 1.0f;
+    bool m_bottoming_enabled = true;  // Keep this as it's not in presets
+    float m_bottoming_gain = 1.0f;    // Keep this as it's not in presets
 
-    float m_slip_angle_smoothing = 0.015f; // v0.4.40: Expose tau (Smoothing Time Constant in seconds)
+    float m_slip_angle_smoothing;
     
     // NEW: Grip Estimation Settings (v0.5.7)
-    float m_optimal_slip_angle = 0.10f; // Default 0.10 rad (5.7 deg)
-    float m_optimal_slip_ratio = 0.12f; // Default 0.12 (12%)
+    float m_optimal_slip_angle;
+    float m_optimal_slip_ratio;
     
     // NEW: Steering Shaft Smoothing (v0.5.7)
-    float m_steering_shaft_smoothing = 0.0f; // Time constant in seconds (0.0 = off)
+    float m_steering_shaft_smoothing;
     
     // v0.4.41: Signal Filtering Settings
     bool m_flatspot_suppression = false;
@@ -304,7 +306,7 @@ public:
     // New Settings (v0.4.5)
     bool m_use_manual_slip = false;
     int m_bottoming_method = 0; // 0=Scraping (Default), 1=Suspension Spike
-    float m_scrub_drag_gain = 0.0f; // New Effect: Drag resistance
+    float m_scrub_drag_gain; // Initialized by Preset::ApplyDefaultsToEngine()
 
     // Smoothing State
     double m_sop_lat_g_smoothed = 0.0;

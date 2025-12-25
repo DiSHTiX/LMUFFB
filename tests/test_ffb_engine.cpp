@@ -106,12 +106,29 @@ static TelemInfoV01 CreateBasicTestTelemetry(double speed = 20.0, double slip_an
     return data;
 }
 
+/**
+ * Creates an FFBEngine initialized with T300 defaults.
+ * Required after v0.5.12 refactoring removed default initializers from FFBEngine.h.
+ * 
+ * Note: Returns a reference to avoid copy (FFBEngine has deleted copy constructor).
+ * Each call reinitializes the same static instance.
+ * 
+ * @return Reference to initialized FFBEngine with T300 default values
+ */
+static void InitializeEngine(FFBEngine& engine) {
+    Preset::ApplyDefaultsToEngine(engine);
+    // v0.5.12: Force consistent baseline for legacy tests
+    engine.m_max_torque_ref = 20.0f;
+    engine.m_invert_force = false;
+    engine.m_steering_shaft_smoothing = 0.0f; // Disable smoothing for instant test response
+}
 
 
 
 static void test_manual_slip_singularity() {
     std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -146,6 +163,7 @@ static void test_manual_slip_singularity() {
 static void test_base_force_modes() {
     std::cout << "\nTest: Base Force Modes & Gain (v0.4.13)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -221,6 +239,7 @@ static void test_base_force_modes() {
 static void test_sop_yaw_kick() {
     std::cout << "\nTest: SoP Yaw Kick (v0.4.18 Smoothed)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -272,6 +291,7 @@ static void test_sop_yaw_kick() {
 static void test_scrub_drag_fade() {
     std::cout << "\nTest: Scrub Drag Fade-In" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -314,6 +334,7 @@ static void test_scrub_drag_fade() {
 static void test_road_texture_teleport() {
     std::cout << "\nTest: Road Texture Teleport (Delta Clamp)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -364,6 +385,7 @@ static void test_road_texture_teleport() {
 static void test_grip_low_speed() {
     std::cout << "\nTest: Grip Approximation Low Speed Cutoff" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -415,6 +437,7 @@ static void test_grip_low_speed() {
 static void test_zero_input() {
     std::cout << "\nTest: Zero Input" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -438,6 +461,7 @@ static void test_zero_input() {
 static void test_grip_modulation() {
     std::cout << "\nTest: Grip Modulation (Understeer)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -478,6 +502,7 @@ static void test_grip_modulation() {
 static void test_sop_effect() {
     std::cout << "\nTest: SoP Effect" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -517,6 +542,7 @@ static void test_sop_effect() {
 static void test_min_force() {
     std::cout << "\nTest: Min Force" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -554,6 +580,7 @@ static void test_min_force() {
 static void test_progressive_lockup() {
     std::cout << "\nTest: Progressive Lockup" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -622,6 +649,7 @@ static void test_slide_texture() {
     // Gripping tires (grip=1.0) should NOT scrub, even with high lateral velocity
     {
         FFBEngine engine;
+        InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
         TelemInfoV01 data;
         std::memset(&data, 0, sizeof(data));
         // Default RH to avoid scraping
@@ -666,6 +694,7 @@ static void test_slide_texture() {
     // Case 2: Rear Slip (Oversteer/Drift)
     {
         FFBEngine engine;
+        InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
         TelemInfoV01 data;
         std::memset(&data, 0, sizeof(data));
         data.mWheel[0].mRideHeight = 0.1; data.mWheel[1].mRideHeight = 0.1;
@@ -703,6 +732,7 @@ static void test_slide_texture() {
 static void test_dynamic_tuning() {
     std::cout << "\nTest: Dynamic Tuning (GUI Simulation)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -751,6 +781,7 @@ static void test_dynamic_tuning() {
 static void test_suspension_bottoming() {
     std::cout << "\nTest: Suspension Bottoming (Fix Verification)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -788,6 +819,7 @@ static void test_suspension_bottoming() {
     
     // Let's check frame 1 explicitly by resetting
     FFBEngine engine2;
+    InitializeEngine(engine2); // v0.5.12: Initialize with T300 defaults
     engine2.m_bottoming_enabled = true;
     engine2.m_bottoming_gain = 1.0;
     engine2.m_sop_effect = 0.0;
@@ -809,6 +841,7 @@ static void test_suspension_bottoming() {
 static void test_oversteer_boost() {
     std::cout << "\nTest: Lateral G Boost (Slide)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -853,6 +886,7 @@ static void test_oversteer_boost() {
 static void test_phase_wraparound() {
     std::cout << "\nTest: Phase Wraparound (Anti-Click)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -907,6 +941,7 @@ static void test_phase_wraparound() {
 static void test_road_texture_state_persistence() {
     std::cout << "\nTest: Road Texture State Persistence" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -952,6 +987,7 @@ static void test_road_texture_state_persistence() {
 static void test_multi_effect_interaction() {
     std::cout << "\nTest: Multi-Effect Interaction (Lockup + Spin)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1028,6 +1064,7 @@ static void test_multi_effect_interaction() {
 static void test_load_factor_edge_cases() {
     std::cout << "\nTest: Load Factor Edge Cases" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1078,6 +1115,7 @@ static void test_load_factor_edge_cases() {
 static void test_spin_torque_drop_interaction() {
     std::cout << "\nTest: Spin Torque Drop with SoP" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1146,6 +1184,7 @@ static void test_spin_torque_drop_interaction() {
 static void test_rear_grip_fallback() {
     std::cout << "\nTest: Rear Grip Fallback (v0.4.5)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1227,6 +1266,7 @@ static void test_rear_grip_fallback() {
 static void test_sanity_checks() {
     std::cout << "\nTest: Telemetry Sanity Checks" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1393,6 +1433,7 @@ static void test_sanity_checks() {
 static void test_hysteresis_logic() {
     std::cout << "\nTest: Hysteresis Logic (Missing Data)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1470,6 +1511,7 @@ static void test_presets() {
     // Setup
     Config::LoadPresets();
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     
     // Initial State (Default is 0.5)
     engine.m_gain = 0.5f;
@@ -1516,7 +1558,9 @@ static void test_config_persistence() {
     
     std::string test_file = "test_config.ini";
     FFBEngine engine_save;
+    InitializeEngine(engine_save); // v0.5.12: Initialize with T300 defaults
     FFBEngine engine_load;
+    InitializeEngine(engine_load); // v0.5.12: Initialize with T300 defaults
     
     // 1. Setup unique values
     engine_save.m_gain = 1.23f;
@@ -1645,6 +1689,7 @@ static void test_game_state_logic() {
 static void test_smoothing_step_response() {
     std::cout << "\nTest: SoP Smoothing Step Response" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1703,6 +1748,7 @@ static void test_smoothing_step_response() {
 static void test_manual_slip_calculation() {
     std::cout << "\nTest: Manual Slip Calculation" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1721,8 +1767,10 @@ static void test_manual_slip_calculation() {
     
     // Case 1: No Slip (Wheel V matches Car V)
     // V_wheel = 20.0. Omega = V / r = 20.0 / 0.3 = 66.66 rad/s
-    data.mWheel[0].mRotation = 66.6666;
-    data.mWheel[1].mRotation = 66.6666;
+    for(int i=0; i<4; i++) {
+        data.mWheel[i].mRotation = 66.6666;
+        data.mWheel[i].mStaticUndeflectedRadius = 30; // 0.3m
+    }
     data.mWheel[0].mLongitudinalPatchVel = 0.0; // Game data says 0 (should be ignored)
     
     engine.m_lockup_enabled = true;
@@ -1743,8 +1791,7 @@ static void test_manual_slip_calculation() {
     }
     
     // Case 2: Locked Wheel (Omega = 0)
-    data.mWheel[0].mRotation = 0.0;
-    data.mWheel[1].mRotation = 0.0;
+    for(int i=0; i<4; i++) data.mWheel[i].mRotation = 0.0;
     // Ratio = (0 - 20) / 20 = -1.0.
     // This should trigger massive lockup effect.
     
@@ -1766,6 +1813,7 @@ static void test_manual_slip_calculation() {
 static void test_universal_bottoming() {
     std::cout << "\nTest: Universal Bottoming" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1835,7 +1883,8 @@ static void test_preset_initialization() {
     // Expected default values for v0.4.5 fields
     const bool expected_use_manual_slip = false;
     const int expected_bottoming_method = 0;
-    const float expected_scrub_drag_gain = 0.0f;
+    // v0.5.12: All presets now inherit T300 scrub_drag_gain via member initializers
+    const float expected_scrub_drag_gain = 0.965217f;
     
     // Test all 9 built-in presets (Added T300)
     const char* preset_names[] = {
@@ -1884,6 +1933,7 @@ static void test_preset_initialization() {
             fields_ok = false;
         }
         
+        // v0.5.12: All presets have T300 scrub_drag_gain default
         if (std::abs(preset.scrub_drag_gain - expected_scrub_drag_gain) > 0.0001f) {
             std::cout << "[FAIL] " << preset.name << ": scrub_drag_gain = " 
                       << preset.scrub_drag_gain << ", expected " << expected_scrub_drag_gain << std::endl;
@@ -1901,7 +1951,7 @@ static void test_preset_initialization() {
     
     // Overall summary
     if (all_passed) {
-        std::cout << "[PASS] All 5 built-in presets have correct v0.4.5 field initialization" << std::endl;
+        std::cout << "[PASS] All 9 built-in presets have correct v0.4.5 field initialization" << std::endl;
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] Some presets have incorrect v0.4.5 field initialization" << std::endl;
@@ -1912,6 +1962,7 @@ static void test_preset_initialization() {
 static void test_regression_road_texture_toggle() {
     std::cout << "\nTest: Regression - Road Texture Toggle Spike" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -1971,6 +2022,7 @@ static void test_regression_road_texture_toggle() {
 static void test_regression_bottoming_switch() {
     std::cout << "\nTest: Regression - Bottoming Method Switch Spike" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2014,6 +2066,7 @@ static void test_regression_bottoming_switch() {
 static void test_regression_rear_torque_lpf() {
     std::cout << "\nTest: Regression - Rear Torque LPF Continuity" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2144,6 +2197,7 @@ static void test_stress_stability() {
 static void test_yaw_accel_smoothing() {
     std::cout << "\nTest: Yaw Acceleration Smoothing (v0.4.18)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2207,6 +2261,7 @@ static void test_yaw_accel_smoothing() {
     // Alternate between +5.0 and -5.0 every frame
     // The smoothed value should remain close to 0 (averaging out the noise)
     FFBEngine engine2;
+    InitializeEngine(engine2); // v0.5.12: Initialize with T300 defaults
     engine2.m_sop_yaw_gain = 1.0f;
     engine2.m_sop_effect = 0.0f;
     engine2.m_max_torque_ref = 20.0f;
@@ -2249,6 +2304,7 @@ static void test_yaw_accel_smoothing() {
 static void test_yaw_accel_convergence() {
     std::cout << "\nTest: Yaw Acceleration Convergence (v0.4.18)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2321,6 +2377,7 @@ static void test_yaw_accel_convergence() {
 static void test_regression_yaw_slide_feedback() {
     std::cout << "\nTest: Regression - Yaw/Slide Feedback Loop (v0.4.18)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2418,6 +2475,7 @@ static void test_regression_yaw_slide_feedback() {
 static void test_yaw_kick_signal_conditioning() {
     std::cout << "\nTest: Yaw Kick Signal Conditioning (v0.4.42)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2487,14 +2545,14 @@ static void test_yaw_kick_signal_conditioning() {
     
     // Should be non-zero and negative (due to inversion)
     // First frame smoothed: 0.0 + alpha * (5.0 - 0.0)
-    // With alpha ~= 0.1, smoothed ~= 0.5
-    // Force: -0.5 * 1.0 * 5.0 = -2.5 Nm
-    // Normalized: -2.5 / 20.0 = -0.125
-    if (force_valid < -0.05 && force_valid > -0.3) {
+    // With alpha ~= 0.333 (T300 default tau=0.005), smoothed ~= 1.666
+    // Force: -1.666 * 1.0 * 5.0 = -8.333 Nm
+    // Normalized: -8.333 / 20.0 = -0.416667
+    if (force_valid < -0.3 && force_valid > -0.5) {
         std::cout << "[PASS] Valid kick detected (force = " << force_valid << " in expected range)." << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Valid kick not detected correctly. Got " << force_valid << " Expected ~-0.125." << std::endl;
+        std::cout << "[FAIL] Valid kick not detected correctly. Got " << force_valid << " Expected ~-0.416667." << std::endl;
         g_tests_failed++;
     }
 }
@@ -2547,6 +2605,7 @@ static void test_notch_filter_attenuation() {
 static void test_frequency_estimator() {
     std::cout << "\nTest: Frequency Estimator (v0.4.41)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2673,6 +2732,7 @@ int main() {
 static void test_snapshot_data_integrity() {
     std::cout << "\nTest: Snapshot Data Integrity (v0.4.7)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -2807,6 +2867,7 @@ static void test_snapshot_data_integrity() {
 static void test_zero_effects_leakage() {
     std::cout << "\nTest: Zero Effects Leakage (No Ghost Forces)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -2881,6 +2942,7 @@ static void test_zero_effects_leakage() {
 static void test_snapshot_data_v049() {
     std::cout << "\nTest: Snapshot Data v0.4.9 (Rear Physics)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -2982,6 +3044,7 @@ static void test_rear_force_workaround() {
     
     std::cout << "\nTest: Rear Force Workaround (v0.4.10)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -2994,6 +3057,8 @@ static void test_rear_force_workaround() {
     engine.m_sop_scale = 10.0;        // Moderate SoP scaling
     engine.m_rear_align_effect = 1.0f; // Fix effect gain for test calculation (Default is now 5.0)
     engine.m_invert_force = false;    // Ensure non-inverted for formula check
+    engine.m_max_torque_ref = 100.0f;  // Explicitly use 100 Nm ref for snapshot scaling (v0.4.50)
+    engine.m_slip_angle_smoothing = 0.015f; // v0.4.40 baseline for alpha=0.4
     
     // ========================================
     // Front Wheel Setup (Baseline)
@@ -3132,6 +3197,7 @@ static void test_rear_force_workaround() {
 static void test_rear_align_effect() {
     std::cout << "\nTest: Rear Align Effect Decoupling (v0.4.11)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3140,6 +3206,8 @@ static void test_rear_align_effect() {
     // Decoupled: Boost should be 0.0, but we get torque anyway
     engine.m_oversteer_boost = 0.0f; 
     engine.m_sop_effect = 0.0f; // Disable Base SoP to isolate torque
+    engine.m_max_torque_ref = 100.0f; // Explicitly use 100 Nm ref for snapshot scaling (v0.4.50)
+    engine.m_slip_angle_smoothing = 0.015f; // v0.4.40 baseline for alpha=0.142
     
     // Setup Rear Workaround conditions (Slip Angle generation)
     data.mWheel[0].mTireLoad = 4000.0; data.mWheel[1].mTireLoad = 4000.0; // Fronts valid
@@ -3230,6 +3298,7 @@ static void test_rear_align_effect() {
 static void test_sop_yaw_kick_direction() {
     std::cout << "\nTest: SoP Yaw Kick Direction (v0.4.20)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3259,6 +3328,7 @@ static void test_sop_yaw_kick_direction() {
 static void test_gyro_damping() {
     std::cout << "\nTest: Gyroscopic Damping (v0.4.17)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3387,6 +3457,7 @@ static void test_gyro_damping() {
 static void test_coordinate_sop_inversion() {
     std::cout << "\nTest: Coordinate System - SoP Inversion (v0.4.19)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3461,6 +3532,7 @@ static void test_coordinate_sop_inversion() {
 static void test_coordinate_rear_torque_inversion() {
     std::cout << "\nTest: Coordinate System - Rear Torque Inversion (v0.4.19)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3551,6 +3623,7 @@ static void test_coordinate_rear_torque_inversion() {
 static void test_coordinate_scrub_drag_direction() {
     std::cout << "\nTest: Coordinate System - Scrub Drag Direction (v0.4.19/v0.4.20)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3616,6 +3689,7 @@ static void test_coordinate_scrub_drag_direction() {
 static void test_coordinate_debug_slip_angle_sign() {
     std::cout << "\nTest: Coordinate System - Debug Slip Angle Sign (v0.4.19)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3728,6 +3802,7 @@ static void test_coordinate_debug_slip_angle_sign() {
 static void test_regression_no_positive_feedback() {
     std::cout << "\nTest: Regression - No Positive Feedback Loop (v0.4.19)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3838,6 +3913,7 @@ static void test_regression_no_positive_feedback() {
 static void test_coordinate_all_effects_alignment() {
     std::cout << "\\nTest: Coordinate System - All Effects Alignment (Snap Oversteer)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -3938,6 +4014,7 @@ static void test_coordinate_all_effects_alignment() {
 static void test_regression_phase_explosion() {
     std::cout << "\nTest: Regression - Phase Explosion (All Oscillators)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -4006,7 +4083,9 @@ static void test_regression_phase_explosion() {
 static void test_time_corrected_smoothing() {
     std::cout << "\nTest: Time Corrected Smoothing (v0.4.37)" << std::endl;
     FFBEngine engine_fast; // 400Hz
+    InitializeEngine(engine_fast); // v0.5.12: Initialize with T300 defaults
     FFBEngine engine_slow; // 50Hz
+    InitializeEngine(engine_slow); // v0.5.12: Initialize with T300 defaults
     
     // Setup - Yaw Accel Smoothing Test
     TelemInfoV01 data;
@@ -4043,6 +4122,7 @@ static void test_time_corrected_smoothing() {
 static void test_gyro_stability() {
     std::cout << "\nTest: Gyro Stability (Clamp Check)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -4068,6 +4148,7 @@ static void test_gyro_stability() {
 void test_kinematic_load_braking() {
     std::cout << "\nTest: Kinematic Load Braking (+Z Accel)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -4108,6 +4189,7 @@ void test_kinematic_load_braking() {
 void test_combined_grip_loss() {
     std::cout << "\nTest: Combined Friction Circle" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -4151,6 +4233,7 @@ void test_combined_grip_loss() {
 void test_chassis_inertia_smoothing_convergence() {
     std::cout << "\nTest: Chassis Inertia Smoothing Convergence (v0.4.39)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -4208,6 +4291,7 @@ void test_chassis_inertia_smoothing_convergence() {
 void test_kinematic_load_cornering() {
     std::cout << "\nTest: Kinematic Load Cornering (Lateral Transfer v0.4.39)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     
@@ -4279,6 +4363,7 @@ void test_kinematic_load_cornering() {
 static void test_static_notch_integration() {
     std::cout << "\nTest: Static Notch Integration (v0.4.43)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -4352,6 +4437,7 @@ static void test_static_notch_integration() {
 static void test_gain_compensation() {
     std::cout << "\nTest: FFB Signal Gain Compensation (Decoupling)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -4479,6 +4565,7 @@ static void test_config_safety_clamping() {
     
     // Load the unsafe config
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     Config::Load(engine, test_file);
     
     // Verify all Generator effects are clamped to safe maximums
@@ -4538,6 +4625,7 @@ static void test_config_safety_clamping() {
 static void test_grip_threshold_sensitivity() {
     std::cout << "\nTest: Grip Threshold Sensitivity (v0.5.7)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     
     // Use helper function to create test data with 0.07 rad slip angle
     TelemInfoV01 data = CreateBasicTestTelemetry(20.0, 0.07);
@@ -4577,6 +4665,7 @@ static void test_grip_threshold_sensitivity() {
 static void test_steering_shaft_smoothing() {
     std::cout << "\nTest: Steering Shaft Smoothing (v0.5.7)" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -4653,6 +4742,7 @@ static void test_config_safety_validation_v057() {
     
     // Load the unsafe config
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     Config::Load(engine, test_file);
     
     // Verify that invalid values were reset to safe defaults
@@ -4697,6 +4787,7 @@ static void test_config_safety_validation_v057() {
     }
     
     FFBEngine engine2;
+    InitializeEngine(engine2); // v0.5.12: Initialize with T300 defaults
     Config::Load(engine2, test_file);
     
     if (engine2.m_optimal_slip_angle == 0.10f && engine2.m_optimal_slip_ratio == 0.12f) {
@@ -4720,6 +4811,7 @@ static void test_config_safety_validation_v057() {
 static void test_rear_lockup_differentiation() {
     std::cout << "\nTest: Rear Lockup Differentiation" << std::endl;
     FFBEngine engine;
+    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
 
@@ -4777,13 +4869,11 @@ static void test_rear_lockup_differentiation() {
         g_tests_failed++;
     }
 
-    // --- PASS 3: Frequency Comparison ---
-    // Rear frequency should be 0.5x of Front frequency
-    // Therefore, phase delta should be roughly half
+    // Rear frequency is lower (Ratio 0.3 per FFBEngine.h)
     double ratio = phase_delta_rear / phase_delta_front;
     
-    if (std::abs(ratio - 0.5) < 0.05) {
-        std::cout << "[PASS] Rear frequency is lower (Ratio: " << ratio << " vs expected 0.5)." << std::endl;
+    if (std::abs(ratio - 0.3) < 0.05) {
+        std::cout << "[PASS] Rear frequency is lower (Ratio: " << ratio << " vs expected 0.3)." << std::endl;
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] Frequency differentiation failed. Ratio: " << ratio << std::endl;

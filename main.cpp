@@ -143,7 +143,10 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Starting LMUFFB (C++ Port)..." << std::endl;
 
-    // Load Configuration
+    // Initialize FFBEngine with T300 defaults (Single Source of Truth: Config.h Preset struct)
+    Preset::ApplyDefaultsToEngine(g_engine);
+
+    // Load Configuration (overwrites defaults if config.ini exists)
     Config::Load(g_engine);
 
     // Initialize GUI Early (if not headless)

@@ -603,6 +603,176 @@ static void test_window_config_persistence() {
     remove(test_file.c_str());
 }
 
+static void test_single_source_of_truth_t300_defaults() {
+    std::cout << "\nTest: Single Source of Truth - T300 Defaults (v0.5.12)" << std::endl;
+    
+    // This test verifies that the refactoring to use a single source of truth
+    // for T300 defaults is working correctly. All three initialization paths
+    // should produce identical results:
+    // 1. Preset struct defaults (Config.h)
+    // 2. FFBEngine initialized via Preset::ApplyDefaultsToEngine()
+    // 3. "Default (T300)" preset from LoadPresets()
+    
+    // Test 1: Verify Preset struct defaults match expected T300 values
+    {
+        std::cout << "  Test 1: Preset struct defaults..." << std::endl;
+        Preset defaults; // Uses default member initializers
+        
+        // Verify key T300 values
+        ASSERT_TRUE(defaults.understeer == 50.0f);
+        ASSERT_TRUE(defaults.sop == 0.193043f);
+        ASSERT_TRUE(defaults.oversteer_boost == 1.19843f);
+        ASSERT_TRUE(defaults.lockup_enabled == true);
+        ASSERT_TRUE(defaults.lockup_gain == 2.0f);
+        ASSERT_TRUE(defaults.slide_enabled == true);
+        ASSERT_TRUE(defaults.slide_gain == 0.482437f);
+        ASSERT_TRUE(defaults.slide_freq == 1.6f);
+        ASSERT_TRUE(defaults.scrub_drag_gain == 0.965217f);
+        ASSERT_TRUE(defaults.rear_align_effect == 0.986957f);
+        ASSERT_TRUE(defaults.sop_yaw_gain == 0.269565f);
+        ASSERT_TRUE(defaults.gyro_gain == 0.0347826f);
+        ASSERT_TRUE(defaults.optimal_slip_angle == 0.06f);
+        ASSERT_TRUE(defaults.slip_smoothing == 0.005f);
+        ASSERT_TRUE(defaults.sop_smoothing == 0.92f);
+        ASSERT_TRUE(defaults.yaw_smoothing == 0.005f);
+        ASSERT_TRUE(defaults.chassis_smoothing == 0.017f);
+        ASSERT_TRUE(defaults.gyro_smoothing == 0.01f);
+        ASSERT_TRUE(defaults.steering_shaft_smoothing == 0.01f);
+        
+        std::cout << "    Preset struct defaults verified" << std::endl;
+    }
+    
+    // Test 2: Verify FFBEngine initialization via ApplyDefaultsToEngine()
+    {
+        std::cout << "  Test 2: FFBEngine initialization..." << std::endl;
+        FFBEngine engine;
+        Preset::ApplyDefaultsToEngine(engine);
+        
+        // Verify the engine was initialized with T300 values
+        ASSERT_TRUE(engine.m_understeer_effect == 50.0f);
+        ASSERT_TRUE(engine.m_sop_effect == 0.193043f);
+        ASSERT_TRUE(engine.m_oversteer_boost == 1.19843f);
+        ASSERT_TRUE(engine.m_lockup_enabled == true);
+        ASSERT_TRUE(engine.m_lockup_gain == 2.0f);
+        ASSERT_TRUE(engine.m_slide_texture_enabled == true);
+        ASSERT_TRUE(engine.m_slide_texture_gain == 0.482437f);
+        ASSERT_TRUE(engine.m_slide_freq_scale == 1.6f);
+        ASSERT_TRUE(engine.m_scrub_drag_gain == 0.965217f);
+        ASSERT_TRUE(engine.m_rear_align_effect == 0.986957f);
+        ASSERT_TRUE(engine.m_sop_yaw_gain == 0.269565f);
+        ASSERT_TRUE(engine.m_gyro_gain == 0.0347826f);
+        ASSERT_TRUE(engine.m_optimal_slip_angle == 0.06f);
+        ASSERT_TRUE(engine.m_slip_angle_smoothing == 0.005f);
+        ASSERT_TRUE(engine.m_sop_smoothing_factor == 0.92f);
+        ASSERT_TRUE(engine.m_yaw_accel_smoothing == 0.005f);
+        ASSERT_TRUE(engine.m_chassis_inertia_smoothing == 0.017f);
+        ASSERT_TRUE(engine.m_gyro_smoothing == 0.01f);
+        ASSERT_TRUE(engine.m_steering_shaft_smoothing == 0.01f);
+        
+        std::cout << "    FFBEngine initialization verified" << std::endl;
+    }
+    
+    // Test 3: Verify "Default (T300)" preset from LoadPresets()
+    {
+        std::cout << "  Test 3: Default (T300) preset..." << std::endl;
+        Config::LoadPresets();
+        
+        // Verify we have presets
+        ASSERT_TRUE(!Config::presets.empty());
+        
+        // First preset should be "Default (T300)"
+        ASSERT_TRUE(Config::presets[0].name == "Default (T300)");
+        ASSERT_TRUE(Config::presets[0].is_builtin == true);
+        
+        // Verify it has T300 values
+        const Preset& default_preset = Config::presets[0];
+        ASSERT_TRUE(default_preset.understeer == 50.0f);
+        ASSERT_TRUE(default_preset.sop == 0.193043f);
+        ASSERT_TRUE(default_preset.oversteer_boost == 1.19843f);
+        ASSERT_TRUE(default_preset.lockup_enabled == true);
+        ASSERT_TRUE(default_preset.lockup_gain == 2.0f);
+        
+        std::cout << "    Default (T300) preset verified" << std::endl;
+    }
+    
+    // Test 4: Verify "T300" preset matches "Default (T300)"
+    {
+        std::cout << "  Test 4: T300 preset matches Default..." << std::endl;
+        
+        // Second preset should be "T300"
+        ASSERT_TRUE(Config::presets.size() > 1);
+        ASSERT_TRUE(Config::presets[1].name == "T300");
+        
+        // Verify both presets have identical values
+        const Preset& default_preset = Config::presets[0];
+        const Preset& t300_preset = Config::presets[1];
+        
+        ASSERT_TRUE(default_preset.understeer == t300_preset.understeer);
+        ASSERT_TRUE(default_preset.sop == t300_preset.sop);
+        ASSERT_TRUE(default_preset.oversteer_boost == t300_preset.oversteer_boost);
+        ASSERT_TRUE(default_preset.lockup_gain == t300_preset.lockup_gain);
+        ASSERT_TRUE(default_preset.slide_gain == t300_preset.slide_gain);
+        ASSERT_TRUE(default_preset.scrub_drag_gain == t300_preset.scrub_drag_gain);
+        
+        std::cout << "    T300 preset matches Default (T300)" << std::endl;
+    }
+    
+    // Test 5: Verify applying preset produces same result as ApplyDefaultsToEngine()
+    {
+        std::cout << "  Test 5: Preset application consistency..." << std::endl;
+        
+        FFBEngine engine1, engine2;
+        
+        // Initialize engine1 via ApplyDefaultsToEngine
+        Preset::ApplyDefaultsToEngine(engine1);
+        
+        // Initialize engine2 via preset application
+        Config::ApplyPreset(0, engine2); // Apply "Default (T300)"
+        
+        // Verify they're identical
+        ASSERT_TRUE(engine1.m_understeer_effect == engine2.m_understeer_effect);
+        ASSERT_TRUE(engine1.m_sop_effect == engine2.m_sop_effect);
+        ASSERT_TRUE(engine1.m_oversteer_boost == engine2.m_oversteer_boost);
+        ASSERT_TRUE(engine1.m_lockup_gain == engine2.m_lockup_gain);
+        ASSERT_TRUE(engine1.m_slide_texture_gain == engine2.m_slide_texture_gain);
+        ASSERT_TRUE(engine1.m_scrub_drag_gain == engine2.m_scrub_drag_gain);
+        ASSERT_TRUE(engine1.m_rear_align_effect == engine2.m_rear_align_effect);
+        ASSERT_TRUE(engine1.m_sop_yaw_gain == engine2.m_sop_yaw_gain);
+        ASSERT_TRUE(engine1.m_gyro_gain == engine2.m_gyro_gain);
+        ASSERT_TRUE(engine1.m_optimal_slip_angle == engine2.m_optimal_slip_angle);
+        ASSERT_TRUE(engine1.m_slip_angle_smoothing == engine2.m_slip_angle_smoothing);
+        ASSERT_TRUE(engine1.m_sop_smoothing_factor == engine2.m_sop_smoothing_factor);
+        ASSERT_TRUE(engine1.m_yaw_accel_smoothing == engine2.m_yaw_accel_smoothing);
+        ASSERT_TRUE(engine1.m_chassis_inertia_smoothing == engine2.m_chassis_inertia_smoothing);
+        
+        std::cout << "    Both initialization paths produce identical results" << std::endl;
+    }
+    
+    // Test 6: Verify no config file still produces correct defaults
+    {
+        std::cout << "  Test 6: No config file scenario..." << std::endl;
+        
+        // Simulate fresh install (no config.ini)
+        std::string nonexistent_file = "this_file_does_not_exist_12345.ini";
+        FFBEngine engine;
+        
+        // Initialize with defaults first (as main.cpp does)
+        Preset::ApplyDefaultsToEngine(engine);
+        
+        // Try to load non-existent config (should not change values)
+        Config::Load(engine, nonexistent_file);
+        
+        // Verify T300 defaults are still present
+        ASSERT_TRUE(engine.m_understeer_effect == 50.0f);
+        ASSERT_TRUE(engine.m_sop_effect == 0.193043f);
+        ASSERT_TRUE(engine.m_lockup_gain == 2.0f);
+        
+        std::cout << "    Fresh install scenario verified" << std::endl;
+    }
+    
+    std::cout << "  [SUMMARY] Single source of truth verified across all initialization paths!" << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Windows Platform Tests ===" << std::endl;
 
@@ -617,6 +787,7 @@ int main() {
     test_slider_precision_regression();
     test_latency_display_regression();
     test_window_config_persistence();
+    test_single_source_of_truth_t300_defaults();  // NEW: v0.5.12
 
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
