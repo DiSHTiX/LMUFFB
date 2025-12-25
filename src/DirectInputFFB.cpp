@@ -410,8 +410,11 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
             std::string errorType = GetDirectInputErrorString(hr);
 
             // Append Custom Advice for Priority/Exclusive Errors
-            if (hr == DIERR_OTHERAPPHASPRIO) {
+            if (hr == DIERR_OTHERAPPHASPRIO || hr == DIERR_NOTEXCLUSIVEACQUIRED ) {
                 errorType += " [CRITICAL: Game has stolen priority! DISABLE IN-GAME FFB]";
+                
+                // Update exclusivity state to reflect reality
+                m_isExclusive = false;
             }
 
             // FIX: Default to TRUE. If update failed, we must try to reconnect.

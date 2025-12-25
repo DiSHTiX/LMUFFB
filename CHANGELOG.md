@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.15] - 2025-12-25
+### Changed
+- **Device Wheel Dynamic Exclusivity Awareness**:
+  - The application now detects if device wheel exclusive access is lost at runtime (e.g., via Alt-Tab or focus stealing).
+  - Automatically updates the internal `m_isExclusive` state upon detecting `DIERR_OTHERAPPHASPRIO` or `DIERR_NOTEXCLUSIVEACQUIRED`.
+  - This ensures the GUI correctly transitions from Red/Green "EXCLUSIVE" status to Yellow "SHARED" warning in real-time when a conflict is detected.
+
 ## [0.5.14] - 2025-12-25
 
 ### Changed
