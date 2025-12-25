@@ -71,8 +71,9 @@ $$
 If telemetry grip (`mGripFract`) is missing or invalid (< 0.0001), the engine approximates it:
 *   **Low Speed Trap**: If `CarSpeed < 5.0 m/s`, `Grip` is forced to **1.0** (Prevents singularities at parking speeds).
 *   **Combined Friction Circle**:
-    *   $\text{Metric}_{\text{lat}} = |\alpha| / \text{OptAlpha}$ (Lateral Slip Angle)
-    *   $\text{Metric}_{\text{long}} = |\kappa| / \text{OptRatio}$ (Longitudinal Slip Ratio)
+    *   **Metric Formulation**:
+        *   $\text{Metric}_{\text{lat}} = |\alpha| / \text{OptAlpha}$ (Lateral Slip Angle). **Default**: 0.10 rad.
+        *   $\text{Metric}_{\text{long}} = |\kappa| / \text{OptRatio}$ (Longitudinal Slip Ratio). **Default**: 0.12 (12%).
     *   $\text{Combined} = \sqrt{\text{Metric}_{\text{lat}}^2 + \text{Metric}_{\text{long}}^2}$
     *   $\text{ApproxGrip} = (1.0 \text{ if } \text{Combined} < 1.0 \text{ else } 1.0 / (1.0 + (\text{Combined}-1.0) \times 2.0))$
 *   **Safety Clamp**: Approx Grip is usually clamped to min **0.2** to prevent total loss of force.
@@ -99,7 +100,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   **Formula**: `SoP_Total *= (1.0 + ((FrontGrip - RearGrip) * K_oversteer_boost * 2.0))`
 
 3.  **Yaw Acceleration ("The Kick")**:
-    *   **Input**: `mLocalRotAccel.y` (rad/s²).
+    *   **Input**: `mLocalRotAccel.y` (rad/s²). **Note**: Inverted (-1.0) to comply with SDK requirement to negate rotation data.
     *   **Conditioning**:
         *   **Low Speed Cutoff**: 0.0 if Speed < 5.0 m/s.
         *   **Noise Gate**: 0.0 if $|Accel| < 0.2$ rad/s².
@@ -108,6 +109,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 
 4.  **Rear Aligning Torque ($T_{\text{rear}}$)**:
     *   **Workaround**: Uses `RearSlipAngle * RearLoad * Stiffness(15.0)` to estimate lateral force.
+    *   **Derivation**: `RearLoad = SuspForce + 300.0` (where 300N is estimated Unsprung Mass).
     *   **Formula**: $-F_{\text{lat-rear}} \times 0.001 \times K_{\text{rear}} \times K_{\text{decouple}}$.
     *   **Clamp**: Lateral Force clamped to **+/- 6000N**.
 
@@ -130,7 +132,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 
 **1. Slide Texture (Scrubbing)**
 *   **Scope**: `Max(FrontSlipVel, RearSlipVel)` (Worst axle dominates).
-*   **Frequency**: $10\text{Hz} + (\text{SlipVel} \times 5.0)$. Cap 250Hz.
+*   **Frequency**: $10\text{Hz} + (\text{SlipVel} \times 5.0)$. Cap 250Hz. (Updated from old 40Hz base).
 *   **Amplitude**: $\text{Sawtooth}(\phi) \times K_{\text{slide}} \times 1.5\text{Nm} \times F_{\text{load-texture}} \times (1.0 - \text{Grip}) \times K_{\text{decouple}}$.
 *   **Note**: Work-based scaling `(1.0 - Grip)` ensures vibration only occurs during actual scrubbing.
 
@@ -140,6 +142,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Formula**: `(DeltaL + DeltaR) * 50.0 * K_road * F_load_texture * Scale`.
 *   **Scrub Drag (Fade-In)**:
     *   Adds constant resistance when sliding laterally.
+    *   **Coordinate Note**: LMU uses **+X = Left**. Drag must oppose velocity, so we invert direction.
     *   **Fade-In**: Linear scale 0% to 100% between **0.0 m/s** and **0.5 m/s** lateral velocity.
     *   **Formula**: `(SideVel > 0 ? -1 : 1) * K_drag * 5.0Nm * Fade * Scale`.
 
@@ -157,7 +160,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   Method B: `SuspForceRate > 100,000 N/s`.
     *   Legacy: `TireLoad > 8000.0 N`.
 *   **Formula**: `sin(50Hz) * K_bottom * 1.0Nm`. (Fixed sinusoidal crunch).
-*   **Legacy Intensity**: $\sqrt{\text{ExcessLoad}} \times 0.05$. (Retained for high-load bottoming).
+*   **Legacy Intensity**: $\sqrt{\text{ExcessLoad}} \times 0.05$. (Retained for high-load bottoming; note scalar updated from 0.0025 to 0.05).
 
 #### F. Post-Processing & Filters
 
@@ -179,7 +182,7 @@ Standard exponential smoothing filter used for Slip Angle, Gyro, SoP, and Shaft 
 *   **Formula**: $State += \alpha \times (Input - State)$
 *   **Alpha Calculation**: $\alpha = dt / (\tau + dt)$
     *   $dt$: Delta Time (e.g., 0.0025s)
-    *   $\tau$ (Tau): Time Constant (User Configurable, or derived from smoothness).
+    *   $\tau$ (Tau): Time Constant (User Configurable, or derived from smoothness). **Target**: ~0.0225s (from 400Hz).
 
 **4. Min Force (Friction Cancellation)**
 Applied at the very end of the pipeline to `F_norm` (before clipping).
