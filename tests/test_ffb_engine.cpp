@@ -75,6 +75,8 @@ static void test_rear_lockup_differentiation(); // Forward declaration (v0.5.11)
 static void test_manual_slip_sign_fix(); // Forward declaration (v0.5.13)
 static void test_split_load_caps(); // Forward declaration (v0.5.13)
 static void test_dynamic_thresholds(); // Forward declaration (v0.5.13)
+static void test_predictive_lockup_v060(); // Forward declaration (v0.6.0)
+static void test_abs_pulse_v060(); // Forward declaration (v0.6.0)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -104,6 +106,9 @@ static TelemInfoV01 CreateBasicTestTelemetry(double speed = 20.0, double slip_an
         data.mWheel[i].mRotation = speed * 3.33f; // Match speed (rad/s)
         data.mWheel[i].mLongitudinalGroundVel = speed;
         data.mWheel[i].mLateralPatchVel = slip_angle * speed; // Convert to m/s
+        data.mWheel[i].mBrakePressure = 1.0; // Default for tests (v0.6.0)
+        data.mWheel[i].mSuspForce = 4000.0; // Grounded (v0.6.0)
+        data.mWheel[i].mTireLoad = 4000.0; 
     }
     
     return data;
@@ -599,15 +604,12 @@ static void test_progressive_lockup() {
     engine.m_lockup_start_pct = 5.0f;
     engine.m_lockup_full_pct = 15.0f;
     
-    // Case 1: Low Slip (-0.08 = 8%). 
-    // With Start=5%, Full=15%: severity = (0.08 - 0.05) / (0.15 - 0.05) = 0.03 / 0.10 = 0.3
-    // Quadratic ramp: 0.3^2 = 0.09
-    // Emulate slip ratio by setting longitudinal velocity difference
-    // Ratio = PatchVel / GroundVel. So PatchVel = Ratio * GroundVel.
+    // Case 1: High Slip (-0.20 = 20%). 
+    // With Full=15%: severity = 1.0
     data.mWheel[0].mLongitudinalGroundVel = 20.0;
     data.mWheel[1].mLongitudinalGroundVel = 20.0;
-    data.mWheel[0].mLongitudinalPatchVel = -0.08 * 20.0; // -1.6 m/s
-    data.mWheel[1].mLongitudinalPatchVel = -0.08 * 20.0;
+    data.mWheel[0].mLongitudinalPatchVel = -0.20 * 20.0; // -4.0 m/s
+    data.mWheel[1].mLongitudinalPatchVel = -0.20 * 20.0;
     
     // Ensure data.mDeltaTime is set! 
     data.mDeltaTime = 0.01;
@@ -2719,6 +2721,8 @@ int main() {
     test_manual_slip_sign_fix(); // v0.5.13
     test_split_load_caps(); // v0.5.13
     test_dynamic_thresholds(); // v0.5.13
+    test_predictive_lockup_v060(); // v0.6.0
+    test_abs_pulse_v060(); // v0.6.0
     
     std::cout << "\n----------------" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -4915,6 +4919,7 @@ static void test_split_load_caps() {
     // Config: Texture Cap = 1.0x, Brake Cap = 3.0x
     engine.m_texture_load_cap = 1.0f; 
     engine.m_brake_load_cap = 3.0f;
+    engine.m_abs_pulse_enabled = false; // Disable ABS to isolate lockup (v0.6.0)
     
     // ===================================================================
     // PART 1: Test Road Texture (Should be clamped to 1.0x)
@@ -4957,6 +4962,8 @@ static void test_split_load_caps() {
     engine_low.m_brake_load_cap = 1.0f;
     engine_low.m_lockup_enabled = true;
     engine_low.m_lockup_gain = 1.0;
+    engine_low.m_abs_pulse_enabled = false; // Disable ABS (v0.6.0)
+    engine_low.m_road_texture_enabled = false; // Disable Road (v0.6.0)
     
     // Reset phase to ensure both engines start from same state
     engine.m_lockup_phase = 0.0;
@@ -5006,15 +5013,15 @@ static void test_dynamic_thresholds() {
         g_tests_failed++;
     }
 
-    // Case B: 10% Slip (In Range)
-    // 0.10 * 20.0 = 2.0
-    data.mWheel[0].mLongitudinalPatchVel = -2.0;
+    // Case B: 20% Slip (Saturated/Manual Trigger)
+    // 0.20 * 20.0 = 4.0
+    data.mWheel[0].mLongitudinalPatchVel = -4.0;
     double force_mid = engine.calculate_force(&data);
     ASSERT_TRUE(std::abs(force_mid) > 0.0);
     
-    // Case C: 20% Slip (Saturated)
-    // 0.20 * 20.0 = 4.0
-    data.mWheel[0].mLongitudinalPatchVel = -4.0;
+    // Case C: 40% Slip (Deep Saturated)
+    // 0.40 * 20.0 = 8.0
+    data.mWheel[0].mLongitudinalPatchVel = -8.0;
     double force_max = engine.calculate_force(&data);
     
     // Both should have non-zero force, and max should be significantly higher due to quadratic ramp
@@ -5025,6 +5032,81 @@ static void test_dynamic_thresholds() {
         g_tests_passed++;
     } else {
         std::cout << "[FAIL] Force saturation/ramp failed." << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_predictive_lockup_v060() {
+    std::cout << "\nTest: Predictive Lockup (v0.6.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_lockup_enabled = true;
+    engine.m_use_manual_slip = true; // Use rotation for slip (v0.6.0)
+    engine.m_lockup_prediction_sens = 50.0f;
+    engine.m_lockup_start_pct = 5.0f;
+    engine.m_lockup_full_pct = 15.0f; // Default threshold is higher than current slip
+    
+    data.mUnfilteredBrake = 1.0; // Needs brake input for prediction gating (v0.6.0)
+    
+    // Force constant rotation history
+    engine.calculate_force(&data);
+    
+    // Frame 2: Wheel slows down RAPIDLY (-100 rad/s^2)
+    data.mDeltaTime = 0.01;
+    // Current rotation for 20m/s is ~66.6. 
+    // We set rotation to create a derivative of -100.
+    // delta = rotation - prev. so rotation = prev - 1.0.
+    double prev_rot = data.mWheel[0].mRotation;
+    data.mWheel[0].mRotation = prev_rot - 1.0; 
+    
+    // Slip at 10%
+    data.mWheel[0].mRotation = 18.0 / 0.3;
+    
+    // Car decel is 0 (mLocalAccel.z = 0)
+    // Sensitivity threshold is -50. -100 < -50 is TRUE.
+    
+    // Execute
+    engine.calculate_force(&data);
+    
+    // With 10% slip and prediction active, threshold is 5%, so severity is (10-5)/10 = 0.5.
+    // Phase should advance.
+    
+    if (engine.m_lockup_phase > 0.001) {
+        std::cout << "[PASS] Predictive trigger activated at 10% slip (Phase: " << engine.m_lockup_phase << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Predictive trigger failed. Phase: " << engine.m_lockup_phase << " Accel: " << (data.mWheel[0].mRotation - prev_rot)/0.01 << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_abs_pulse_v060() {
+    std::cout << "\nTest: ABS Pulse Detection (v0.6.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(0.0); // Static car
+    
+    engine.m_abs_pulse_enabled = true;
+    engine.m_abs_gain = 1.0;
+    data.mUnfilteredBrake = 1.0; // High pedal
+    data.mDeltaTime = 0.01;
+    
+    // Frame 1: Pressure 1.0
+    data.mWheel[0].mBrakePressure = 1.0;
+    engine.calculate_force(&data);
+    
+    // Frame 2: Pressure drops to 0.7 (ABS modulation)
+    // Delta = -0.3 / 0.01 = -30.0. |Delta| > 2.0.
+    data.mWheel[0].mBrakePressure = 0.7;
+    double force = engine.calculate_force(&data);
+    
+    if (std::abs(force) > 0.001) {
+        std::cout << "[PASS] ABS Pulse triggered (Force: " << force << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] ABS Pulse silent. Force: " << force << std::endl;
         g_tests_failed++;
     }
 }

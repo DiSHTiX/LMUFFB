@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2025-12-25
+### Added
+- **Predictive Lockup Logic (Hybrid Thresholding)**:
+  - **Latency Reduction**: The engine now calculates wheel angular deceleration to "foresee" a lockup before the slip ratio actually hits the threshold.
+  - **Gating System**: Prevents false triggers by cross-referencing brake pressure (>2%), tire load (>50N), and suspension stability.
+  - **Bump Rejection**: Automatically disables predictive triggers during high suspension velocity (curbs/bumps) to prevent erratic vibration.
+- **ABS Haptics Simulation**:
+  - **Hardware Pulse**: Detects high-frequency brake pressure modulation (ABS activity) from the game and injects a dedicated 20Hz pulse into the steering wheel.
+  - **Gain Control**: Independent slider for ABS pulse intensity.
+- **Advanced Response Curve (Gamma)**:
+  - Added a configurable Gamma curve (0.5 to 3.0) for lockup vibrations. 
+  - Allows for "Linear" feel (1.0) or sharp, "Late-onset" vibration (2.0-3.0) for better physical fidelity.
+- **Physical Pressure Scaling**:
+  - Lockup vibration intensity is now physically scaled by internal **Brake Pressure** (Bar) instead of raw pedal position.
+  - **Engine Braking Support**: Falling back to 50% intensity for high-slip lockups with zero brake pressure (e.g., downshift lockups).
+- **GUI Organization (Advanced Braking)**:
+  - Expanded the **"Braking & Lockup"** section with dedicated subsections for "Response Curve", "Prediction (Advanced)", and "ABS & Hardware".
+
+### Changed
+- **FFB Engine Refactoring**: 
+  - Upgraded derivative tracking to process all 4 wheels for rotation, pressure, and deflection.
+  - Consolidated lockup logic into a unified 4-wheel worst-case selector with axle frequency differentiation.
+
+### Migration Notes
+- **Existing Configurations**: Users with existing `config.ini` files will automatically receive the new default values for v0.6.0 parameters on next save:
+  - `lockup_gamma = 2.0` (quadratic response curve)
+  - `lockup_prediction_sens = 50.0` (moderate sensitivity)
+  - `lockup_bump_reject = 1.0` (1 m/s threshold)
+  - `abs_pulse_enabled = true` (enabled by default)
+  - `abs_gain = 1.0` (100% strength)
+- **No Manual Configuration Required**: The new parameters will be automatically added to your config file when you adjust any setting in the GUI.
+- **Validation**: Invalid values loaded from corrupted config files will be automatically clamped to safe ranges and logged to the console.
+
 ## [0.5.15] - 2025-12-25
 ### Changed
 - **Device Wheel Dynamic Exclusivity Awareness**:

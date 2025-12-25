@@ -322,7 +322,12 @@ void Config::LoadPresets() {
                         else if (key == "lockup_start_pct") current_preset.lockup_start_pct = std::stof(value);
                         else if (key == "lockup_full_pct") current_preset.lockup_full_pct = std::stof(value);
                         else if (key == "lockup_rear_boost") current_preset.lockup_rear_boost = std::stof(value);
+                        else if (key == "lockup_gamma") current_preset.lockup_gamma = std::stof(value);
+                        else if (key == "lockup_prediction_sens") current_preset.lockup_prediction_sens = std::stof(value);
+                        else if (key == "lockup_bump_reject") current_preset.lockup_bump_reject = std::stof(value);
                         else if (key == "brake_load_cap") current_preset.brake_load_cap = (std::min)(3.0f, std::stof(value));
+                        else if (key == "abs_pulse_enabled") current_preset.abs_pulse_enabled = std::stoi(value);
+                        else if (key == "abs_gain") current_preset.abs_gain = std::stof(value);
                         else if (key == "spin_enabled") current_preset.spin_enabled = std::stoi(value);
                         else if (key == "spin_gain") current_preset.spin_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "slide_enabled") current_preset.slide_enabled = std::stoi(value);
@@ -435,6 +440,11 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "lockup_start_pct=" << engine.m_lockup_start_pct << "\n";
         file << "lockup_full_pct=" << engine.m_lockup_full_pct << "\n";
         file << "lockup_rear_boost=" << engine.m_lockup_rear_boost << "\n";
+        file << "lockup_gamma=" << engine.m_lockup_gamma << "\n";
+        file << "lockup_prediction_sens=" << engine.m_lockup_prediction_sens << "\n";
+        file << "lockup_bump_reject=" << engine.m_lockup_bump_reject << "\n";
+        file << "abs_pulse_enabled=" << engine.m_abs_pulse_enabled << "\n";
+        file << "abs_gain=" << engine.m_abs_gain << "\n";
         file << "bottoming_method=" << engine.m_bottoming_method << "\n";
         file << "scrub_drag_gain=" << engine.m_scrub_drag_gain << "\n";
         file << "rear_align_effect=" << engine.m_rear_align_effect << "\n";
@@ -482,7 +492,12 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "lockup_start_pct=" << p.lockup_start_pct << "\n";
                 file << "lockup_full_pct=" << p.lockup_full_pct << "\n";
                 file << "lockup_rear_boost=" << p.lockup_rear_boost << "\n";
+                file << "lockup_gamma=" << p.lockup_gamma << "\n";
+                file << "lockup_prediction_sens=" << p.lockup_prediction_sens << "\n";
+                file << "lockup_bump_reject=" << p.lockup_bump_reject << "\n";
                 file << "brake_load_cap=" << p.brake_load_cap << "\n";
+                file << "abs_pulse_enabled=" << p.abs_pulse_enabled << "\n";
+                file << "abs_gain=" << p.abs_gain << "\n";
                 file << "bottoming_method=" << p.bottoming_method << "\n";
                 file << "scrub_drag_gain=" << p.scrub_drag_gain << "\n";
                 file << "rear_align_effect=" << p.rear_align_effect << "\n";
@@ -560,6 +575,11 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "lockup_start_pct") engine.m_lockup_start_pct = std::stof(value);
                     else if (key == "lockup_full_pct") engine.m_lockup_full_pct = std::stof(value);
                     else if (key == "lockup_rear_boost") engine.m_lockup_rear_boost = std::stof(value);
+                    else if (key == "lockup_gamma") engine.m_lockup_gamma = std::stof(value);
+                    else if (key == "lockup_prediction_sens") engine.m_lockup_prediction_sens = std::stof(value);
+                    else if (key == "lockup_bump_reject") engine.m_lockup_bump_reject = std::stof(value);
+                    else if (key == "abs_pulse_enabled") engine.m_abs_pulse_enabled = std::stoi(value);
+                    else if (key == "abs_gain") engine.m_abs_gain = std::stof(value);
                     else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
                     else if (key == "spin_gain") engine.m_spin_gain = (std::min)(2.0f, std::stof(value));
                     else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
@@ -607,5 +627,27 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
         engine.m_optimal_slip_ratio = 0.12f;
     }
     
+    
+    // v0.6.0: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges
+    if (engine.m_lockup_gamma < 0.5f || engine.m_lockup_gamma > 3.0f) {
+        std::cerr << "[Config] Invalid lockup_gamma (" << engine.m_lockup_gamma 
+                  << "), clamping to range [0.5, 3.0]" << std::endl;
+        engine.m_lockup_gamma = (std::max)(0.5f, (std::min)(3.0f, engine.m_lockup_gamma));
+    }
+    if (engine.m_lockup_prediction_sens < 20.0f || engine.m_lockup_prediction_sens > 100.0f) {
+        std::cerr << "[Config] Invalid lockup_prediction_sens (" << engine.m_lockup_prediction_sens 
+                  << "), clamping to range [20.0, 100.0]" << std::endl;
+        engine.m_lockup_prediction_sens = (std::max)(20.0f, (std::min)(100.0f, engine.m_lockup_prediction_sens));
+    }
+    if (engine.m_lockup_bump_reject < 0.1f || engine.m_lockup_bump_reject > 5.0f) {
+        std::cerr << "[Config] Invalid lockup_bump_reject (" << engine.m_lockup_bump_reject 
+                  << "), clamping to range [0.1, 5.0]" << std::endl;
+        engine.m_lockup_bump_reject = (std::max)(0.1f, (std::min)(5.0f, engine.m_lockup_bump_reject));
+    }
+    if (engine.m_abs_gain < 0.0f || engine.m_abs_gain > 2.0f) {
+        std::cerr << "[Config] Invalid abs_gain (" << engine.m_abs_gain 
+                  << "), clamping to range [0.0, 2.0]" << std::endl;
+        engine.m_abs_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_abs_gain));
+    }
     std::cout << "[Config] Loaded from " << filename << std::endl;
 }

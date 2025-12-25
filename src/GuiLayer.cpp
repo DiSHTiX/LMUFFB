@@ -812,9 +812,45 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         if (engine.m_lockup_enabled) {
             FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_lockup_gain, FFBEngine::BASE_NM_LOCKUP_VIBRATION));
             FloatSetting("  Brake Load Cap", &engine.m_brake_load_cap, 1.0f, 3.0f, "%.2fx", "Scales vibration intensity based on tire load.\nPrevents weak vibrations during high-speed heavy braking.");
+            
+            
+            // Precision formatting rationale (v0.6.0):
+            // - Gamma: %.1f (1 decimal) - Allows fine-tuning of response curve
+            // - Sensitivity: %.0f (0 decimals) - Integer values are sufficient for threshold
+            // - Bump Rejection: %.1f m/s (1 decimal) - Balances precision with readability
+            // - ABS Gain: %.2f (2 decimals) - Standard gain precision across all effects
+            ImGui::Separator();
+            ImGui::Text("Response Curve");
+            ImGui::NextColumn(); ImGui::NextColumn();
+
+            FloatSetting("  Gamma", &engine.m_lockup_gamma, 0.5f, 3.0f, "%.1f", "1.0=Linear, 2.0=Quadratic, 3.0=Cubic (Late/Sharp).");
             FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%");
             FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%");
+            
+            
+            // Precision formatting rationale (v0.6.0):
+            // - Gamma: %.1f (1 decimal) - Allows fine-tuning of response curve
+            // - Sensitivity: %.0f (0 decimals) - Integer values are sufficient for threshold
+            // - Bump Rejection: %.1f m/s (1 decimal) - Balances precision with readability
+            // - ABS Gain: %.2f (2 decimals) - Standard gain precision across all effects
+            ImGui::Separator();
+            ImGui::Text("Prediction (Advanced)");
+            ImGui::NextColumn(); ImGui::NextColumn();
+
+            FloatSetting("  Sensitivity", &engine.m_lockup_prediction_sens, 20.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
+            FloatSetting("  Bump Rejection", &engine.m_lockup_bump_reject, 0.1f, 5.0f, "%.1f m/s", "Suspension velocity threshold to disable prediction.\nIncrease for bumpy tracks (Sebring).");
+
             FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 3.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.");
+        }
+
+        ImGui::Separator();
+        ImGui::Text("ABS & Hardware");
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        // ABS
+        BoolSetting("ABS Pulse", &engine.m_abs_pulse_enabled, "Injects 20Hz pulse when ABS modulates pressure.");
+        if (engine.m_abs_pulse_enabled) {
+            FloatSetting("  Pulse Gain", &engine.m_abs_gain, 0.0f, 2.0f);
         }
 
         ImGui::TreePop();

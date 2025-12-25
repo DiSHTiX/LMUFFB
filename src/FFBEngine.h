@@ -211,6 +211,12 @@ public:
     float m_lockup_start_pct = 5.0f;
     float m_lockup_full_pct = 15.0f;
     float m_lockup_rear_boost = 1.5f;
+    float m_lockup_gamma = 2.0f;           // New v0.6.0
+    float m_lockup_prediction_sens = 50.0f; // New v0.6.0
+    float m_lockup_bump_reject = 1.0f;     // New v0.6.0
+    
+    bool m_abs_pulse_enabled = true;      // New v0.6.0
+    float m_abs_gain = 1.0f;               // New v0.6.0
     
     bool m_spin_enabled;
     float m_spin_gain;
@@ -269,8 +275,10 @@ public:
     int m_missing_load_frames = 0;
 
     // Internal state
-    double m_prev_vert_deflection[2] = {0.0, 0.0}; // FL, FR
+    double m_prev_vert_deflection[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR
     double m_prev_slip_angle[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR (LPF State)
+    double m_prev_rotation[4] = {0.0, 0.0, 0.0, 0.0};    // New v0.6.0
+    double m_prev_brake_pressure[4] = {0.0, 0.0, 0.0, 0.0}; // New v0.6.0
     
     // Gyro State (v0.4.17)
     double m_prev_steering_angle = 0.0;
@@ -303,6 +311,7 @@ public:
     double m_lockup_phase = 0.0;
     double m_spin_phase = 0.0;
     double m_slide_phase = 0.0;
+    double m_abs_phase = 0.0; // New v0.6.0
     double m_bottoming_phase = 0.0;
     
     // Internal state for Bottoming (Method B)
@@ -446,6 +455,16 @@ private:
     // Prevents rapid switching between front/rear lockup modes due to sensor noise.
     // Rear lockup is only triggered when rear slip exceeds front slip by this margin (1% slip).
     static constexpr double AXLE_DIFF_HYSTERESIS = 0.01;  // 1% slip buffer to prevent mode chattering
+    
+    // ABS Detection Thresholds (v0.6.0)
+    // These constants control when the ABS pulse effect is triggered.
+    static constexpr double ABS_PEDAL_THRESHOLD = 0.5;  // 50% pedal input required to detect ABS
+    static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 2.0;  // bar/s pressure modulation rate
+    
+    // Predictive Lockup Gating Thresholds (v0.6.0)
+    // These constants define the conditions under which predictive logic is enabled.
+    static constexpr double PREDICTION_BRAKE_THRESHOLD = 0.02;  // 2% brake deadzone
+    static constexpr double PREDICTION_LOAD_THRESHOLD = 50.0;   // 50N minimum tire load (not airborne)
 
 
 public:
@@ -1136,52 +1155,122 @@ public:
         
         // get_slip_angle was moved up for grip approximation reuse
 
-        // --- 2b. Progressive Lockup (Front & Rear with Differentiation) ---
-        if (m_lockup_enabled && data->mUnfilteredBrake > 0.05) {
-            // 1. Calculate Slip Ratios for all 4 wheels (v0.5.11)
+        // --- 2a. ABS PULSE (System-wide) ---
+        bool abs_system_active = false;
+        if (m_abs_pulse_enabled) {
+            for (int i = 0; i < 4; i++) {
+                const auto& w = data->mWheel[i];
+                double pressure_delta = (w.mBrakePressure - m_prev_brake_pressure[i]) / dt;
+                
+                // Detect ABS: High Pedal but fluctuating Pressure
+                // Real ABS modulates at 20-50 Hz; we detect the pressure derivative.
+                if (data->mUnfilteredBrake > ABS_PEDAL_THRESHOLD && std::abs(pressure_delta) > ABS_PRESSURE_RATE_THRESHOLD) {
+                     abs_system_active = true;
+                     break;
+                }
+            }
+            
+            if (abs_system_active) {
+                m_abs_phase += 20.0 * dt * TWO_PI; // 20Hz Pulse
+                m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
+                total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale);
+            }
+        }
+
+        // --- 2b. Progressive Lockup (Refactored v0.6.0) ---
+        if (m_lockup_enabled) {
+            double worst_severity = 0.0;
+            double chosen_freq_multiplier = 1.0;
+            double chosen_pressure_factor = 0.0;
+
+            // Pre-calculate front slip for axle differentiation (optimization: avoid redundant calls)
             double slip_fl = get_slip_ratio(data->mWheel[0]);
             double slip_fr = get_slip_ratio(data->mWheel[1]);
-            double slip_rl = get_slip_ratio(data->mWheel[2]);
-            double slip_rr = get_slip_ratio(data->mWheel[3]);
+            double worst_front = (std::min)(slip_fl, slip_fr);
 
-            // 2. Find worst slip per axle (Slip is negative during braking)
-            double max_slip_front = (std::min)(slip_fl, slip_fr);
-            double max_slip_rear  = (std::min)(slip_rl, slip_rr);
+            for (int i = 0; i < 4; i++) {
+                const auto& w = data->mWheel[i];
+                double slip = get_slip_ratio(w);
+                double slip_abs = std::abs(slip);
 
-            // 3. Determine dominant lockup source and severity
-            double effective_slip = (std::min)(max_slip_front, max_slip_rear);
-            double freq_multiplier = 1.0; 
+                // 1. Calculate Angular Deceleration (rad/s^2)
+                double wheel_accel = (w.mRotation - m_prev_rotation[i]) / dt;
 
-            // Implement Axle Differentiation (v0.5.11, refined v0.5.13)
-            if (max_slip_rear < (max_slip_front - AXLE_DIFF_HYSTERESIS)) { // Rear locking more than front
-                freq_multiplier = LOCKUP_FREQ_MULTIPLIER_REAR; // 0.3x Frequency -> Heavy Judder
+                // 2. Predictive Logic Gating
+                double radius = (double)w.mStaticUndeflectedRadius / 100.0;
+                // Safety check: Prevent division by zero in angular deceleration calculation.
+                // If radius is invalid/zero, use typical race tire radius (0.33m ≈ 26" wheel).
+                if (radius < 0.1) radius = 0.33;
+                
+                // Chassis angular equivalent deceleration (Negative)
+                // LMU: +Z is rearward (positive during braking)
+                double car_dec_ang = -std::abs(data->mLocalAccel.z / radius); 
+                
+                // Bump Detection (Suspension Velocity)
+                double susp_vel = std::abs(w.mVerticalTireDeflection - m_prev_vert_deflection[i]) / dt;
+                bool is_bumpy = (susp_vel > (double)m_lockup_bump_reject);
+                bool brake_active = (data->mUnfilteredBrake > PREDICTION_BRAKE_THRESHOLD);
+                bool is_grounded = (w.mSuspForce > PREDICTION_LOAD_THRESHOLD);
+
+                double start_threshold = (double)m_lockup_start_pct / 100.0;
+                double full_threshold = (double)m_lockup_full_pct / 100.0;
+                double trigger_threshold = full_threshold;
+
+                if (brake_active && is_grounded && !is_bumpy) {
+                    double sensitivity_threshold = -1.0 * (double)m_lockup_prediction_sens;
+                    
+                    // PREDICTION: If wheel slowing down 2x faster than car AND exceeds sensitivity
+                    if (wheel_accel < car_dec_ang * 2.0 && wheel_accel < sensitivity_threshold) {
+                        trigger_threshold = start_threshold; // Trigger early
+                    }
+                }
+
+                // 3. Severity Calculation
+                if (slip_abs > trigger_threshold) {
+                    double window = full_threshold - start_threshold;
+                    if (window < 0.01) window = 0.01;
+                    
+                    double normalized = (slip_abs - start_threshold) / window;
+                    double severity = (std::min)(1.0, (std::max)(0.0, normalized));
+                    
+                    // Apply Gamma Curve (Response Non-Linearity)
+                    severity = std::pow(severity, (double)m_lockup_gamma);
+                    
+                    // Axle Differentiation (use pre-calculated worst_front)
+                    double freq_mult = 1.0;
+                    if (i >= 2) { 
+                        // Only use rear frequency if it's worse than front
+                        if (slip < (worst_front - AXLE_DIFF_HYSTERESIS)) {
+                            freq_mult = LOCKUP_FREQ_MULTIPLIER_REAR;
+                        }
+                    }
+                    
+                    // Pressure Scaling (Physics-based intensity)
+                    double pressure_factor = w.mBrakePressure;
+                    if (pressure_factor < 0.1 && slip_abs > 0.5) pressure_factor = 0.5; // Engine braking fallback
+
+                    if (severity > worst_severity) {
+                        worst_severity = severity;
+                        chosen_freq_multiplier = freq_mult;
+                        chosen_pressure_factor = pressure_factor;
+                    }
+                }
             }
 
-            // 4. Generate Effect with Dynamic Thresholds and Quadratic Ramp
-            double start_pct = (double)m_lockup_start_pct / 100.0;
-            double full_pct = (double)m_lockup_full_pct / 100.0;
-            
-            if (std::abs(effective_slip) > start_pct) {
-                double range = full_pct - start_pct;
-                if (range < 0.01) range = 0.01; // Avoid div by zero
-                
-                double x = (std::abs(effective_slip) - start_pct) / range;
-                x = (std::min)(1.0, x);
-                double severity = x * x; // Quadratic Ramp (v0.5.11)
-                
+            if (worst_severity > 0.0) {
                 // Base Frequency linked to Car Speed
                 double base_freq = 10.0 + (car_speed_ms * 1.5); 
-                double final_freq = base_freq * freq_multiplier;
+                double final_freq = base_freq * chosen_freq_multiplier;
 
                 // Phase Integration
                 m_lockup_phase += final_freq * dt * TWO_PI;
                 m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI);
 
-                // Amplitude using Brake Load Factor (v0.5.11)
-                double amp = severity * m_lockup_gain * 4.0 * decoupling_scale * brake_load_factor;
+                // Amplitude using Brake Load Factor and Pressure Scaling
+                double amp = worst_severity * chosen_pressure_factor * m_lockup_gain * (double)BASE_NM_LOCKUP_VIBRATION * decoupling_scale * brake_load_factor;
                 
                 // Apply Rear Boost if Rear is dominant
-                if (freq_multiplier < 1.0) {
+                if (chosen_freq_multiplier < 1.0) {
                     amp *= (double)m_lockup_rear_boost;
                 }
 
@@ -1431,11 +1520,14 @@ public:
         // We must update history variables every frame, even if effects are disabled.
         // This prevents "stale state" spikes when effects are toggled on.
         
-        // Road Texture State
-        m_prev_vert_deflection[0] = fl.mVerticalTireDeflection;
-        m_prev_vert_deflection[1] = fr.mVerticalTireDeflection;
+        // History Updates for all 4 wheels (v0.6.0)
+        for (int i = 0; i < 4; i++) {
+            m_prev_vert_deflection[i] = data->mWheel[i].mVerticalTireDeflection;
+            m_prev_rotation[i] = data->mWheel[i].mRotation;
+            m_prev_brake_pressure[i] = data->mWheel[i].mBrakePressure;
+        }
 
-        // Bottoming Method B State
+        // Bottoming Method B State (Separate from loop as it's just front)
         m_prev_susp_force[0] = fl.mSuspForce;
         m_prev_susp_force[1] = fr.mSuspForce;
         // ==================================================================================

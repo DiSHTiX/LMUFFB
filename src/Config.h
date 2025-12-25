@@ -28,7 +28,13 @@ struct Preset {
     float lockup_start_pct = 5.0f;  // New v0.5.11
     float lockup_full_pct = 15.0f;  // New v0.5.11
     float lockup_rear_boost = 1.5f; // New v0.5.11
+    float lockup_gamma = 2.0f;           // New v0.6.0
+    float lockup_prediction_sens = 50.0f; // New v0.6.0
+    float lockup_bump_reject = 1.0f;     // New v0.6.0
     float brake_load_cap = 1.5f;    // New v0.5.11
+    
+    bool abs_pulse_enabled = true;       // New v0.6.0
+    float abs_gain = 1.0f;               // New v0.6.0
     
     bool spin_enabled = true;
     float spin_gain = 0.5f;
@@ -139,6 +145,16 @@ struct Preset {
     Preset& SetGyroSmoothing(float v) { gyro_smoothing = v; return *this; }
     Preset& SetYawSmoothing(float v) { yaw_smoothing = v; return *this; }
     Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
+    
+    // Advanced Braking (v0.6.0)
+    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g) {
+        lockup_gamma = gamma;
+        lockup_prediction_sens = sens;
+        lockup_bump_reject = bump;
+        abs_pulse_enabled = abs;
+        abs_gain = abs_g;
+        return *this;
+    }
 
     // 4. Static method to apply defaults to FFBEngine (Single Source of Truth)
     // This is called by FFBEngine constructor to initialize with T300 defaults
@@ -162,7 +178,12 @@ struct Preset {
         engine.m_lockup_start_pct = lockup_start_pct;
         engine.m_lockup_full_pct = lockup_full_pct;
         engine.m_lockup_rear_boost = lockup_rear_boost;
+        engine.m_lockup_gamma = lockup_gamma;
+        engine.m_lockup_prediction_sens = lockup_prediction_sens;
+        engine.m_lockup_bump_reject = lockup_bump_reject;
         engine.m_brake_load_cap = brake_load_cap;
+        engine.m_abs_pulse_enabled = abs_pulse_enabled;
+        engine.m_abs_gain = abs_gain;
 
         engine.m_spin_enabled = spin_enabled;
         engine.m_spin_gain = spin_gain;
@@ -209,7 +230,12 @@ struct Preset {
         lockup_start_pct = engine.m_lockup_start_pct;
         lockup_full_pct = engine.m_lockup_full_pct;
         lockup_rear_boost = engine.m_lockup_rear_boost;
+        lockup_gamma = engine.m_lockup_gamma;
+        lockup_prediction_sens = engine.m_lockup_prediction_sens;
+        lockup_bump_reject = engine.m_lockup_bump_reject;
         brake_load_cap = engine.m_brake_load_cap;
+        abs_pulse_enabled = engine.m_abs_pulse_enabled;
+        abs_gain = engine.m_abs_gain;
         
         spin_enabled = engine.m_spin_enabled;
         spin_gain = engine.m_spin_gain;
