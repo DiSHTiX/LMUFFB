@@ -29,7 +29,7 @@ $$
 ### 2. Signal Scalers (Decoupling)
 
 To ensure consistent feel across different wheels (e.g. G29 vs Simucube), effect intensities are automatically scaled based on the user's `Max Torque Ref`.
-*   **Reference Torque**: 20.0 Nm.
+*   **Reference Torque**: 20.0 Nm. (Updated from legacy 4000 unitless reference).
 *   **Decoupling Scale**: `K_decouple = m_max_torque_ref / 20.0`.
 *   *Note: This ensures that 10% road texture feels the same physical intensity regardless of wheel strength.*
 
@@ -69,6 +69,7 @@ $$
 
 **2. Grip Estimation & Fallbacks**
 If telemetry grip (`mGripFract`) is missing or invalid (< 0.0001), the engine approximates it:
+*   **Low Speed Trap**: If `CarSpeed < 5.0 m/s`, `Grip` is forced to **1.0** (Prevents singularities at parking speeds).
 *   **Combined Friction Circle**:
     *   $\text{Metric}_{\text{lat}} = |\alpha| / \text{OptAlpha}$ (Lateral Slip Angle)
     *   $\text{Metric}_{\text{long}} = |\kappa| / \text{OptRatio}$ (Longitudinal Slip Ratio)
@@ -135,6 +136,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 
 **2. Road Texture (Bumps)**
 *   **Main Input**: Delta of `mVerticalTireDeflection`.
+*   **Safety Clamp**: Delta is clamped to **+/- 0.01m** per frame to prevent physics explosions on teleport or restart.
 *   **Formula**: `(DeltaL + DeltaR) * 50.0 * K_road * F_load_texture * Scale`.
 *   **Scrub Drag (Fade-In)**:
     *   Adds constant resistance when sliding laterally.
@@ -154,7 +156,8 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   Method A: `RideHeight < 2mm`.
     *   Method B: `SuspForceRate > 100,000 N/s`.
     *   Legacy: `TireLoad > 8000.0 N`.
-*   **Formula**: `sin(50Hz) * K_bottom * 1.0Nm`.
+*   **Formula**: `sin(50Hz) * K_bottom * 1.0Nm`. (Fixed sinusoidal crunch).
+*   **Legacy Intensity**: $\sqrt{\text{ExcessLoad}} \times 0.05$. (Retained for high-load bottoming).
 
 #### F. Post-Processing & Filters
 
