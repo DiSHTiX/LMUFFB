@@ -69,3 +69,5 @@ add a slider for the yaw kick thresshold to determine at which acceleration or f
 Implement "Jardier" wet grip effects.
 
 Implement adaptive (auto) optimal slip angle (and slip rate?)
+
+For all vibration effects, add a slider to select the frequency of vibration (if fixed).

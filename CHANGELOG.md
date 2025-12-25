@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.3] - 2025-12-26
+### Documentation
+- **FFB Formulas Update**: 
+  - Rewrote `docs/dev_docs/FFB_formulas.md` to perfectly match the current v0.6.2+ codebase.
+  - Documented new **Quadratic Lockup** math (`pow(slip, gamma)`).
+  - Detailed **Predictive Lockup Logic** (Deceleration triggers) and **Axle Differentiation** (Frequency shift).
+  - Added new **ABS Pulse** oscillator formulas.
+  - Documented **Split Load Caps** theory (Brake vs Texture).
+  - Clarified **Signal Conditioning** steps (Time-Corrected Smoothing, Frequency Estimator, Notch Filters).
+
 ## [0.6.2] - 2025-12-25
 ### Added
 - **Dynamic Promotion (DirectInput Recovery)**: 
