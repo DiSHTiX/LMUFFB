@@ -1,7 +1,7 @@
-# Technical Report: Lockup Vibration Fixes & Enhancements
+# Technical Report: Lockup Vibration Fixes & Enhancements (Batch 1)
 
 **Date:** December 24, 2025
-**Subject:** Resolution of missing rear lockup effects, manual slip calculation bugs, and implementation of advanced tuning controls.
+**Subject:** Resolution of missing rear lockup effects, manual slip calculation bugs, and implementation of advanced tuning controls with dedicated Braking configuration.
 
 ---
 
@@ -12,11 +12,14 @@ User testing identified three critical deficiencies in the "Braking Lockup" FFB 
 2.  **Late Warning:** The hardcoded trigger threshold of 10% slip (`-0.1`) was too high. By the time the effect triggered, the tires were already deep into the lockup phase, offering no opportunity for threshold braking modulation.
 3.  **Broken Manual Calculation:** The "Manual Slip Calc" fallback option produced no output due to a coordinate system sign error.
 
+Additionally, tuning the braking feel was difficult because the "Load Cap" (which limits vibration intensity under high downforce) was shared globally with Road and Slide textures. Users often wanted strong braking feedback (High Cap) but subtle road bumps (Low Cap), which was impossible with a single slider.
+
 ## 2. Root Cause Analysis
 
 *   **Rear Blindness:** The `calculate_force` loop explicitly checked only `mWheel[0]` and `mWheel[1]`. Telemetry analysis confirms LMU *does* provide valid longitudinal patch velocity for rear wheels, so this was a logic omission, not a data gap.
 *   **Manual Slip Bug:** The formula used `data->mLocalVel.z` directly. In LMU, forward velocity is **negative**. Passing a negative denominator to the slip ratio formula resulted in positive (traction) ratios during braking, failing the `< -0.1` check.
 *   **Thresholds:** The linear ramp from 10% to 50% slip did not align with the physics of slick tires, which typically peak around 12-15% slip.
+*   **Coupled Load Limits:** The `m_max_load_factor` applied universally to all vibration effects, preventing independent tuning of braking intensity vs. road texture harshness.
 
 ---
 
@@ -24,12 +27,16 @@ User testing identified three critical deficiencies in the "Braking Lockup" FFB 
 
 ### A. Physics Engine (`FFBEngine.h`)
 
-We will implement a **4-Wheel Monitor** with **Axle Differentiation**.
-*   **Differentiation:** If the rear axle has a higher slip ratio than the front, the vibration frequency drops to **30%** (Heavy Judder) and amplitude is boosted. This allows the driver to distinguish between Understeer (Front Lock - High Pitch) and Instability (Rear Lock - Low Pitch).
-*   **Dynamic Ramp:** Instead of a fixed threshold, we introduce a configurable window:
+We will implement a **4-Wheel Monitor** with **Axle Differentiation** and split the Load Cap logic.
+
+*   **Differentiation:** If the rear axle has a higher slip ratio than the front, the vibration frequency drops to **30%** (Heavy Judder) and amplitude is boosted.
+*   **Dynamic Ramp:** Configurable Start/Full thresholds with a Quadratic ($x^2$) ramp. We introduce a configurable window:
     *   **Start %:** Vibration begins (Early Warning).
     *   **Full %:** Vibration hits max amplitude (Peak Limit).
     *   **Curve:** Quadratic ($x^2$) ramp to provide a sharp, distinct "wall" of vibration as the limit is reached.
+*   **Split Load Caps:**
+    *   **`m_texture_load_cap`**: Limits Road and Slide textures (prevents shaking on straights).
+    *   **`m_brake_load_cap`**: Limits Lockup vibration (allows strong feedback during high-downforce braking).
 
 #### Code Changes
 
@@ -51,6 +58,8 @@ auto get_slip_ratio = [&](const TelemWheelV01& w) {
 float m_lockup_start_pct = 5.0f;      // Warning starts at 5% slip
 float m_lockup_full_pct = 15.0f;      // Max vibration at 15% slip
 float m_lockup_rear_boost = 1.5f;     // Rear lockups are 1.5x stronger
+float m_brake_load_cap = 1.5f;        // Specific load cap for braking
+// Note: Existing m_max_load_factor will be renamed/repurposed to m_texture_load_cap
 ```
 
 **3. Updated Lockup Logic**
@@ -110,8 +119,14 @@ if (m_lockup_enabled && data->mUnfilteredBrake > 0.05) {
         m_lockup_phase += final_freq * dt * TWO_PI;
         m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI);
 
+        // Calculate Braking-Specific Load Factor
+        // We calculate raw load factor, then clamp it using the NEW Brake Load Cap
+        double raw_load_factor = avg_load / 4000.0;
+        double brake_load_factor = (std::min)((double)m_brake_load_cap, (std::max)(0.0, raw_load_factor));
+
         // Final Amplitude
-        double amp = severity * m_lockup_gain * 4.0 * decoupling_scale * amp_multiplier;
+        // Uses brake_load_factor instead of the generic load_factor
+        double amp = severity * m_lockup_gain * 4.0 * decoupling_scale * amp_multiplier * brake_load_factor;
         
         total_force += std::sin(m_lockup_phase) * amp;
     }
@@ -122,7 +137,7 @@ if (m_lockup_enabled && data->mUnfilteredBrake > 0.05) {
 
 ### B. Configuration (`src/Config.h` / `.cpp`)
 
-We need to persist the three new tuning parameters.
+We need to persist the new tuning parameters and the split load cap.
 
 **1. Update `Preset` Struct**
 ```cpp
@@ -131,42 +146,86 @@ struct Preset {
     float lockup_start_pct = 5.0f;
     float lockup_full_pct = 15.0f;
     float lockup_rear_boost = 1.5f;
+    float brake_load_cap = 1.5f; // New separate cap
     
     // Add setters and update Apply/UpdateFromEngine methods
-    Preset& SetLockupThresholds(float start, float full, float rear_boost) {
+    Preset& SetLockupThresholds(float start, float full, float rear_boost, float load_cap) {
         lockup_start_pct = start;
         lockup_full_pct = full;
         lockup_rear_boost = rear_boost;
+        brake_load_cap = load_cap;
         return *this;
     }
 };
 ```
 
 **2. Update Persistence**
-Add `lockup_start_pct`, `lockup_full_pct`, and `lockup_rear_boost` to the `config.ini` read/write logic.
+Add `lockup_start_pct`, `lockup_full_pct`, `lockup_rear_boost`, and `brake_load_cap` to the `config.ini` read/write logic.
 
 ---
 
 ### C. GUI Layer (`src/GuiLayer.cpp`)
 
-Expose the new controls in the "Tactile Textures" -> "Lockup Vibration" section.
+We will reorganize the GUI to create a dedicated **"Braking & Lockup"** section and split the Load Cap controls.
+
+#### 1. New Group: "Braking & Lockup"
+This section will house all brake-related settings, moving them out of "Tactile Textures".
 
 ```cpp
-BoolSetting("Lockup Vibration", &engine.m_lockup_enabled);
-if (engine.m_lockup_enabled) {
-    // Existing Gain
-    FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 2.0f, ...);
+if (ImGui::TreeNodeEx("Braking & Lockup", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+    ImGui::NextColumn(); ImGui::NextColumn();
+
+    BoolSetting("Lockup Vibration", &engine.m_lockup_enabled);
     
-    // NEW: Thresholds
-    FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", 
-        "Slip % where vibration begins (Early Warning).\nTypical: 4-6%.");
+    if (engine.m_lockup_enabled) {
+        // Basic Strength
+        FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 2.0f, ...);
         
-    FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", 
-        "Slip % where vibration hits 100% amplitude (Peak Grip).\nTypical: 12-15%.");
-        
-    // NEW: Rear Boost
-    FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 3.0f, "%.1fx", 
-        "Amplitude multiplier for rear wheel lockups.\nMakes rear instability feel more dangerous/distinct.");
+        // NEW: Brake-Specific Load Cap
+        FloatSetting("  Brake Load Cap", &engine.m_brake_load_cap, 1.0f, 3.0f, "%.2fx", 
+            "Limits vibration intensity under high downforce braking.\n"
+            "Higher = Stronger vibration at high speed.\n"
+            "Lower = Consistent vibration regardless of speed.");
+
+        ImGui::Separator();
+        ImGui::Text("Advanced Thresholds");
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        // NEW: Thresholds
+        FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", 
+            "Slip % where vibration begins (Early Warning).\nTypical: 4-6%.");
+            
+        FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", 
+            "Slip % where vibration hits 100% amplitude (Peak Grip).\nTypical: 12-15%.");
+            
+        // NEW: Rear Boost
+        FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 3.0f, "%.1fx", 
+            "Amplitude multiplier for rear wheel lockups.\nMakes rear instability feel more dangerous/distinct.");
+    }
+    ImGui::TreePop();
+} else { 
+    ImGui::NextColumn(); ImGui::NextColumn(); 
+}
+```
+
+#### 2. Updated Group: "Tactile Textures"
+This section retains Road and Slide effects but renames the Load Cap to clarify it no longer affects braking.
+
+```cpp
+if (ImGui::TreeNodeEx("Tactile Textures", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+    ImGui::NextColumn(); ImGui::NextColumn();
+    
+    // Renamed and Repurposed
+    FloatSetting("Texture Load Cap", &engine.m_max_load_factor, 1.0f, 3.0f, "%.2fx", 
+        "Safety Limiter for Road and Slide textures ONLY.\n"
+        "Prevents violent shaking over curbs under high downforce.\n"
+        "Does NOT affect Braking Lockup (see Braking section).");
+
+    // ... [Slide Rumble and Road Details controls remain here] ...
+    
+    // ... [Lockup controls REMOVED from here] ...
+    
+    ImGui::TreePop();
 }
 ```
 
@@ -177,30 +236,24 @@ if (engine.m_lockup_enabled) {
 1.  **Manual Slip Test:** Enable "Manual Slip Calc". Drive. Brake hard. Verify vibration occurs (proving sign fix).
 2.  **Rear Lockup Test:** Drive LMP2. Bias brakes to rear (or engine brake heavily). Lock rear wheels. Verify vibration is **Lower Pitch** (thudding) compared to front lockup.
 3.  **Threshold Test:** Set "Start %" to 1.0%. Lightly brake. Verify subtle vibration starts immediately. Set "Start %" to 10%. Lightly brake. Verify silence until heavy braking.
+4.  **Split Cap Test:**
+    *   Set `Texture Load Cap` to **1.0x** and `Brake Load Cap` to **3.0x**.
+    *   Drive high downforce car.
+    *   Verify curbs feel mild (limited by 1.0x).
+    *   Verify high-speed lockup feels violent (allowed by 3.0x).
 
 ---
 
-
-
 ### 5. Future Enhancement: Advanced Response Curves (Non-Linearity)
 
-While the current implementation introduces a hardcoded **Quadratic ($x^2$)** ramp to improve the "sharpness" of the limit, future versions (v0.6.0+) should expose this as a fully configurable **Gamma** setting.
-
-*   **The Concept:** Instead of a linear progression ($0\% \to 100\%$ vibration as slip increases), a non-linear curve allows the user to define the "feel" of the approach.
 *   **Proposed Control:** **"Vibration Gamma"** slider (0.5 to 3.0).
     *   **Gamma 1.0 (Linear):** Vibration builds steadily. Good for learning threshold braking.
-    *   **Gamma 2.0 (Quadratic - Current Default):** Vibration remains subtle in the "Warning Zone" (5-10% slip) and ramps up aggressively near the "Limit" (12-15%). This creates a distinct tactile "Wall" at the limit.
+    *   **Gamma 2.0 (Quadratic):** Vibration remains subtle in the "Warning Zone" (5-10% slip) and ramps up aggressively near the "Limit" (12-15%). This creates a distinct tactile "Wall" at the limit.
     *   **Gamma 3.0 (Cubic):** The wheel is almost silent until the very last moment, then spikes to max. Preferred by aliens/pros who find early vibrations distracting.
-*   **Implementation Logic:**
-    $$ \text{Amplitude} = \text{BaseAmp} \times (\text{NormalizedSeverity})^{\gamma} $$
 
 
+#### 5.1 Implementation Plan: Configurable Vibration Gamma 
 
-Here is the detailed implementation plan subsection for the future Non-Linearity feature.
-
-#### 5.1 Implementation Plan: Configurable Vibration Gamma (v0.6.0)
-
-To transition from the hardcoded Quadratic curve to a fully user-tunable response, the following changes will be required.
 
 ##### A. Physics Engine (`FFBEngine.h`)
 
@@ -266,22 +319,14 @@ if (ImGui::IsItemHovered()) {
 
 ### 6. Future Enhancement: Predictive Lockup via Angular Deceleration
 
-To achieve a true "ABS-like" prediction that triggers *before* significant slip occurs, we can implement **Wheel Angular Deceleration** monitoring.
-
-*   **The Physics:** Before a tire reaches its peak slip ratio, the wheel's rotational speed ($\omega$) drops rapidly. If the wheel decelerates significantly faster than the car chassis, a lockup is imminent.
-*   **The Metric:** $\alpha_{wheel} = \frac{d\omega}{dt}$ (Angular Acceleration).
-*   **Trigger Logic:**
-    *   Calculate $\alpha_{wheel}$ for each wheel (requires differentiating `mRotation` over time).
-    *   Compare against a threshold (e.g., $-100 \text{ rad/s}^2$).
-    *   If $\alpha_{wheel} < \text{Threshold}$, trigger the vibration *even if* Slip Ratio is still low.
-*   **Challenges:**
-    *   **Noise:** Derivatives amplify signal noise. Bumps and kerbs cause massive spikes in angular acceleration.
-    *   **Smoothing:** Requires a robust Low Pass Filter (LPF) on the derivative to prevent false positives, which adds slight latency.
-*   **Benefit:** This provides the earliest possible warning, potentially 50-100ms faster than Slip Ratio, allowing the driver to modulate brake pressure at the very onset of instability.
+*   **Concept:** Trigger vibration based on `d(Omega)/dt` (Wheel Deceleration) before Slip Ratio spikes.
+*   **Mitigation:** Requires "Brake Gating" and "Bump Rejection" to avoid false positives on curbs.
 
 ### 7. Verification & Test Plan (New Changes)
 
-To ensure the stability and correctness of the v0.5.11 changes, the following tests must be implemented in `tests/test_ffb_engine.cpp`.
+*   **`test_manual_slip_sign_fix`**: Verify manual calc works with negative velocity.
+*   **`test_rear_lockup_differentiation`**: Verify rear lockup triggers and has lower frequency.
+
 
 #### A. `test_manual_slip_sign_fix`
 **Goal:** Verify that the "Manual Slip Calc" option now works correctly with LMU's negative forward velocity.
@@ -303,7 +348,12 @@ To ensure the stability and correctness of the v0.5.11 changes, the following te
     *   `phase_delta_rear > 0` (Rear lockup is detected).
     *   `phase_delta_rear` $\approx$ `0.3 * phase_delta_front` (Frequency is lower).
 
-#### C. `test_lockup_threshold_config`
+
+#### C. `test_split_load_caps`
+
+**Goal:** Verify that changing `m_brake_load_cap` affects lockup amplitude but NOT road texture amplitude.
+
+#### D. `test_lockup_threshold_config`
 **Goal:** Verify that the new `Start %` and `Full %` sliders correctly alter the trigger point and intensity.
 *   **Setup:**
     *   Set `m_lockup_start_pct = 5.0`.

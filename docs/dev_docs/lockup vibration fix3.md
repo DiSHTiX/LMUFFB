@@ -334,6 +334,136 @@ I recommend adding a **"Advanced Lockup Tuning"** collapsible section in the GUI
 *   **Airborne Threshold (50N):** This is a physics constant. There is no competitive advantage to changing it.
 *   **Relative Decel Ratio (2x):** It is too abstract for users to tune alongside "Prediction Sensitivity." One slider for sensitivity is enough.
 
+## Follow up questions 3
+
+The game data also provides this value: mBrakePressure.
+
+How can we use to give additional information to the driver?
+
+Can we use to give a feel of when abs is engaging (eg. a "pulse" effect if mBrakePressure goes on and off).
+
+Can we use mBrakePressure even in cars that do not have ABS, to provide some useful information?
+
+## Answers 3
+
+Yes, `mBrakePressure` is a highly valuable telemetry channel because it represents the **physical state of the caliper**, which is distinct from the driver's **pedal input** (`mUnfilteredBrake`).
+
+Here is how we can use it to implement **ABS Haptics** and improve the feel for non-ABS cars.
+
+---
+
+### 1. ABS Haptics (The "Pulse")
+
+In a car with ABS, when the system engages, it rapidly modulates the brake pressure (opens and closes valves) to prevent lockup. This happens even if your foot is planted 100% on the pedal.
+
+**The Logic:**
+We can detect ABS activation by comparing the **Pedal Input** vs. the **Caliper Pressure**.
+*   If `Pedal` is constant/high, but `Pressure` is oscillating or dropping, **ABS is active**.
+
+**Implementation Plan:**
+We calculate the **derivative (rate of change)** of the pressure. If the pressure changes rapidly while the pedal is held steady, we inject a vibration pulse.
+
+**Code Concept (`FFBEngine.h`):**
+
+```cpp
+// 1. Calculate Pressure Delta (Rate of change)
+double current_pressure = w.mBrakePressure; // 0.0 - 1.0
+double pressure_delta = (current_pressure - w.prevBrakePressure) / dt;
+w.prevBrakePressure = current_pressure;
+
+// 2. Detect ABS Activity
+// Condition: Pedal is pressed (> 50%) BUT Pressure is changing rapidly
+// The threshold (e.g., 2.0) needs tuning based on how fast LMU modulates ABS
+bool abs_active = (data->mUnfilteredBrake > 0.5) && (std::abs(pressure_delta) > 2.0);
+
+if (m_abs_pulse_enabled && abs_active) {
+    // 3. Generate Pulse
+    // We use a square wave or sharp sine to mimic the valve "kick"
+    // Frequency: ABS usually pumps at 15-30Hz
+    m_abs_phase += 20.0 * dt * TWO_PI; 
+    m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
+    
+    double pulse = std::sin(m_abs_phase) * m_abs_gain * 2.0; // 2.0 Nm kick
+    total_force += pulse;
+}
+```
+
+**Why this is better than "Lockup Vibration":**
+*   **Lockup Vibration** tells you "The tire is sliding."
+*   **ABS Pulse** tells you "The computer is intervening."
+*   In a modern GT3 car, you often want to ride the ABS. This effect gives you the tactile confirmation that you are exactly at the limit of the system.
+
+---
+
+### 2. Non-ABS Cars: Pressure-Scaled Lockup
+
+For cars without ABS (GTE, Hypercar, Historic), `mBrakePressure` is usually linear with pedal input, but it accounts for **Brake Bias**.
+
+**The Problem with Current Logic:**
+Currently, we scale the Lockup Vibration based on `mUnfilteredBrake` (Pedal Position).
+*   *Scenario:* You set Brake Bias to **70% Front**. You press the pedal 100%.
+*   *Reality:* Front calipers get 100% pressure. Rear calipers get ~40% pressure.
+*   *Current App:* If Rears lock, we vibrate at 100% amplitude because Pedal is 100%. This feels wrong; rear lockups should feel lighter because there is less energy/pressure involved.
+
+**The Solution:**
+Use `mBrakePressure` as the **Amplitude Multiplier** for the Lockup effect instead of `mUnfilteredBrake`.
+
+**Code Update:**
+```cpp
+// Old Logic
+// double amp = severity * m_lockup_gain * ...;
+
+// New Logic (Pressure Sensitive)
+// If pressure is low (rear bias), the vibration is subtler.
+// If pressure is high (front bias), the vibration is violent.
+double pressure_factor = w.mBrakePressure; 
+
+// Fallback for Engine Braking (Pressure 0, but locking due to downshift)
+if (pressure_factor < 0.1 && std::abs(slip) > 0.5) {
+    pressure_factor = 0.5; // Arbitrary "Engine Drag" weight
+}
+
+double amp = severity * pressure_factor * m_lockup_gain * ...;
+```
+
+---
+
+### 3. Brake Fade / Overheating (The "Sponge" Effect)
+
+We can combine `mBrakePressure` with `mBrakeTemp` (also in `TelemWheelV01`) to simulate **Brake Fade**.
+
+**The Physics:**
+When brakes overheat (e.g., > 800°C for Carbon), the friction coefficient drops. You press the pedal, pressure goes up, but the car doesn't stop.
+
+**The FFB Effect:**
+We can't change the car's stopping distance, but we can change the **FFB Texture**.
+*   **Normal:** Braking feels "gritty" (Road Texture + Micro-vibrations).
+*   **Faded:** Braking feels "smooth" or "glassy."
+
+**Implementation:**
+```cpp
+if (w.mBrakeTemp > 800.0) { // Celsius
+    // Reduce Road Texture and Lockup Detail to simulate "Mushy" pedal feel
+    // transmitted through the chassis
+    double fade_factor = 1.0 - ((w.mBrakeTemp - 800.0) / 200.0);
+    fade_factor = std::max(0.0, fade_factor);
+    
+    road_noise *= fade_factor;
+    lockup_vibration *= fade_factor;
+    
+    // Optional: Add a low-frequency "Warped Disc" shudder
+    if (w.mBrakePressure > 0.2) {
+        total_force += std::sin(time * 10.0) * 1.0; // 10Hz Judder
+    }
+}
+```
+
+### Summary of Recommendations
+
+1.  **Implement ABS Pulse:** Use the derivative of `mBrakePressure` to detect rapid modulation and inject a 20Hz pulse. This is a "Game Changer" feature for GT3 drivers.
+2.  **Update Lockup Scaling:** Replace Pedal Input with `mBrakePressure` for amplitude scaling. This makes rear lockups feel physically correct relative to brake bias.
+3.  **Add Brake Judder:** Use `mBrakeTemp` to inject a low-frequency wobble when brakes are overheated.
+
 ## Preset
 
 [Preset:T300]
