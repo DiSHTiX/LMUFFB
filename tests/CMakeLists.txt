@@ -29,4 +29,20 @@ if(WIN32)
     
     # Add to CTest
     add_test(NAME WindowsPlatformTest COMMAND run_tests_win32)
+    
+    # Screenshot Tests (v0.6.5)
+    add_executable(run_tests_screenshot
+        test_screenshot.cpp
+        ../src/GuiLayer.cpp
+        ../src/Config.cpp
+        ../src/DirectInputFFB.cpp
+        ../src/GameConnector.cpp
+        ${IMGUI_SOURCES}
+    )
+    
+    # Link required Windows libraries (same as win32 tests)
+    target_link_libraries(run_tests_screenshot dinput8 dxguid version imm32 winmm d3d11 d3dcompiler dxgi)
+    
+    # Add to CTest
+    add_test(NAME ScreenshotTest COMMAND run_tests_screenshot)
 endif()

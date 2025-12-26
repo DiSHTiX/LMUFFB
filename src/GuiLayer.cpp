@@ -2,6 +2,7 @@
 #include "Config.h"
 #include "DirectInputFFB.h"
 #include "GameConnector.h"
+#include <windows.h>
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -39,6 +40,11 @@ static const int MIN_WINDOW_HEIGHT = 600;        // Minimum window height to kee
 
 // v0.5.7 Latency Warning Threshold
 static const int LATENCY_WARNING_THRESHOLD_MS = 15; // Green if < 15ms, Red if >= 15ms
+
+// v0.6.5 PrintWindow flag (define if not available in SDK)
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002
+#endif
 
 // Forward declarations of helper functions
 bool CreateDeviceD3D(HWND hWnd);
@@ -282,7 +288,346 @@ bool GuiLayer::Render(FFBEngine& engine) {
     return ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow) || ImGui::IsAnyItemActive();
 }
 
-// Screenshot Helper (DirectX 11)
+// Helper function to capture a window using PrintWindow API (works for console and all window types)
+bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& width, int& height) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: Invalid window handle" << std::endl;
+        return false;
+    }
+    
+    // Get window dimensions
+    RECT rect;
+    if (!GetWindowRect(hwnd, &rect)) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: GetWindowRect failed, error: " << GetLastError() << std::endl;
+        return false;
+    }
+    
+    std::cout << "[DEBUG] GetWindowRect returned: left=" << rect.left << ", top=" << rect.top 
+              << ", right=" << rect.right << ", bottom=" << rect.bottom << std::endl;
+    
+    width = rect.right - rect.left;
+    height = rect.bottom - rect.top;
+    
+    // Special case: Console windows sometimes return (0,0,0,0) from GetWindowRect
+    // even though they have a valid handle. Try GetClientRect as fallback.
+    if (width <= 0 || height <= 0) {
+        std::cout << "[DEBUG] GetWindowRect returned invalid dimensions, trying GetClientRect..." << std::endl;
+        
+        RECT clientRect;
+        if (GetClientRect(hwnd, &clientRect)) {
+            width = clientRect.right - clientRect.left;
+            height = clientRect.bottom - clientRect.top;
+            
+            std::cout << "[DEBUG] GetClientRect returned: " << width << "x" << height << std::endl;
+            
+            // If we got valid dimensions from GetClientRect, we need to convert to screen coordinates
+            if (width > 0 && height > 0) {
+                POINT topLeft = {0, 0};
+                if (ClientToScreen(hwnd, &topLeft)) {
+                    rect.left = topLeft.x;
+                    rect.top = topLeft.y;
+                    rect.right = topLeft.x + width;
+                    rect.bottom = topLeft.y + height;
+                    std::cout << "[DEBUG] Converted to screen coordinates: (" << rect.left << "," << rect.top 
+                              << ") to (" << rect.right << "," << rect.bottom << ")" << std::endl;
+                }
+            }
+        }
+    }
+    
+    std::cout << "[DEBUG] Final calculated dimensions: " << width << "x" << height << std::endl;
+    
+    if (width <= 0 || height <= 0) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: Invalid dimensions " << width << "x" << height << std::endl;
+        std::cout << "[DEBUG] This usually means the window is minimized, hidden, or not properly initialized" << std::endl;
+        return false;
+    }
+    
+    // Get screen DC for creating compatible bitmap
+    HDC hdcScreen = GetDC(NULL);
+    if (!hdcScreen) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: GetDC(NULL) failed" << std::endl;
+        return false;
+    }
+    
+    // Create compatible DC and bitmap
+    HDC hdcMemDC = CreateCompatibleDC(hdcScreen);
+    if (!hdcMemDC) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: CreateCompatibleDC failed" << std::endl;
+        ReleaseDC(NULL, hdcScreen);
+        return false;
+    }
+    
+    HBITMAP hbmScreen = CreateCompatibleBitmap(hdcScreen, width, height);
+    if (!hbmScreen) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: CreateCompatibleBitmap failed" << std::endl;
+        DeleteDC(hdcMemDC);
+        ReleaseDC(NULL, hdcScreen);
+        return false;
+    }
+    
+    // Select bitmap into memory DC
+    HBITMAP hbmOld = (HBITMAP)SelectObject(hdcMemDC, hbmScreen);
+    
+    // Try PrintWindow first (works for most windows)
+    bool captureSuccess = false;
+    std::string captureMethod = "";
+    
+    if (PrintWindow(hwnd, hdcMemDC, PW_RENDERFULLCONTENT)) {
+        captureSuccess = true;
+        captureMethod = "PrintWindow with PW_RENDERFULLCONTENT";
+    } else if (PrintWindow(hwnd, hdcMemDC, 0)) {
+        captureSuccess = true;
+        captureMethod = "PrintWindow without flags";
+    } else {
+        // Fallback: Use BitBlt to capture from screen coordinates
+        // This works for console windows and other special windows
+        std::cout << "[DEBUG] PrintWindow failed, trying BitBlt fallback..." << std::endl;
+        if (BitBlt(hdcMemDC, 0, 0, width, height, hdcScreen, rect.left, rect.top, SRCCOPY)) {
+            captureSuccess = true;
+            captureMethod = "BitBlt from screen coordinates";
+        } else {
+            std::cout << "[DEBUG] BitBlt also failed! Error code: " << GetLastError() << std::endl;
+        }
+    }
+    
+    if (!captureSuccess) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: All capture methods failed" << std::endl;
+        SelectObject(hdcMemDC, hbmOld);
+        DeleteObject(hbmScreen);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(NULL, hdcScreen);
+        return false;
+    }
+    
+    std::cout << "[DEBUG] Capture successful using: " << captureMethod << std::endl;
+    
+    // Get bitmap data
+    BITMAPINFOHEADER bi = {};
+    bi.biSize = sizeof(BITMAPINFOHEADER);
+    bi.biWidth = width;
+    bi.biHeight = -height; // Negative for top-down bitmap
+    bi.biPlanes = 1;
+    bi.biBitCount = 32;
+    bi.biCompression = BI_RGB;
+    
+    // Allocate buffer
+    buffer.resize(width * height * 4);
+    
+    // Get bits from bitmap
+    if (!GetDIBits(hdcMemDC, hbmScreen, 0, height, buffer.data(), (BITMAPINFO*)&bi, DIB_RGB_COLORS)) {
+        std::cout << "[DEBUG] CaptureWindowToBuffer failed: GetDIBits failed" << std::endl;
+        SelectObject(hdcMemDC, hbmOld);
+        DeleteObject(hbmScreen);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(NULL, hdcScreen);
+        return false;
+    }
+    
+    // Convert BGRA to RGBA
+    for (int i = 0; i < width * height; ++i) {
+        int idx = i * 4;
+        unsigned char b = buffer[idx + 0];
+        unsigned char r = buffer[idx + 2];
+        buffer[idx + 0] = r;
+        buffer[idx + 2] = b;
+        buffer[idx + 3] = 255; // Force opaque
+    }
+    
+    // Cleanup
+    SelectObject(hdcMemDC, hbmOld);
+    DeleteObject(hbmScreen);
+    DeleteDC(hdcMemDC);
+    ReleaseDC(NULL, hdcScreen);
+    
+    return true;
+}
+
+// Composite Screenshot: Captures both GUI and Console windows side-by-side
+void SaveCompositeScreenshot(const char* filename) {
+    HWND guiWindow = g_hwnd;
+    HWND consoleWindow = GetConsoleWindow();
+    
+    std::vector<unsigned char> guiBuffer, consoleBuffer;
+    int guiWidth = 0, guiHeight = 0;
+    int consoleWidth = 0, consoleHeight = 0;
+    
+    // Capture GUI window
+    bool hasGui = CaptureWindowToBuffer(guiWindow, guiBuffer, guiWidth, guiHeight);
+    std::cout << "[GUI] GUI window capture: " << (hasGui ? "SUCCESS" : "FAILED") << std::endl;
+    
+    // Capture Console window (if exists)
+    bool hasConsole = false;
+    if (consoleWindow) {
+        // Check if console window is actually visible
+        bool isVisible = IsWindowVisible(consoleWindow);
+        std::cout << "[GUI] Console window found (HWND: " << consoleWindow << "), visible: " << (isVisible ? "YES" : "NO") << std::endl;
+        
+        if (isVisible) {
+            std::cout << "[GUI] Attempting to capture visible console window..." << std::endl;
+            
+            // Try to get console screen buffer info to determine actual size
+            HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+            CONSOLE_SCREEN_BUFFER_INFO csbi;
+            
+            if (GetConsoleScreenBufferInfo(hConsole, &csbi)) {
+                // Calculate console window size from buffer info
+                int consoleWidthChars = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+                int consoleHeightChars = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+                
+                std::cout << "[DEBUG] Console buffer info: " << consoleWidthChars << " cols x " 
+                          << consoleHeightChars << " rows" << std::endl;
+                
+                // Get console font size to calculate pixel dimensions
+                CONSOLE_FONT_INFO cfi;
+                int fontWidth = 8;   // Default Consolas/Courier font width
+                int fontHeight = 16; // Default font height
+                
+                if (GetCurrentConsoleFont(hConsole, FALSE, &cfi)) {
+                    if (cfi.dwFontSize.X > 0) fontWidth = cfi.dwFontSize.X;
+                    if (cfi.dwFontSize.Y > 0) fontHeight = cfi.dwFontSize.Y;
+                }
+                
+                // Estimate console window size in pixels
+                // Add some padding for window borders/title bar
+                int estimatedWidth = consoleWidthChars * fontWidth + 20;  // 20px for borders
+                int estimatedHeight = consoleHeightChars * fontHeight + 60; // 60px for title bar + borders
+                
+                std::cout << "[DEBUG] Estimated console size: " << estimatedWidth << "x" << estimatedHeight 
+                          << " (font: " << fontWidth << "x" << fontHeight << ")" << std::endl;
+                
+                // Try to find console window by enumerating all top-level windows
+                // and looking for one with similar dimensions
+                struct FindConsoleData {
+                    HWND consoleHwnd;
+                    HWND foundHwnd;
+                    int targetWidth;
+                    int targetHeight;
+                } findData = { consoleWindow, NULL, estimatedWidth, estimatedHeight };
+                
+                EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+                    FindConsoleData* data = (FindConsoleData*)lParam;
+                    
+                    if (!IsWindowVisible(hwnd)) return TRUE;
+                    
+                    RECT rect;
+                    if (GetWindowRect(hwnd, &rect)) {
+                        int w = rect.right - rect.left;
+                        int h = rect.bottom - rect.top;
+                        
+                        // Look for window with dimensions close to our estimate (within 30%)
+                        if (w > 0 && h > 0) {
+                            int widthDiff = abs(w - data->targetWidth);
+                            int heightDiff = abs(h - data->targetHeight);
+                            
+                            if (widthDiff < data->targetWidth * 0.3 && heightDiff < data->targetHeight * 0.3) {
+                                char title[512];
+                                GetWindowTextA(hwnd, title, sizeof(title));
+                                
+                                std::cout << "[DEBUG] Found window with similar size: \"" << title 
+                                          << "\" (" << w << "x" << h << ", HWND: " << hwnd << ")" << std::endl;
+                                
+                                // Check if title contains our exe name or path
+                                std::string titleStr(title);
+                                if (titleStr.find("LMUFFB") != std::string::npos ||
+                                    titleStr.find("lmuFFB") != std::string::npos ||
+                                    titleStr.find(".exe") != std::string::npos ||
+                                    titleStr.find("development") != std::string::npos) {
+                                    data->foundHwnd = hwnd;
+                                    return FALSE; // Stop enumeration
+                                }
+                            }
+                        }
+                    }
+                    return TRUE;
+                }, (LPARAM)&findData);
+                
+                if (findData.foundHwnd) {
+                    std::cout << "[GUI] Found console window by size matching, attempting capture..." << std::endl;
+                    hasConsole = CaptureWindowToBuffer(findData.foundHwnd, consoleBuffer, consoleWidth, consoleHeight);
+                }
+            }
+            
+            std::cout << "[GUI] Console window capture: " << (hasConsole ? "SUCCESS" : "FAILED") << std::endl;
+            if (hasConsole) {
+                std::cout << "[GUI] Console dimensions: " << consoleWidth << "x" << consoleHeight << std::endl;
+            }
+        } else {
+            std::cout << "[GUI] Console window is not visible, skipping capture" << std::endl;
+        }
+    } else {
+        std::cout << "[GUI] No console window found (GetConsoleWindow returned NULL)" << std::endl;
+    }
+    
+    if (!hasGui && !hasConsole) {
+        std::cout << "[GUI] Screenshot failed: No windows to capture" << std::endl;
+        return;
+    }
+    
+    // If only one window exists, save it directly
+    if (!hasConsole) {
+        stbi_write_png(filename, guiWidth, guiHeight, 4, guiBuffer.data(), guiWidth * 4);
+        std::cout << "[GUI] Screenshot saved (GUI only) to " << filename << std::endl;
+        return;
+    }
+    
+    if (!hasGui) {
+        stbi_write_png(filename, consoleWidth, consoleHeight, 4, consoleBuffer.data(), consoleWidth * 4);
+        std::cout << "[GUI] Screenshot saved (Console only) to " << filename << std::endl;
+        return;
+    }
+    
+    // Composite both windows side-by-side
+    // Layout: [GUI] [10px gap] [Console]
+    const int gap = 10;
+    int compositeWidth = guiWidth + gap + consoleWidth;
+    int compositeHeight = (std::max)(guiHeight, consoleHeight);
+    
+    std::vector<unsigned char> compositeBuffer(compositeWidth * compositeHeight * 4, 0);
+    
+    // Fill background with dark gray
+    for (int i = 0; i < compositeWidth * compositeHeight; ++i) {
+        int idx = i * 4;
+        compositeBuffer[idx + 0] = 30;  // R
+        compositeBuffer[idx + 1] = 30;  // G
+        compositeBuffer[idx + 2] = 30;  // B
+        compositeBuffer[idx + 3] = 255; // A
+    }
+    
+    // Copy GUI window to left side
+    for (int y = 0; y < guiHeight; ++y) {
+        for (int x = 0; x < guiWidth; ++x) {
+            int srcIdx = (y * guiWidth + x) * 4;
+            int dstIdx = (y * compositeWidth + x) * 4;
+            compositeBuffer[dstIdx + 0] = guiBuffer[srcIdx + 0];
+            compositeBuffer[dstIdx + 1] = guiBuffer[srcIdx + 1];
+            compositeBuffer[dstIdx + 2] = guiBuffer[srcIdx + 2];
+            compositeBuffer[dstIdx + 3] = guiBuffer[srcIdx + 3];
+        }
+    }
+    
+    // Copy Console window to right side (after gap)
+    int consoleOffsetX = guiWidth + gap;
+    for (int y = 0; y < consoleHeight; ++y) {
+        for (int x = 0; x < consoleWidth; ++x) {
+            int srcIdx = (y * consoleWidth + x) * 4;
+            int dstIdx = (y * compositeWidth + (consoleOffsetX + x)) * 4;
+            compositeBuffer[dstIdx + 0] = consoleBuffer[srcIdx + 0];
+            compositeBuffer[dstIdx + 1] = consoleBuffer[srcIdx + 1];
+            compositeBuffer[dstIdx + 2] = consoleBuffer[srcIdx + 2];
+            compositeBuffer[dstIdx + 3] = consoleBuffer[srcIdx + 3];
+        }
+    }
+    
+    // Save composite image
+    stbi_write_png(filename, compositeWidth, compositeHeight, 4, compositeBuffer.data(), compositeWidth * 4);
+    
+    std::cout << "[GUI] Composite screenshot saved to " << filename 
+              << " (GUI: " << guiWidth << "x" << guiHeight 
+              << ", Console: " << consoleWidth << "x" << consoleHeight << ")" << std::endl;
+}
+
+// Screenshot Helper (DirectX 11) - Legacy single-window capture
 void SaveScreenshot(const char* filename) {
     if (!g_pSwapChain || !g_pd3dDevice || !g_pd3dDeviceContext) return;
 
@@ -470,7 +815,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         char buf[80];
         localtime_s(&tstruct, &now);
         strftime(buf, sizeof(buf), "screenshot_%Y-%m-%d_%H-%M-%S.png", &tstruct);
-        SaveScreenshot(buf);
+        SaveCompositeScreenshot(buf);
     }
     
     ImGui::Separator();

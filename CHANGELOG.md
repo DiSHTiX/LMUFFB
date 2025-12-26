@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.5] - 2025-12-26
+### Added
+- **Composite Screenshot Feature**: 
+  - The "Save Screenshot" button now captures both the GUI window and console window in a single image.
+  - **Side-by-Side Layout**: Windows are arranged horizontally with a 10px gap for easy viewing.
+  - **Automatic Detection**: Console window is automatically detected and included if present.
+  - **Graceful Fallback**: If console is not available, captures GUI window only.
+  - **Implementation**: Uses Windows `PrintWindow` API to properly capture console windows and other special window types.
+  - **Benefits**: Makes it easier to share debugging information and application state with the community. Forum posts and bug reports can now include both GUI settings and console output in a single screenshot.
+  - **Documentation**: Added comprehensive user guide (`docs/composite_screenshot.md`) and developer reference (`docs/dev_docs/console_to_gui_integration.md`) for future console integration.
+
+### Fixed
+- **Console Window Capture**: Fixed screenshot capture to use `PrintWindow` API instead of `BitBlt`, which properly captures console windows. The previous implementation using `GetDC` only worked for standard windows but produced blank/black images for console windows.
+
 ## [0.6.4] - 2025-12-26
 ### Documentation
 - **Enhanced Tooltips**: 
