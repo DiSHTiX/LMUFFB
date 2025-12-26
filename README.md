@@ -97,8 +97,6 @@ For feedback, questions, or support:
 
 ## Building (for developers)
 
-## Building (for developers)
-
 ### Prerequisites (First Setup)
 
 1.  **Compiler**: MSVC (Visual Studio 2022 Build Tools) or generic C++ compiler.
