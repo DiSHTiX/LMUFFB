@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.6] - 2025-12-26
+### Added
+- **Missing Telemetry Warnings**: 
+  - Added smart console warnings that detect when critical telemetry (Grip, Tire Load, Suspension) is missing or invalid.
+  - Warnings now include the **Vehicle Name** to help users identify potentially broken car mods.
+  - Implemented hysteresis (persistence check) to prevent false positives during momentary telemetry gaps.
+
+### Fixed
+- **Test Suite Integrity**: Resolved a "duplicate main" compilation error in `tests/test_ffb_engine.cpp` and consolidated all regression tests into a single unified runner.
+
 ## [0.6.5] - 2025-12-26
 ### Added
 - **Composite Screenshot Feature**: 

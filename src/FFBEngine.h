@@ -260,6 +260,10 @@ public:
     bool m_warned_grip = false;
     bool m_warned_rear_grip = false; // v0.4.5 Fix
     bool m_warned_dt = false;
+    bool m_warned_lat_force_front = false;
+    bool m_warned_lat_force_rear = false;
+    bool m_warned_susp_force = false;
+    bool m_warned_susp_deflection = false;
     
     // Diagnostics (v0.4.5 Fix)
     struct GripDiagnostics {
@@ -273,6 +277,10 @@ public:
     
     // Hysteresis for missing load
     int m_missing_load_frames = 0;
+    int m_missing_lat_force_front_frames = 0;
+    int m_missing_lat_force_rear_frames = 0;
+    int m_missing_susp_force_frames = 0;
+    int m_missing_susp_deflection_frames = 0;
 
     // Internal state
     double m_prev_vert_deflection[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR
@@ -520,7 +528,8 @@ public:
                               double& prev_slip1,
                               double& prev_slip2,
                               double car_speed,
-                              double dt) {
+                              double dt,
+                              const char* vehicleName) {
         GripResult result;
         result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
         result.value = result.original;
@@ -590,7 +599,7 @@ public:
             result.value = (std::max)(0.2, result.value);
             
             if (!warned_flag) {
-                std::cout << "[WARNING] Missing Grip. Using Approx based on Slip Angle." << std::endl;
+                std::cout << "Warning: Data for mGripFract from the game seems to be missing for this car (" << vehicleName << "). A fallback estimation will be used." << std::endl;
                 warned_flag = true;
             }
         }
@@ -871,11 +880,67 @@ public:
                 avg_load = (kin_load_fl + kin_load_fr) / 2.0;
             }
             
+            
             if (!m_warned_load) {
-                std::cout << "[WARNING] Missing Tire Load. Using Approximation." << std::endl;
+                std::cout << "Warning: Data for mTireLoad from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
                 m_warned_load = true;
             }
             frame_warn_load = true;
+        }
+
+        // --- SANITY CHECKS: NEW MISSING DATA DETECTION (v0.6.3) ---
+        
+        // 1. Suspension Force (mSuspForce)
+        // Check: If average front susp force < minimum valid (10N) while moving
+        double avg_susp_f = (fl.mSuspForce + fr.mSuspForce) / 2.0;
+        if (avg_susp_f < MIN_VALID_SUSP_FORCE && std::abs(data->mLocalVel.z) > 1.0) {
+            m_missing_susp_force_frames++;
+        } else {
+             m_missing_susp_force_frames = (std::max)(0, m_missing_susp_force_frames - 1);
+        }
+        if (m_missing_susp_force_frames > 50 && !m_warned_susp_force) {
+             std::cout << "Warning: Data for mSuspForce from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             m_warned_susp_force = true;
+        }
+
+        // 2. Suspension Deflection (mSuspensionDeflection)
+        // Check: If exactly 0.0 while moving fast (deflection usually noisy)
+        double avg_susp_def = (std::abs(fl.mSuspensionDeflection) + std::abs(fr.mSuspensionDeflection)) / 2.0;
+        if (avg_susp_def < 0.000001 && std::abs(data->mLocalVel.z) > 10.0) {
+            m_missing_susp_deflection_frames++;
+        } else {
+            m_missing_susp_deflection_frames = (std::max)(0, m_missing_susp_deflection_frames - 1);
+        }
+        if (m_missing_susp_deflection_frames > 50 && !m_warned_susp_deflection) {
+            std::cout << "Warning: Data for mSuspensionDeflection from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+            m_warned_susp_deflection = true;
+        }
+
+        // 3. Front Lateral Force (mLateralForce)
+        // Check: If 0.0 while cornering hard (> 3 m/s² lateral accel)
+        double avg_lat_force_front = (std::abs(fl.mLateralForce) + std::abs(fr.mLateralForce)) / 2.0;
+        if (avg_lat_force_front < 1.0 && std::abs(data->mLocalAccel.x) > 3.0) {
+            m_missing_lat_force_front_frames++;
+        } else {
+            m_missing_lat_force_front_frames = (std::max)(0, m_missing_lat_force_front_frames - 1);
+        }
+        if (m_missing_lat_force_front_frames > 50 && !m_warned_lat_force_front) {
+             std::cout << "Warning: Data for mLateralForce (Front) from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             m_warned_lat_force_front = true;
+        }
+
+        // 4. Rear Lateral Force (mLateralForce)
+        // Check: If 0.0 while cornering hard (> 3 m/s² lateral accel)
+        // Note: Known bug in LMU 1.2, this is expected to trigger often.
+        double avg_lat_force_rear = (std::abs(data->mWheel[2].mLateralForce) + std::abs(data->mWheel[3].mLateralForce)) / 2.0;
+        if (avg_lat_force_rear < 1.0 && std::abs(data->mLocalAccel.x) > 3.0) {
+            m_missing_lat_force_rear_frames++;
+        } else {
+            m_missing_lat_force_rear_frames = (std::max)(0, m_missing_lat_force_rear_frames - 1);
+        }
+        if (m_missing_lat_force_rear_frames > 50 && !m_warned_lat_force_rear) {
+             std::cout << "Warning: Data for mLateralForce (Rear) from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             m_warned_lat_force_rear = true;
         }
         
         // Normalize: 4000N is a reference "loaded" GT tire.
@@ -905,7 +970,7 @@ public:
         // Calculate Front Grip using helper (handles fallback and diagnostics)
         // Pass persistent state for LPF (v0.4.6) - Indices 0 and 1
         GripResult front_grip_res = calculate_grip(fl, fr, avg_load, m_warned_grip, 
-                                                   m_prev_slip_angle[0], m_prev_slip_angle[1], car_speed, dt);
+                                                   m_prev_slip_angle[0], m_prev_slip_angle[1], car_speed, dt, data->mVehicleName);
         double avg_grip = front_grip_res.value;
         
         // Update Diagnostics
@@ -988,7 +1053,7 @@ public:
         // Calculate Rear Grip using helper (now includes fallback)
         // Pass persistent state for LPF (v0.4.6) - Indices 2 and 3
         GripResult rear_grip_res = calculate_grip(data->mWheel[2], data->mWheel[3], avg_load, m_warned_rear_grip,
-                                                  m_prev_slip_angle[2], m_prev_slip_angle[3], car_speed, dt);
+                                                  m_prev_slip_angle[2], m_prev_slip_angle[3], car_speed, dt, data->mVehicleName);
         double avg_rear_grip = rear_grip_res.value;
         
         // Update Diagnostics

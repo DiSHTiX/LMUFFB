@@ -11,6 +11,7 @@
 #include <fstream>
 #include <cstdio> // for remove()
 #include <random>
+#include <sstream>
 
 // --- Simple Test Framework ---
 int g_tests_passed = 0;
@@ -77,6 +78,7 @@ static void test_split_load_caps(); // Forward declaration (v0.5.13)
 static void test_dynamic_thresholds(); // Forward declaration (v0.5.13)
 static void test_predictive_lockup_v060(); // Forward declaration (v0.6.0)
 static void test_abs_pulse_v060(); // Forward declaration (v0.6.0)
+static void test_missing_telemetry_warnings(); // Forward declaration (v0.6.3)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -2632,104 +2634,7 @@ static void test_frequency_estimator() {
     }
 }
 
-int main() {
-    // Regression Tests (v0.4.14)
-    test_regression_road_texture_toggle();
-    test_regression_bottoming_switch();
-    test_regression_rear_torque_lpf();
-    
-    // Stress Test
-    test_stress_stability();
 
-    // Run New Tests
-    test_manual_slip_singularity();
-    test_scrub_drag_fade();
-    test_road_texture_teleport();
-    test_grip_low_speed();
-    test_sop_yaw_kick();
-
-    // Run Regression Tests
-    test_zero_input();
-    test_suspension_bottoming();
-    test_grip_modulation();
-    test_sop_effect();
-    test_min_force();
-    test_progressive_lockup();
-    test_slide_texture();
-    test_dynamic_tuning();
-    test_oversteer_boost();
-    test_phase_wraparound();
-    test_road_texture_state_persistence();
-    test_multi_effect_interaction();
-    test_load_factor_edge_cases();
-    test_spin_torque_drop_interaction();
-    test_rear_grip_fallback();
-    test_sanity_checks();
-    test_hysteresis_logic();
-    test_presets();
-    test_config_persistence();
-    test_channel_stats();
-    test_game_state_logic();
-    test_smoothing_step_response();
-    test_manual_slip_calculation();
-    test_universal_bottoming();
-    test_preset_initialization();
-    test_snapshot_data_integrity();
-    test_snapshot_data_v049();
-    test_rear_force_workaround();
-    test_rear_align_effect();
-    test_kinematic_load_braking();
-    test_combined_grip_loss();
-    test_sop_yaw_kick_direction();
-    test_zero_effects_leakage();
-    test_base_force_modes();
-    test_gyro_damping(); // v0.4.17
-    test_yaw_accel_smoothing(); // v0.4.18
-    test_yaw_accel_convergence(); // v0.4.18
-    test_regression_yaw_slide_feedback(); // v0.4.18
-    test_yaw_kick_signal_conditioning(); // v0.4.42
-    
-    // Coordinate System Regression Tests (v0.4.19)
-    test_coordinate_sop_inversion();
-    test_coordinate_rear_torque_inversion();
-    test_coordinate_scrub_drag_direction();
-    test_coordinate_debug_slip_angle_sign();
-    test_regression_no_positive_feedback();
-    test_coordinate_all_effects_alignment(); // v0.4.21
-    test_regression_phase_explosion(); // Regression
-    test_time_corrected_smoothing();
-    test_gyro_stability();
-    
-    // Kinematic Load Model Tests (v0.4.39)
-    test_chassis_inertia_smoothing_convergence();
-    test_kinematic_load_cornering();
-
-    // Signal Filtering Tests (v0.4.41)
-    test_notch_filter_attenuation();
-    test_frequency_estimator();
-    
-    test_static_notch_integration(); // v0.4.43
-    test_gain_compensation(); // v0.4.50
-    test_config_safety_clamping(); // v0.4.50
-
-    // New Physics Tuning Tests (v0.5.7)
-    test_grip_threshold_sensitivity();
-    test_steering_shaft_smoothing();
-    test_config_defaults_v057();
-    test_config_safety_validation_v057();
-    test_rear_lockup_differentiation(); // v0.5.11
-    test_manual_slip_sign_fix(); // v0.5.13
-    test_split_load_caps(); // v0.5.13
-    test_dynamic_thresholds(); // v0.5.13
-    test_predictive_lockup_v060(); // v0.6.0
-    test_abs_pulse_v060(); // v0.6.0
-    
-    std::cout << "\n----------------" << std::endl;
-    std::cout << "Tests Passed: " << g_tests_passed << std::endl;
-    std::cout << "Tests Failed: " << g_tests_failed << std::endl;
-    
-    return g_tests_failed > 0 ? 1 : 0;
-}
 
 static void test_snapshot_data_integrity() {
     std::cout << "\nTest: Snapshot Data Integrity (v0.4.7)" << std::endl;
@@ -5111,3 +5016,170 @@ static void test_abs_pulse_v060() {
     }
 }
 
+static void test_missing_telemetry_warnings() {
+    std::cout << "\nTest: Missing Telemetry Warnings (v0.6.3)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    // Set Vehicle Name
+    strcpy_s(data.mVehicleName, "TestCar_GT3");
+
+    // Capture stdout
+    std::stringstream buffer;
+    std::streambuf* prev_cout_buf = std::cout.rdbuf(buffer.rdbuf());
+
+    // --- Case 1: Missing Grip ---
+    // Trigger missing grip: grip < 0.0001 AND load > 100.
+    // CreateBasicTestTelemetry sets grip=0, load=4000. So this should trigger.
+    engine.calculate_force(&data);
+    
+    std::string output = buffer.str();
+    bool grip_warn = output.find("Warning: Data for mGripFract from the game seems to be missing for this car (TestCar_GT3)") != std::string::npos;
+    
+    if (grip_warn) {
+        std::cout.rdbuf(prev_cout_buf); // Restore cout
+        std::cout << "[PASS] Grip warning triggered with car name." << std::endl;
+        g_tests_passed++;
+        std::cout.rdbuf(buffer.rdbuf()); // Redirect again
+    } else {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[FAIL] Grip warning missing or format incorrect." << std::endl;
+        g_tests_failed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    }
+
+    // --- Case 2: Missing Suspension Force ---
+    // Condition: SuspForce < 10N AND Velocity > 1.0 m/s AND 50 frames persistence
+    // Reset output buffer
+    buffer.str("");
+    
+    // Set susp force to 0 (missing)
+    for(int i=0; i<4; i++) data.mWheel[i].mSuspForce = 0.0;
+    
+    // Run for 60 frames to trigger hysteresis
+    for(int i=0; i<60; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    output = buffer.str();
+    bool susp_warn = output.find("Warning: Data for mSuspForce from the game seems to be missing for this car (TestCar_GT3)") != std::string::npos;
+    
+     if (susp_warn) {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[PASS] SuspForce warning triggered with car name." << std::endl;
+        g_tests_passed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    } else {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[FAIL] SuspForce warning missing or format incorrect." << std::endl;
+        g_tests_failed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    }
+
+    // Restore cout
+    std::cout.rdbuf(prev_cout_buf);
+}
+
+int main() {
+    std::cout << "Starting FFB Engine Tests..." << std::endl;
+    
+    // Run all tests
+    // Regression Tests (v0.4.14)
+    test_regression_road_texture_toggle();
+    test_regression_bottoming_switch();
+    test_regression_rear_torque_lpf();
+    
+    // Stress Test
+    test_stress_stability();
+
+    // Run New Tests
+    test_manual_slip_singularity();
+    test_scrub_drag_fade();
+    test_road_texture_teleport();
+    test_grip_low_speed();
+    test_sop_yaw_kick();  
+    // Run Regression Tests
+    test_zero_input();
+    test_suspension_bottoming();
+    test_grip_modulation();
+    test_sop_effect();
+    test_min_force();
+    test_progressive_lockup();
+    test_slide_texture();
+    test_dynamic_tuning();
+    test_oversteer_boost();
+    test_phase_wraparound();
+    test_road_texture_state_persistence();
+    test_multi_effect_interaction();
+    test_load_factor_edge_cases();
+    test_spin_torque_drop_interaction();
+    test_rear_grip_fallback();
+    test_sanity_checks();
+    test_hysteresis_logic();
+    test_presets();
+    test_config_persistence();
+    test_channel_stats();
+    test_game_state_logic();
+    test_smoothing_step_response();
+    test_manual_slip_calculation();
+    test_universal_bottoming();
+    test_preset_initialization();
+
+    test_snapshot_data_integrity();
+    test_snapshot_data_v049(); // restored
+    test_rear_force_workaround();
+    test_rear_align_effect();
+    test_kinematic_load_braking();
+    test_combined_grip_loss();
+    test_sop_yaw_kick_direction();
+    test_zero_effects_leakage();
+    test_base_force_modes();
+    test_gyro_damping(); // v0.4.17
+    test_yaw_accel_smoothing(); // v0.4.18
+    test_yaw_accel_convergence(); // v0.4.18
+    test_regression_yaw_slide_feedback(); // v0.4.18
+    test_yaw_kick_signal_conditioning(); // v0.4.42  
+    
+    // Coordinate System Regression Tests (v0.4.19)
+    test_coordinate_sop_inversion();
+    test_coordinate_rear_torque_inversion();
+    test_coordinate_scrub_drag_direction();
+    test_coordinate_debug_slip_angle_sign();
+    test_regression_no_positive_feedback();
+    test_coordinate_all_effects_alignment(); // v0.4.21
+    test_regression_phase_explosion(); // Regression // restored
+    test_time_corrected_smoothing();
+    test_gyro_stability();
+    
+    // Kinematic Load Model Tests (v0.4.39)
+    test_chassis_inertia_smoothing_convergence();
+    test_kinematic_load_cornering();
+
+    // Signal Filtering Tests (v0.4.41)
+    test_notch_filter_attenuation();
+    test_frequency_estimator();
+    
+    test_static_notch_integration(); // v0.4.43
+    test_gain_compensation(); // v0.4.50
+    test_config_safety_clamping(); // v0.4.50
+
+    // New Physics Tuning Tests (v0.5.7)
+    test_grip_threshold_sensitivity();
+    test_steering_shaft_smoothing();
+    test_config_defaults_v057();
+    test_config_safety_validation_v057();
+    test_rear_lockup_differentiation(); // v0.5.11
+    test_manual_slip_sign_fix(); // v0.5.13
+    test_split_load_caps(); // v0.5.13
+    test_dynamic_thresholds(); // v0.5.13
+    test_predictive_lockup_v060(); // v0.6.0
+    test_abs_pulse_v060(); // v0.6.0
+    test_missing_telemetry_warnings(); // New in v0.6.3
+    
+    std::cout << "\n---Physics Engine Test Summary:" << std::endl;
+    std::cout << "Tests Passed: " << g_tests_passed << std::endl;
+    std::cout << "Tests Failed: " << g_tests_failed << std::endl;
+    
+    return g_tests_failed > 0 ? 1 : 0;
+}

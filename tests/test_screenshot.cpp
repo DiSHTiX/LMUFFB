@@ -442,10 +442,10 @@ int main() {
     test_window_enumeration_for_console();   // v0.6.5 regression test
     
     // Report results
-    std::cout << "\n=== Screenshot Test Results ===\n";
+    std::cout << "\n=== Screenshot Test Summary ===\n";
     std::cout << "Tests Passed: " << g_tests_passed << "\n";
     std::cout << "Tests Failed: " << g_tests_failed << "\n";
-    
+
     if (g_tests_failed == 0) {
         std::cout << "\n=== All Screenshot Tests Passed! ===\n";
         return 0;

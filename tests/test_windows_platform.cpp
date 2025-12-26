@@ -831,7 +831,9 @@ int main() {
     test_config_persistence_braking_group(); // NEW: v0.5.13
     test_legacy_config_migration(); // NEW: v0.5.13
 
+    // Report results
     std::cout << "\n----------------" << std::endl;
+    std::cout << "\n=== Windows Platform Test Summary ===\n";
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
     std::cout << "Tests Failed: " << g_tests_failed << std::endl;
 
