@@ -56,6 +56,16 @@ reorganize them, so they also take less vertical and horizontal space.
 
 verify and investigate: LMU 1.2 bug where mLateralForce is zero for rear wheels; see the workaround in use.
 
+more telemetry data to be used: 
+* High Priority: mLocalRot, mLocalRotAccel. Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta
+* mLocalAccel.z for braking dive/acceleration squat cues
+* "filtered throttle" (if available): use similarly to ABS pulse, to detect when Traction Control kicks in
+* mElectricBoostMotorTorque, Hybrid motor torque, Hybrid Haptics: Vibration during deployment/regen (is it useful? or just "immersive"?). From other data: warning when battery full, and risk of rear brakes lockup?
+* mLongitudinalForce: currently unused (add weight under braking? remove under acceleration?)
+* set bottoming trigger to method B as default, to use mSuspForce instead of mTireLoad
+
+
+
 Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing
 
 understeer effect: experiment to make it work.
