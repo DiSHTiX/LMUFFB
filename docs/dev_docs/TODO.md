@@ -99,6 +99,8 @@ more telemetry data to be used:
 * mBrakePressure: Brake Fade: Judder when overheated
 * Suspension Bottoming (Deflection Limit): Triggering a heavy jolt when mSuspensionDeflection or mFront3rdDeflection hits stops (currently uses Ride Height/Force Spike/Load).
 
+* lockup due to turn in under braking (circle of grip): do current lockup prediction cover this? will planned effect cover it? Or do we need some addition to the formulas?
+
 * Doc with new effects:Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing
 Implement "Jardier" wet grip effects.
 Implement adaptive (auto) optimal slip angle (and slip rate?)
