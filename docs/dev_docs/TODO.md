@@ -41,6 +41,8 @@ Done: in the GUI, rename "SoP Lateral G" to "lateral G", and "Real Align Torque"
 
 in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics.
 
+* remove "Manual Slip Calc", not needed, all physics info there to get slip info.
+
 expand the range of some sliders that currently are maxed out or minimized, to give more range to feel the effects when too weak. 
 Inlcude: 
 * Understeer Effect (what "measure unit" is this value?) Increase the max from 50 to 200.
