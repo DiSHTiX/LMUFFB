@@ -60,39 +60,11 @@ Your testing and feedback is greatly appreciated! 🙏
     - Check the lmuFFB console for errors
 
 
-## LMU 1.2+ Support (v0.4.0+)
-
-**Enhanced Telemetry Access**: With **Le Mans Ultimate 1.2** (released December 9th, 2024), the game now includes native shared memory support. **lmuFFB v0.4.0+** fully supports LMU 1.2's new interface, providing access to:
-- **Patch Velocities** - Allows physics-based texture generation
-- **Steering Shaft Torque** - Direct torque measurement for accurate FFB
-
-**Note**: Tire Load and Grip Fraction data are blocked from telemetry due to licensing restrictions. lmuFFB automatically uses estimated values for these parameters (see Known Issues section below).
-
-**No Plugin Required**: Unlike previous versions, LMU 1.2 has built-in shared memory - no external plugins needed!
-
-## Known Issues (v0.4.2+)
-
-### LMU 1.2 Missing Telemetry Data (Licensing Restriction)
-
-** Expected Warnings on Startup:**
-
-When you start lmuFFB with LMU 1.2, you will see console warnings like:
-- `[WARNING] Missing Tire Load data detected`
-- `[WARNING] Missing Grip Fraction data detected`
-
-This is expected and NOT a bug in lmuFFB or LMU. This is a known specification limitation - LMU is intentionally returning zero (0) for all tire load and grip fraction values due to licensing restrictions that prevent the release of such data via telemetry, even though the shared memory interface includes these fields.
-
-Impact:
-- lmuFFB has automatic fallback logic that detects this and uses estimated values instead
-- FFB will still work, but some effects (like load-sensitive textures and grip-based understeer) will use approximations instead of real data
-- You can safely ignore these warnings - they confirm the fallback system is working
-
 ### Upcoming Features
 
+* Adaptive Optimal Slip Angle
 * Wet Weather Haptics (Hydro-Grain): vibration cues telling when the tires are on dry or wet surface, and if there is grip or not 
 * Per wheel Hydro-Grain to give information about a drying racing line (e.g., left tires on dry, right tires on wet)  
-* Adaptive Optimal Slip Angle
-* "ABS Rattle" (Pulsing)
 * Longitudinal Dynamic Weight Transfer:  feeling of the car getting heavy under braking and light under acceleration.
 
   
