@@ -451,6 +451,23 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.4] - 2025-12-26
+### Documentation
+- **Enhanced Tooltips**: 
+  - Overhauled all GUI tooltips in `GuiLayer.cpp` to provide deep technical context, tuning advice, and physical explanations for every FFB parameter.
+  - Added specific examples for common hardware (e.g., T300 vs DD) and guidance on how settings like "Steering Shaft Smoothing" or "Slip Angle Smoothing" affect latency and feel.
+  - Clarified complex interactions (e.g., Lateral G Boost vs Rear Align Torque) to help users achieve their desired handling balance.
+
+## [0.6.3] - 2025-12-26
+### Documentation
+- **FFB Formulas Update**: 
+  - Rewrote `docs/dev_docs/FFB_formulas.md` to perfectly match the current v0.6.2+ codebase.
+  - Documented new **Quadratic Lockup** math (`pow(slip, gamma)`).
+  - Detailed **Predictive Lockup Logic** (Deceleration triggers) and **Axle Differentiation** (Frequency shift).
+  - Added new **ABS Pulse** oscillator formulas.
+  - Documented **Split Load Caps** theory (Brake vs Texture).
+  - Clarified **Signal Conditioning** steps (Time-Corrected Smoothing, Frequency Estimator, Notch Filters).
+
 ## [0.6.2] - 2025-12-25
 ### Added
 - **Dynamic Promotion (DirectInput Recovery)**: 
@@ -459,11 +476,14 @@ All notable changes to this project will be documented in this file.
   - **FFB Motor Restart**: Now explicitly calls `m_pEffect->Start(1, 0)` immediately after successful re-acquisition, fixing cases where the device is acquired but the haptic motor remains inactive.
   - **Real-time State Tracking**: The internal exclusivity state is now dynamically updated during recovery, ensuring the GUI reflects the actual hardware status.
 - **Linux Mock Improvement**: Updated non-Windows device initialization to default to "Exclusive" mode, allowing UI logic (colors/tooltips) to be verified in development environments without physical hardware.
+- **First Recovery Notification**: Added a one-time console banner that displays when Dynamic Promotion successfully recovers exclusive access for the first time, confirming to users that the feature is working correctly.
+- **User Testing Guide**: Added comprehensive manual verification procedure to `docs/EXCLUSIVE_ACQUISITION_GUIDE.md`, providing step-by-step instructions for users to test the Dynamic Promotion feature.
 
 ### Changed
 - **GUI Indicator Refinement**:
   - Updated Mode indicator labels ("Mode: EXCLUSIVE (Game FFB Blocked)" / "Mode: SHARED (Potential Conflict)").
   - Added detailed troubleshooting tooltips to the Mode indicator to guide users on how to resolve Force Feedback conflicts with the game.
+  - Fixed typo: "reaquiring" → "reacquiring" in tooltip text.
 
 ## [0.6.1] - 2025-12-25
 ### Changed
@@ -5669,279 +5689,238 @@ if (car_speed > 5.0) {
 
 # File: docs\dev_docs\FFB_formulas.md
 ```markdown
-# FFB Mathematical Formulas (v0.4.12+)
+# FFB Mathematical Formulas (v0.6.2)
 
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
-> That is the official Studio 397 interface specification for LMU 1.2.  
-> Critical: `mSteeringShaftTorque` is in **Newton-meters (Nm)**, not Newtons.
-
-Based on the `FFBEngine.h` file, here is the complete mathematical breakdown of the Force Feedback calculation.
+> Critical: `mSteeringShaftTorque` is in **Newton-meters (Nm)**.
+> *History: Replaced `mSteeringArmForce` in v0.4.0.*
 
 The final output sent to the DirectInput driver is a normalized value between **-1.0** and **1.0**.
+
+---
 
 ### 1. The Master Formula
 
 $$
-F_{\text{final}} = \text{Clamp}\left( \left( \frac{F_{\text{total}}}{20.0} \times K_{\text{gain}} \right), -1.0, 1.0 \right)
+F_{\text{final}} = \text{Clamp}\left( \text{Normalize}\left( F_{\text{total}} \right) \times K_{\text{gain}}, -1.0, 1.0 \right)
 $$
 
-**Note**: Reference changed from 4000 (N, old rF2 API) to 20.0 (Nm, LMU 1.2 API) in v0.4.0+.
+where normalization divides by `m_max_torque_ref` (with a floor of 1.0 Nm).
 
-Where **$F_{\text{total}}$** is the sum of all physics components:
+The total force is a summation of base physics, seat-of-pants effects, and dynamic vibrations, scaled by the **Traction Loss Multiplier**:
 
 $$
-F_{\text{total}} = (F_{\text{base}} + F_{\text{sop}} + F_{\text{vib\\_lock}} + F_{\text{vib\\_spin}} + F_{\text{vib\\_slide}} + F_{\text{vib\\_road}} + F_{\text{vib\\_bottom}} + F_{\text{gyro}}) \times M_{\text{spin\\_drop}}
+F_{\text{total}} = (F_{\text{base}} + F_{\text{sop}} + F_{\text{vib-lock}} + F_{\text{vib-spin}} + F_{\text{vib-slide}} + F_{\text{vib-road}} + F_{\text{vib-bottom}} + F_{\text{gyro}} + F_{\text{abs}}) \times M_{\text{spin-drop}}
 $$
 
-*(Note: $M_{\text{spin\\_drop}}$ is a reduction multiplier active only during traction loss).*
+*Note: $M_{\text{spin-drop}}$ reduces total force implementation during wheel spin (see Section E.3).*
 
 ---
 
-### 2. Component Breakdown
+### 2. Signal Scalers (Decoupling)
 
-#### A. Global Factors (Pre-calculated)
+To ensure consistent feel across different wheels (e.g. G29 vs Simucube), effect intensities are automatically scaled based on the user's `Max Torque Ref`.
+*   **Reference Torque**: 20.0 Nm. (Updated from legacy 4000 unitless reference).
+*   **Decoupling Scale**: `K_decouple = m_max_torque_ref / 20.0`.
+*   *Note: This ensures that 10% road texture feels the same physical intensity regardless of wheel strength.*
 
-**Load Factor ($\text{Front\\_Load\\_Factor}$)**: Scales texture effects based on how much weight is on the front tires.
+---
 
-$$
-\text{Front\\_Load\\_Factor} = \text{Clamp}\left( \frac{\text{Front\\_Load}_{\text{FL}} + \text{Front\\_Load}_{\text{FR}}}{2 \times 4000}, 0.0, 1.5 \right)
-$$
+### 3. Component Breakdown
 
-*   **Robustness Check:** If $\text{Front\\_Load} \approx 0.0$ and $|Velocity| > 1.0 m/s$, $\text{Front\\_Load}$ defaults to 4000N to prevent signal dropout.
-*   **Safety Clamp (v0.4.6):** $\text{Front\\_Load\\_Factor}$ is hard-clamped to a maximum of **2.0** (regardless of configuration) to prevent unbounded forces during aero-spikes.
-*   **Adaptive Kinematic Load (v0.4.38):** If telemetry load (`mTireLoad`) AND suspension force (`mSuspForce`) are missing (encrypted content), tire load is estimated kinematically:
-    $$ F_{z} = F_{\text{static}} + F_{\text{aero}} + F_{\text{long\\_transfer}} + F_{\text{lat\\_transfer}} $$
-    *   $F_{\text{static}}$: Mass (1100kg) distributed by weight bias (55% Rear).
-    *   $F_{\text{aero}}$: $K_{\text{aero}} \times V^2$.
-    *   $F_{\text{transfer}}$: Derived from **Smoothed** Chassis Acceleration (simulating inertia).
+#### A. Load Factors (Safe Caps)
+Texture and vibration effects are scaled by normalized tire load (`Load / 4000N`) to simulate connection with the road.
 
-#### B. Base Force (Understeer / Grip Modulation)
+1.  **Texture Load Factor (Road/Slide)**:
+    *   **Input**: `AvgLoad = (FL.Load + FR.Load) / 2.0`.
+    *   **Robustness Check**: Uses a hysteresis counter; if `AvgLoad < 1.0` while `|Velocity| > 1.0 m/s`, it defaults to **4000N** (1.0 Load Factor) to prevent signal loss during telemetry glitches.
+    *   $F_{\text{load-texture}} = \text{Clamp}(\text{AvgLoad} / 4000.0, 0.0, m_{\text{texture-load-cap}})$
+    *   **Max Cap**: 2.0. (Updated from legacy 1.5).
 
-This modulates the raw steering rack force from the game based on front tire grip.
+2.  **Brake Load Factor (Lockup)**:
+    *   $F_{\text{load-brake}} = \text{Clamp}(\text{AvgLoad} / 4000.0, 0.0, m_{\text{brake-load-cap}})$
+    *   **Max Cap**: 3.0 (Allows stronger vibration under high-downforce braking).
 
-### B. Base Force (Understeer / Grip Modulation) - Updated v0.4.13
+#### B. Base Force Components
 
-The base force logic has been expanded to support debugging modes and attenuation.
-
-**1. Base Input Selection (Mode)**
-Depending on `m_base_force_mode` setting:
-*   **Mode 0 (Native):** $\text{Base}_{\text{input}} = T_{\text{steering\\_shaft}}$
-*   **Mode 1 (Synthetic):**
-    *   If $|T_{\text{steering\\_shaft}}| > 0.5$ Nm: $\text{Base}_{\text{input}} = \text{sign}(T_{\text{steering\\_shaft}}) \times \text{MaxTorqueRef}$
-    *   Else: $\text{Base}_{\text{input}} = 0.0$
-    *   *Purpose: Constant force to tune Grip Modulation in isolation.*
-*   **Mode 2 (Muted):** $\text{Base}_{\text{input}} = 0.0$
-
-**2. Modulation & Attenuation**
+**1. Base Force Calculation ($F_{\text{base}}$)**
+Modulates the raw steering torque (`mSteeringShaftTorque`) based on front tire grip.
 
 $$
-F_{\text{base}} = (\text{Base}_{\text{input}} \times K_{\text{shaft\\_gain}}) \times \left( 1.0 - \left( (1.0 - \text{Front\\_Grip}_{\text{avg}}) \times K_{\text{understeer}} \right) \right)
+F_{\text{base}} = \text{BaseInput} \times K_{\text{shaft-smooth}} \times K_{\text{shaft-gain}} \times (1.0 - (\text{GripLoss} \times K_{\text{understeer}}))
 $$
 
-*   $K_{\text{shaft\\_gain}}$: New slider (0.0-1.0) to attenuate base force without affecting telemetry.
-*   $\text{Front\\_Grip}_{\text{avg}}$: Average of Front Left and Front Right `mGripFract`.
-    *   **Fallback (v0.4.5+):** If telemetry grip is missing ($\approx 0.0$) but Load $> 100N$, grip is approximated from **Slip Angle**.
-        * **Low Speed Trap (v0.4.6):** If CarSpeed < 5.0 m/s, Grip = 1.0.
-        * **Slip Angle LPF (v0.4.37 Update):** Slip Angle is smoothed using **Time-Corrected** Exponential Moving Average.
-            * $\alpha = dt / (0.0225 + dt)$
-            * Target: Equivalent to $\alpha=0.1$ at 400Hz ($\tau \approx 0.0225s$).
-            * Ensures consistent physics response regardless of frame rate.
-        * $\text{Slip} = \text{atan2}(V_{\text{lat}}, V_{\text{long}})$
-        * **Combined Friction Circle (v0.4.38):**
-            * Grip loss is now calculated from the vector sum of Lateral Slip ($\alpha$) and Longitudinal Slip ($\kappa$).
-            * $\text{Metric}_{\text{lat}} = \alpha / 0.10$
-            * $\text{Metric}_{\text{long}} = \kappa / 0.12$
-            * $\text{Combined} = \sqrt{\text{Metric}_{\text{lat}}^2 + \text{Metric}_{\text{long}}^2}$
-            * If $\text{Combined} > 1.0$: $\text{Grip} = 1.0 / (1.0 + (\text{Combined} - 1.0) \times 2.0)$.
-        * **Safety Clamp (v0.4.6):** Calculated Grip never drops below **0.2**.
+*   **Operation Modes ($m_{\text{base-force-mode}}$):**
+    *   **Mode 0 (Native)**: $\text{BaseInput} = T_{\text{shaft}}$. (Default precision mode).
+    *   **Mode 1 (Synthetic)**: $\text{BaseInput} = \text{Sign}(T_{\text{shaft}}) \times m_{\text{max-torque-ref}}$.
+        *   Used for debugging direction only.
+        *   **Deadzone**: Applied if $|T_{\text{shaft}}| < 0.5\text{Nm}$ to prevent center oscillation.
+    *   **Mode 2 (Muted)**: $\text{BaseInput} = 0.0$.
+*   **Steering Shaft Smoothing**: Time-Corrected LPF ($\tau = m_{\text{shaft-smooth}}$) applied to raw torque.
+
+**2. Grip Estimation & Fallbacks**
+If telemetry grip (`mGripFract`) is missing or invalid (< 0.0001), the engine approximates it:
+*   **Low Speed Trap**: If `CarSpeed < 5.0 m/s`, `Grip` is forced to **1.0** (Prevents singularities at parking speeds).
+*   **Combined Friction Circle**:
+    *   **Metric Formulation**:
+        *   $\text{Metric}_{\text{lat}} = |\alpha| / \text{OptAlpha}$ (Lateral Slip Angle). **Default**: 0.10 rad.
+        *   $\text{Metric}_{\text{long}} = |\kappa| / \text{OptRatio}$ (Longitudinal Slip Ratio). **Default**: 0.12 (12%).
+    *   $\text{Combined} = \sqrt{\text{Metric}_{\text{lat}}^2 + \text{Metric}_{\text{long}}^2}$
+    *   $\text{ApproxGrip} = (1.0 \text{ if } \text{Combined} < 1.0 \text{ else } 1.0 / (1.0 + (\text{Combined}-1.0) \times 2.0))$
+*   **Safety Clamp**: Approx Grip is usually clamped to min **0.2** to prevent total loss of force.
+
+**3. Kinematic Load Reconstruction**
+If `mSuspForce` is missing (encrypted content), tire load is estimated from chassis physics:
+*   $$ F_z = F_{\text{static}} + F_{\text{aero}} + F_{\text{long-transfer}} + F_{\text{lat-transfer}} $$
+*   **Static**: Mass (1100kg default) distributed by Weight Bias (55% Rear).
+*   **Aero**: $2.0 \times \text{Velocity}^2$.
+*   **Transfer**:
+    *   Longitudinal: $(\text{Accel}_Z / 9.81) \times 2000.0$.
+    *   Lateral: $(\text{Accel}_X / 9.81) \times 2000.0 \times 0.6$ (Roll Stiffness).
 
 #### C. Seat of Pants (SoP) & Oversteer
 
-This injects lateral G-force and rear-axle aligning torque to simulate the car body's rotation.
+1.  **Lateral G Force ($F_{\text{sop-base}}$)**:
+    *   **Input**: `mLocalAccel.x` (Clamped to **+/- 5.0 G**).
+    *   **Smoothing**: Time-Corrected LPF ($\tau \approx 0.0225 - 0.1\text{s}$ mapped from scalar).
+    *   **Formula**: $G_{\text{smooth}} \times K_{\text{sop}} \times K_{\text{sop-scale}} \times K_{\text{decouple}}$.
 
-1.  **Smoothed Lateral G (v0.4.6):** Calculated via Time-Corrected LPF.
-    *   **Input Clamp (v0.4.6):** Raw AccelX is clamped to +/- 5G ($49.05 m/s^2$) before processing.
+2.  **Lateral G Boost ($F_{\text{boost}}$)**:
+    *   Amplifies the SoP force when the car is oversteering (Front Grip > Rear Grip).
+    *   **Condition**: `if (FrontGrip > RearGrip)`
+    *   **Formula**: `SoP_Total *= (1.0 + ((FrontGrip - RearGrip) * K_oversteer_boost * 2.0))`
 
-    $$
-    G_{\text{smooth}} = G_{\text{prev}} + \alpha_{\text{time\\_corrected}} \times \left( \frac{\text{Chassis\\_Lat\\_Accel}}{9.81} - G_{\text{prev}} \right)
-    $$
+3.  **Yaw Acceleration ("The Kick")**:
+    *   **Input**: `mLocalRotAccel.y` (rad/s²). **Note**: Inverted (-1.0) to comply with SDK requirement to negate rotation data.
+    *   **Conditioning**:
+        *   **Low Speed Cutoff**: 0.0 if Speed < 5.0 m/s.
+        *   **Noise Gate**: 0.0 if $|Accel| < 0.2$ rad/s².
+    *   **Rationale**: Requires heavy smoothing (LPF) to separate true chassis rotation from "Slide Texture" vibration noise, preventing a feedback loop where vibration is mistaken for rotation.
+    *   **Formula**: $-\text{YawAccel}_{\text{smooth}} \times K_{\text{yaw}} \times 5.0 \text{Nm} \times K_{\text{decouple}}$.
+    *   **Note**: Negative sign provides counter-steering torque.
 
-    *   $\alpha_{\text{time\\_corrected}} = dt / (\tau + dt)$ where $\tau$ is derived from user setting `m_sop_smoothing_factor`.
-    *   $\alpha$: User setting `m_sop_smoothing_factor`.
+4.  **Rear Aligning Torque ($T_{\text{rear}}$)**:
+    *   **Workaround**: Uses `RearSlipAngle * RearLoad * Stiffness(15.0)` to estimate lateral force.
+    *   **Derivation**: `RearLoad = SuspForce + 300.0` (where 300N is estimated Unsprung Mass).
+    *   **Formula**: $-F_{\text{lat-rear}} \times 0.001 \times K_{\text{rear}} \times K_{\text{decouple}}$.
+    *   **Clamp**: Lateral Force clamped to **+/- 6000N**.
 
-2.  **Base SoP**:
+#### D. Braking & Lockup (Advanced)
 
-    $$
-    F_{\text{sop\\_base}} = G_{\text{smooth}} \times K_{\text{sop}} \times 20.0
-    $$
-    
-    **Note**: Scaling changed from 5.0 to 20.0 in v0.4.10 to provide stronger baseline Nm output.
+**1. Progressive Lockup ($F_{\text{vib-lock}}$)**
+*   **Safety Trap**: If `CarSpeed < 2.0 m/s`, Slip Ratio is forced to 0.0 to prevent false lockup detection at standstill.
+*   **Predictive Logic (v0.6.0)**: Triggers early if `WheelDecel > CarDecel * 2.0` (Wheel stopping faster than car).
+*   **Bump Rejection**: Logic disabled if `SuspVelocity > m_lockup_bump_reject` (e.g. 1.0 m/s).
+*   **Frequency**: $10\text{Hz} + (\text{CarSpeed} \times 1.5)$. (Base frequency calculation).
+*   **Severity**: $\text{Severity} = \text{pow}(\text{NormSlip}, m_{\text{lockup-gamma}})$ (Quadratic).
+*   **Logic**:
+    *   **Axle Diff**: Rear lockups use **0.3x Frequency** and **1.5x Amplitude**.
+    *   **Pressure Scaling**: Scales with Brake Pressure (Bar). Fallback to 0.5 if engine braking (Pressure < 0.1 bar).
+*   **Oscillator**: `sin(Phase)` (Wrapped via `fmod` to prevent phase explosion on stutter).
 
-3.  **Yaw Acceleration (The Kick) - New v0.4.16, Smoothed v0.4.18**:
+**2. ABS Pulse ($F_{\text{abs}}$)**
+*   **Trigger**: Brake > 50% AND Pressure Modulation Rate > 2.0 bar/s.
+*   **Formula**: `sin(20Hz) * K_abs * 2.0Nm`.
 
-    $$
-    F_{\text{yaw}} = -1.0 \times \text{YawAccel}_{\text{smoothed}} \times K_{\text{yaw}} \times 5.0
-    $$
-    
-    *   Injects `mLocalRotAccel.y` (Radians/sec²) to provide a predictive kick when rotation starts.
-    *   **v0.4.20 Fix:** Inverted calculation ($ -1.0 $) to provide counter-steering cue. Positive Yaw (Right rotation) now produces Negative Force (Left torque). verified by SDK note: **"negate any rotation or torque data"**.
-    *   **v0.4.18 Fix (Updated v0.4.37):** Applied **Time-Corrected Low Pass Filter** ($\tau=0.0225s$) to prevent noise feedback loop.
-        *   **Problem:** Slide Rumble vibrations caused yaw acceleration (a derivative) to spike with high-frequency noise.
-        *   **Solution:** $\alpha = dt / (0.0225 + dt)$
-        *   $\text{YawAccel}_{\text{smoothed}} = \text{YawAccel}_{\text{prev}} + \alpha \times (\text{YawAccel}_{\text{raw}} - \text{YawAccel}_{\text{prev}})$
-        *   This filters out high-frequency noise while preserving actual rotation kicks regardless of frame rate.
-    *   $K_{\text{yaw}}$: User setting `m_sop_yaw_gain` (0.0 - 2.0).
+#### E. Dynamic Textures & Vibrations
 
-4.  **Lateral G Boost (Slide)**:
-    If Front Grip > Rear Grip:
+**1. Slide Texture (Scrubbing)**
+*   **Scope**: `Max(FrontSlipVel, RearSlipVel)` (Worst axle dominates).
+*   **Frequency**: $10\text{Hz} + (\text{SlipVel} \times 5.0)$. Cap 250Hz. (Updated from old 40Hz base).
+*   **Amplitude**: $\text{Sawtooth}(\phi) \times K_{\text{slide}} \times 1.5\text{Nm} \times F_{\text{load-texture}} \times (1.0 - \text{Grip}) \times K_{\text{decouple}}$.
+*   **Note**: Work-based scaling `(1.0 - Grip)` ensures vibration only occurs during actual scrubbing.
 
-    $$
-    F_{\text{sop\\_boosted}} = F_{\text{sop\\_base}} \times \left( 1.0 + (\text{Grip}_{\text{delta}} \times K_{\text{oversteer}} \times 2.0) \right)
-    $$
+**2. Road Texture (Bumps)**
+*   **Main Input**: Delta of `mVerticalTireDeflection` (effectively a **High-Pass Filter** on suspension movement).
+*   **Safety Clamp**: Delta is clamped to **+/- 0.01m** per frame to prevent physics explosions on teleport or restart.
+*   **Formula**: `(DeltaL + DeltaR) * 50.0 * K_road * F_load_texture * Scale`.
+*   **Scrub Drag (Fade-In)**:
+    *   Adds constant resistance when sliding laterally.
+    *   **Coordinate Note**:
+        *   Sliding **Left** (+Vel) requires force **Right**.
+        *   LMU reports **+X = Left**.
+        *   DirectInput requires **+Force = Right**.
+        *   Therefore: `DragDir = -1.0` (Inverted).
+    *   **Fade-In**: Linear scale 0% to 100% between **0.0 m/s** and **0.5 m/s** lateral velocity.
+    *   **Formula**: `(SideVel > 0 ? -1 : 1) * K_drag * 5.0Nm * Fade * Scale`.
 
-    where $\text{Grip}_{\text{delta}} = \text{Front\\_Grip}_{\text{avg}} - \text{Rear\\_Grip}_{\text{avg}}$
-    *   **Fallback (v0.4.6+):** Rear grip now uses the same **Slip Angle approximation** fallback as Front grip if telemetry is missing, preventing false oversteer detection.
+**3. Traction Loss (Wheel Spin)**
+*   **Trigger**: Throttle > 5% and SlipRatio > 0.2 (20%).
+*   **Torque Drop ($M_{\text{spin-drop}}$)**: The *Total Output Force* is reduced to simulate "floating" front tires.
+    *   `M_spin-drop = (1.0 - (Severity * K_spin * 0.6))`
+*   **Vibration**:
+    *   **Frequency**: $10\text{Hz} + (\text{SlipSpeed} \times 2.5)$. Cap 80Hz.
+    *   **Formula**: $\sin(\phi) \times \text{Severity} \times K_{\text{spin}} \times 2.5\text{Nm} \times K_{\text{decouple}}$.
 
-5.  **Rear Aligning Torque (v0.4.10 Workaround)**:
-    Since LMU 1.2 reports 0.0 for rear `mLateralForce`, we calculate it manually.
-    
-    **Step 1: Approximate Rear Load**
+**4. Suspension Bottoming**
+*   **Triggers**:
+    *   Method A: `RideHeight < 2mm`.
+    *   Method B: `SuspForceRate > 100,000 N/s`.
+    *   Legacy: `TireLoad > 8000.0 N`.
+*   **Formula**: `sin(50Hz) * K_bottom * 1.0Nm`. (Fixed sinusoidal crunch).
+*   **Legacy Intensity**: $\sqrt{\text{ExcessLoad}} \times 0.0025$. (Scalar restored to legacy value for accuracy).
 
-    $$
-    F_{z\text{\\_rear}} = \text{SuspForce} + 300.0
-    $$
+#### F. Post-Processing & Filters
 
-    (300N represents approximate unsprung mass).
-    
-    **Step 2: Calculate Lateral Force**
+**1. Signal Filtering**
+*   **Notch Filters**:
+    *   **Dynamic**: $Freq = \text{Speed} / \text{Circumference}$. Uses Biquad.
+    *   **Static**: Fixed frequency (e.g. 50Hz) Biquad.
+*   **Frequency Estimator**: Tracks zero-crossings of `mSteeringShaftTorque` (AC coupled).
 
-    $$
-    F_{\text{lat\\_calc}} = \text{SlipAngle}_{\text{rear}} \times F_{z\text{\\_rear}} \times 15.0
-    $$
+**2. Gyroscopic Damping ($F_{\text{gyro}}$)**
+*   **Input Derivation**:
+    *   $\text{SteerAngle} = \text{UnfilteredInput} \times (\text{RangeInRadians} / 2.0)$
+    *   $\text{SteerVel} = (\text{Angle}_{\text{current}} - \text{Angle}_{\text{prev}}) / dt$
+*   **Formula**: $-\text{SteerVel}_{\text{smooth}} \times K_{\text{gyro}} \times (\text{Speed} / 10.0) \times 1.0\text{Nm} \times K_{\text{decouple}}$.
+*   **Smoothing**: Time-Corrected LPF ($\tau = K_{\text{smooth}} \times 0.1$).
 
-    *   **Safety Clamp:** Clamped to +/- 6000.0 N.
-    
-    **Step 3: Calculate Torque**
+**3. Time-Corrected LPF (Algorithm)**
+Standard exponential smoothing filter used for Slip Angle, Gyro, SoP, and Shaft Torque.
+*   **Formula**: $State += \alpha \times (Input - State)$
+*   **Alpha Calculation**: $\alpha = dt / (\tau + dt)$
+    *   $dt$: Delta Time (e.g., 0.0025s)
+    *   $\tau$ (Tau): Time Constant (User Configurable, or derived from smoothness). **Target**: ~0.0225s (from 400Hz).
 
-    $$
-    T_{\text{rear}} = F_{\text{lat\\_calc}} \times 0.001 \times K_{\text{rear\\_align}}
-    $$
-    
-    **Note**: Coefficient changed from 0.00025 to 0.001 in v0.4.11.
-
-$$
-F_{\text{sop}} = F_{\text{sop\\_boosted}} + T_{\text{rear}} + F_{\text{yaw}}
-$$
-
-#### D. Dynamic Textures (Vibrations)
-
-**1. Progressive Lockup ($F_{\text{vib\\_lock}}$)**
-Active if Brake > 5% and Slip Ratio < -0.1.
-*   **Manual Slip Trap (v0.4.6):** If using manual slip calculation and CarSpeed < 2.0 m/s, Slip Ratio is forced to 0.0.
-*   **Frequency**: $10 + (|\text{Vel}_{\text{car}}| \times 1.5)$ Hz
-*   **Amplitude**: $A = \text{Severity} \times K_{\text{lockup}} \times 4.0$
-    
-    **Note**: Amplitude scaling changed from 800.0 to 4.0 in v0.4.1 (Nm units).
-*   **Force**: $A \times \sin(\text{phase})$
-
-**2. Wheel Spin / Traction Loss ($F_{\text{vib\\_spin}}$ & $M_{\text{spin\\_drop}}$)**
-Active if Throttle > 5% and Rear Slip Ratio > 0.2.
-*   **Torque Drop Multiplier**: $M_{\text{spin\\_drop}} = 1.0 - (\text{Severity} \times K_{\text{spin}} \times 0.6)$
-*   **Frequency**: $10 + (\text{SlipSpeed} \times 2.5)$ Hz (Capped at 80Hz)
-*   **Amplitude**: $A = \text{Severity} \times K_{\text{spin}} \times 2.5$
-    
-    **Note**: Amplitude scaling changed from 500.0 to 2.5 in v0.4.1 (Nm units).
-*   **Force**: $A \times \sin(\text{phase})$
-
-**3. Slide Texture ($F_{\text{vib\\_slide}}$)**
-Active if Lateral Patch Velocity > 0.5 m/s.
-*   **Frequency**: $40 + (\text{LateralVel} \times 17.0)$ Hz
-*   **Waveform**: Sawtooth
-*   **Amplitude (Work-Based Scrubbing v0.4.38)**: 
-    $$ A = K_{\text{slide}} \times 1.5 \times \text{Front\\_Load\\_Factor} \times (1.0 - \text{Grip}) $$
-    *   Scales with **Load** (Force pressing tire to road).
-    *   Scales with **Slip** ($1.0 - \text{Grip}$). Scrubbing requires sliding; a gripping tire rolls silent.
-    *   **Note**: Amplitude scaling changed from 300.0 to 1.5 in v0.4.1 (Nm units).
-*   **Force**: $A \times \text{Sawtooth}(\text{phase})$
-
-**4. Road Texture ($F_{\text{vib\\_road}}$)**
-Active if Road Texture Enabled.
-*   **Oscillator Safety (v0.4.37):** All oscillator phases (Lockup, Spin, Slide, Bottoming) are now wrapped using `fmod(phase, 2PI)` to prevent phase explosion during large time steps (stutters).
-High-pass filter on suspension movement.
-*   **Delta Clamp (v0.4.6):** $\Delta_{\text{vert}}$ is clamped to +/- 0.01 meters per frame.
-*   $\Delta_{\text{vert}} = (\text{Deflection}_{\text{current}} - \text{Deflection}_{\text{prev}})$
-*   **Force**: $(\Delta_{\text{vert\\_L}} + \Delta_{\text{vert\\_R}}) \times 50.0 \times K_{\text{road}} \times \text{Front\\_Load\\_Factor}$
-    
-    **Note**: Amplitude scaling changed from 25.0 to 50.0 in v0.4.11.
-*   **Scrub Drag (v0.4.5+):** Constant resistance force opposing lateral slide.
-    *   **Force**: $F_{\text{drag}} = \text{DragDir} \times K_{\text{drag}} \times 5.0 \times \text{Fade}$
-    *   **DragDir (v0.4.20 Fix):** If $Vel_{\text{lat}} > 0$ (Sliding Left), $DragDir = -1.0$ (Force Left/Negative). Opposes the slide to provide stabilizing torque.
-    *   **Coordinate Note (v0.4.30):** Sliding Left (+Vel) -> requires Force Right (Negative Torque) for damping. But LMU +X is Left. Wait, if +X is Left, a Left Slide (+Vel) needs a Right Force (-Force). So DragDir = -1.0. Correct.
-    *   **Note**: Multiplier changed from 2.0 to 5.0 in v0.4.11.
-    *   **Fade In (v0.4.6):** Linearly scales from 0% to 100% between 0.0 and 0.5 m/s lateral velocity.
-
-**5. Suspension Bottoming ($F_{\text{vib\\_bottom}}$)**
-Active if Max Tire Load > 8000N or Ride Height < 2mm.
-*   **Magnitude**: $\sqrt{\text{Load}_{\text{max}} - 8000} \times K_{\text{bottom}} \times 0.0025$
-    
-    **Note**: Magnitude scaling changed from 0.5 to 0.0025 in v0.4.1 (Nm units).
-*   **Frequency**: Fixed 50Hz sine wave pulse.
-
-**6. Synthetic Gyroscopic Damping ($F_{\text{gyro}}$) - New v0.4.17**
-Stabilizes the wheel by opposing rapid steering movements (prevents "tank slappers").
-*   $Angle$: Steering Input $\times$ (Range / 2.0).
-*   $Vel$: $(Angle - Angle_{\text{prev}}) / dt$.
-*   $Vel_{\text{smooth}}$: Smoothed derivative of steering angle (Time-Corrected LPF).
-    * $\tau_{\text{gyro}} = K_{\text{smoothness\\_clamped}} \times 0.1$
-    * $\alpha = dt / (\tau_{\text{gyro}} + dt)$
-*   $F_{\text{gyro}} = -1.0 \times Vel_{\text{smooth}} \times K_{\text{gyro}} \times (\text{CarSpeed} / 10.0)$
-*   **Note**: Scales with car speed (faster = more stability needed).
+**4. Min Force (Friction Cancellation)**
+Applied at the very end of the pipeline to `F_norm` (before clipping).
+*   **Logic**: If $|F| > 0.0001$ AND $|F| < K_{\text{min-force}}$:
+    *   $F_{\text{final}} = \text{Sign}(F) \times K_{\text{min-force}}$.
+*   **Purpose**: Ensures small forces are always strong enough to overcome the physical friction/deadzone of gear/belt wheels.
 
 ---
 
-### 3. Post-Processing (Min Force)
+### 7. Telemetry Variable Mapping
 
-After calculating the normalized force ($F_{\text{norm}}$), the Min Force logic is applied to overcome wheel friction:
-
-If $|F_{\text{norm}}| > 0.0001$ AND $|F_{\text{norm}}| < K_{\text{min\\_force}}$:
-
-$$
-F_{\text{final}} = \text{sign}(F_{\text{norm}}) \times K_{\text{min\\_force}}
-$$
+| Math Symbol | API Variable | Description |
+| :--- | :--- | :--- |
+| $T_{\text{shaft}}$ | `mSteeringShaftTorque` | Raw steering torque (Nm) |
+| $\text{Load}$ | `mTireLoad` | Vertical load on tire (N) |
+| $\text{GripFract}$ | `mGripFract` | Tire grip scaler (0.0-1.0) |
+| $\text{Accel}_X$ | `mLocalAccel.x` | Lateral acceleration (m/s²) |
+| $\text{Accel}_Z$ | `mLocalAccel.z` | Longitudinal acceleration (m/s²) |
+| $\text{YawAccel}$ | `mLocalRotAccel.y` | Rotational acceleration (rad/s²) |
+| $\text{Vel}_Z$ | `mLocalVel.z` | Car speed (m/s) |
+| $\text{SlipVel}_{\text{lat}}$ | `mLateralPatchVel` | Scrubbing velocity (m/s) |
+| $\text{SuspForce}$ | `mSuspForce` | Suspension force (N) |
+| $\text{Pedal}_{\text{brake}}$ | `mUnfilteredBrake` | Raw brake input (0.0-1.0) |
 
 ---
 
-### 4. Legend: Variables & Coefficients
+### 8. Legend: Physics Constants (Implementation Detail)
 
-**Telemetry Inputs (from LMU 1.2 Shared Memory - `TelemInfoV01`/`TelemWheelV01`):**
-*   $T_{\text{steering\\_shaft}}$: `mSteeringShaftTorque` (Nm) - **Changed in v0.4.0 from** `mSteeringArmForce` (N)
-*   $\text{Load}$: `mTireLoad` (N)
-*   $\text{GripFract}$: `mGripFract` (0.0 to 1.0)
-*   $\text{Chassis\\_Lat\\_Accel}$: `mLocalAccel.x` ($m/s^2$) - **Renamed from** `AccellXlocal`
-*   $\text{LatForce}$: `mLateralForce` (N)
-*   $\text{Vel}_{\text{car}}$: `mLocalVel.z` (m/s)
-*   $\text{LateralGroundVel}$: `mLateralGroundVel` (m/s)
-*   $\text{Deflection}$: `mVerticalTireDeflection` (m)
-
-**User Settings (Coefficients from GUI):**
-*   $K_{\text{gain}}$: Master Gain (0.0 - 2.0)
-*   $K_{\text{shaft\\_gain}}$: Steering Shaft Gain (0.0 - 1.0) **(New v0.4.13)**
-*   $K_{\text{understeer}}$: Understeer Effect (0.0 - 1.0)
-*   $K_{\text{sop}}$: SoP Effect (0.0 - 2.0)
-*   $K_{\text{yaw}}$: SoP Yaw Gain (0.0 - 2.0) **(New v0.4.15)**
-*   $K_{\text{gyro}}$: Gyroscopic Damping Gain (0.0 - 1.0) **(New v0.4.17)**
-*   $K_{\text{oversteer}}$: Oversteer Boost (0.0 - 1.0)
-*   $K_{\text{rear\\_align}}$: Rear Align Torque (0.0 - 2.0)
-*   $K_{\text{lockup}}, K_{\text{spin}}, K_{\text{slide}}, K_{\text{road}}, K_{\text{drag}}$: Texture/Effect Gains
-*   $K_{\text{min\\_force}}$: Min Force (0.0 - 0.20)
-
-**Hardcoded Constants (v0.4.1+):**
-*   **20.0**: Reference Max Torque (Nm) for normalization (was 4000.0 N in old API)
-*   **4000.0**: Reference Tire Load (N) for Load Factor (unchanged, loads still in Newtons)
-*   **20.0**: SoP Scaling factor (was 5.0 in v0.4.x)
-*   **25.0**: Road Texture stiffness (was 5000.0 before Nm conversion)
-*   **8000.0**: Bottoming threshold (N, unchanged)
+| Constant Name | Value | Description |
+| :--- | :--- | :--- |
+| `BASE_NM_LOCKUP` | 4.0 Nm | Reference intensity for lockup vibration |
+| `BASE_NM_SPIN` | 2.5 Nm | Reference intensity for wheel spin |
+| `BASE_NM_ROAD` | 2.5 Nm | Reference intensity for road bumps |
+| `REAR_STIFFNESS` | 15.0 | N/(rad·N) - Estimated rear tire cornering stiffness |
+| `WEIGHT_TRANSFER_SCALE` | 2000.0 | N/G - Kinematic load transfer scaler |
+| `UNSPRUNG_MASS` | 300.0 N | Per-corner static unsprung weight estimate |
+| `BOTTOMING_LOAD` | 8000.0 N | Load required to trigger legacy bottoming |
+| `BOTTOMING_RATE` | 100kN/s | Suspension force rate for impact bottoming |
+| `MIN_SLIP_VEL` | 0.5 m/s | Low speed threshold for slip angle calculation |
 
 ```
 
@@ -10645,6 +10624,8 @@ The LMU 1.2 interface is a goldmine. While fixing the basic Tire Load/Grip is th
 ```markdown
 These cars should have fully transparent telemetry visible from shared memory:
 
+See: unlinked: steamcommunity_com/id/studio-397/myworkshopfiles/?appid=365960&p=2&numperpage=30
+
 * Chevrolet Corvette C6.R GT2 (2009): An ISI-era release. Physics files are accessible, and mTireLoad is fully visible in telemetry.
 * Nissan GT500 (2013) & 370Z: While technically Super GT, the GT500 uses high-downforce physics that output full load data.
 * Chevrolet Camaro GT3 (2012): An early GT3 implementation by ISI. Useful for comparing "Legacy" GT3 physics with the modern, encrypted GT3 DLC.
@@ -10652,13 +10633,17 @@ These cars should have fully transparent telemetry visible from shared memory:
 * Formula Renault 3.5 (2014): One of the most highly regarded physics models in rFactor 2.
 * Marussia MR01 (F1 2012)
 * Historic F1 (Brabham BT20, BT44B, March 761, McLaren M23)
-* McLaren	M23 / MP4/8 / MP4/13
-* Riley MkXX Daytona Prototype
+* McLaren	MP4/8
+* McLaren	MP4/13
 * AC Cars	427 SC (Cobra)
-* Howston	G4 / G6 (Fictional) 
+* Howston	G4 / G6 (Fictional)
+* ? Howston Dissenter 1974
+* ? Formula ISI 2012
+* ? Renault Megane Trophy 2013
 * Panoz	AIV Roadster
 * Renault	Clio Cup / Megane	
-
+* ? Riley MkXX Daytona Prototype
+  
 # Other data that might be blocked for DLC cars
 
 * mSuspensionDeflection
@@ -17284,7 +17269,7 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
                                 std::cout << "\n"
                                           << "========================================\n"
                                           << "[SUCCESS] Dynamic Promotion Active!\n"
-                                          << "LMUFFB has successfully recovered exclusive\n"
+                                          << "lmuFFB has successfully recovered exclusive\n"
                                           << "control after detecting a conflict.\n"
                                           << "This feature will continue to protect your\n"
                                           << "FFB experience automatically.\n"
@@ -19411,7 +19396,7 @@ void GuiLayer::SetupGUIStyle() {
 
 bool GuiLayer::Init() {
     // Create Application Window
-    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"LMUFFB", NULL };
+    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"lmuFFB", NULL };
     ::RegisterClassExW(&wc);
     
     // Construct Title with Version
@@ -19419,7 +19404,7 @@ bool GuiLayer::Init() {
     // Simplified conversion for version string (assumes ASCII version)
     std::string ver = LMUFFB_VERSION;
     std::wstring wver(ver.begin(), ver.end());
-    std::wstring title = L"LMUFFB v" + wver;
+    std::wstring title = L"lmuFFB v" + wver;
 
     // 1. Determine startup size with validation
     int start_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
@@ -19494,7 +19479,7 @@ void GuiLayer::Shutdown() {
 
     CleanupDeviceD3D();
     ::DestroyWindow(g_hwnd);
-    ::UnregisterClassW(L"LMUFFB", GetModuleHandle(NULL));
+    ::UnregisterClassW(L"lmuFFB", GetModuleHandle(NULL));
 }
 
 void* GuiLayer::GetWindowHandle() {
@@ -19629,7 +19614,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Begin("MainUI", nullptr, flags);
 
     // Header Text
-    ImGui::TextColored(ImVec4(1, 1, 1, 0.4f), "LMUFFB v%s", LMUFFB_VERSION);
+    ImGui::TextColored(ImVec4(1, 1, 1, 0.4f), "lmuFFB v%s", LMUFFB_VERSION);
     ImGui::Separator();
 
     // Connection Status
@@ -19693,10 +19678,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     if (DirectInputFFB::Get().IsActive()) {
         if (DirectInputFFB::Get().IsExclusive()) {
             ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Mode: EXCLUSIVE (Game FFB Blocked)");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("LMUFFB has exclusive control.\nThe game can read steering but cannot send FFB.\nThis prevents 'Double FFB' issues.");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("lmuFFB has exclusive control.\nThe game can read steering but cannot send FFB.\nThis prevents 'Double FFB' issues.");
         } else {
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Mode: SHARED (Potential Conflict)");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("LMUFFB is sharing the device.\nEnsure In-Game FFB is disabled\nto avoid LMU reacquiring the device.");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("lmuFFB is sharing the device.\nEnsure In-Game FFB is disabled\nto avoid LMU reacquiring the device.");
         }
     }
 
@@ -19864,9 +19849,9 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn(); ImGui::NextColumn();
         
         BoolSetting("Invert FFB Signal", &engine.m_invert_force, "Check this if the wheel pulls away from center instead of aligning.");
-        FloatSetting("Master Gain", &engine.m_gain, 0.0f, 2.0f, FormatPct(engine.m_gain));
-        FloatSetting("Max Torque Ref", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm", "The torque value that equals 100% FFB output.\nFor T300/G29, try 60-100 Nm.");
-        FloatSetting("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f");
+        FloatSetting("Master Gain", &engine.m_gain, 0.0f, 2.0f, FormatPct(engine.m_gain), "Global scale factor for all forces.\n100% = No attenuation.\nReduce if experiencing heavy clipping.");
+        FloatSetting("Max Torque Ref", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm", "The physical torque (Nm) that corresponds to 100% FFB output.\nIn theory (but not in practice) you should set this to match your wheel base's peak torque (e.g., T300=4Nm, Simucube=20Nm).\nDecouples software scaling from hardware capability.");
+        FloatSetting("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f", "Boosts small forces to overcome the mechanical friction/deadzone of gear/belt driven wheels.\nPrevents the 'dead center' feeling.\nTypical: 0.0 for DD, 0.01-0.05 for Belt/Gear.");
         
         ImGui::TreePop();
     } else { 
@@ -19878,7 +19863,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     if (ImGui::TreeNodeEx("Front Axle (Understeer)", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
         
-        FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 1.0f, FormatPct(engine.m_steering_shaft_gain), "Attenuates raw game force without affecting telemetry.");
+        FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 1.0f, FormatPct(engine.m_steering_shaft_gain), "Scales the raw steering torque from the physics engine.\n100% = 1:1 with game physics.\nLowering this allows other effects (SoP, Vibes) to stand out more without clipping.");
         
         // --- NEW: Steering Shaft Smoothing (v0.5.7) ---
         ImGui::Text("Steering Shaft Smoothing");
@@ -19891,33 +19876,33 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##ShaftSmooth", &engine.m_steering_shaft_smoothing, 0.000f, 0.100f, "%.3f s")) selected_preset = -1;
         if (ImGui::IsItemHovered()) {
-             ImGui::SetTooltip("Low Pass Filter applied ONLY to the raw game force.\nUse this to smooth out 'grainy' FFB from the game engine.\nWarning: Adds latency.");
+             ImGui::SetTooltip("Low Pass Filter applied ONLY to the raw game force (Steering Shaft Gain).\nSmoothes out grainy or noisy signals from the game engine.");
         }
         ImGui::NextColumn();
         // -------------------------------------
 
         // Display with 2 decimals to show fine arrow key adjustments (step 0.01 on 0-50 range)
-        FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 50.0f, "%.2f", "Strength of the force drop when front grip is lost.");
+        FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 50.0f, "%.2f", "Reduces the strength of the Steering Shaft Torque when front tires lose grip (Understeer).\nHelps you feel the limit of adhesion.\n0% = No feeling.\nHigh = Wheel goes light immediately upon sliding. Note: grip is calculated based on the Optimal Slip Angle setting.");
         
         const char* base_modes[] = { "Native (Steering Shaft Torque)", "Synthetic (Constant)", "Muted (Off)" };
-        IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes)/sizeof(base_modes[0]), "Debug tool to isolate effects.");
+        IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes)/sizeof(base_modes[0]), "Debug tool to isolate effects.\nNative: Normal Operation.\nSynthetic: Constant force to test direction.\nMuted: Disables base physics (good for tuning vibrations).");
 
         if (ImGui::TreeNodeEx("Signal Filtering", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::NextColumn(); ImGui::NextColumn();
             
-            BoolSetting("  Flatspot Suppression", &engine.m_flatspot_suppression, "Dynamic notch filter to remove flatspot vibrations while driving.");
+            BoolSetting("  Flatspot Suppression", &engine.m_flatspot_suppression, "Dynamic Notch Filter that targets wheel rotation frequency.\nSuppresses vibrations caused by tire flatspots.");
             if (engine.m_flatspot_suppression) {
-                FloatSetting("    Filter Width (Q)", &engine.m_notch_q, 0.5f, 10.0f, "Q: %.2f");
-                FloatSetting("    Suppression Strength", &engine.m_flatspot_strength, 0.0f, 1.0f);
+                FloatSetting("    Filter Width (Q)", &engine.m_notch_q, 0.5f, 10.0f, "Q: %.2f", "Quality Factor of the Notch Filter.\nHigher = Narrower bandwidth (surgical removal).\nLower = Wider bandwidth (affects surrounding frequencies).");
+                FloatSetting("    Suppression Strength", &engine.m_flatspot_strength, 0.0f, 1.0f, "%.2f", "How strongly to mute the flatspot vibration.\n1.0 = 100% removal.");
                 ImGui::Text("    Est. / Theory Freq");
                 ImGui::NextColumn();
                 ImGui::TextDisabled("%.1f Hz / %.1f Hz", engine.m_debug_freq, engine.m_theoretical_freq);
                 ImGui::NextColumn();
             }
             
-            BoolSetting("  Static Noise Filter", &engine.m_static_notch_enabled);
+            BoolSetting("  Static Noise Filter", &engine.m_static_notch_enabled, "Fixed frequency notch filter to remove hardware resonance or specific noise.");
             if (engine.m_static_notch_enabled) {
-                FloatSetting("    Target Frequency", &engine.m_static_notch_freq, 10.0f, 100.0f, "%.1f Hz");
+                FloatSetting("    Target Frequency", &engine.m_static_notch_freq, 10.0f, 100.0f, "%.1f Hz", "Center frequency to suppress.");
             }
             
             ImGui::TreePop();
@@ -19939,7 +19924,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         FloatSetting("Lateral G Boost (Slide)", &engine.m_oversteer_boost, 0.0f, 2.0f, FormatPct(engine.m_oversteer_boost), "Increases the Lateral G (SoP) force when the rear tires lose grip.\nMakes the car feel heavier during a slide, helping you judge the momentum.\nShould build up slightly more gradually than Rear Align Torque,\nreflecting the inertia of the car's mass swinging out.\nIt's a sustained force that tells you about the magnitude of the slide\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
         FloatSetting("SoP Lateral G", &engine.m_sop_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_effect, FFBEngine::BASE_NM_SOP_LATERAL), "Represents Chassis Roll, simulates the weight of the car leaning in the corner.");
         FloatSetting("Rear Align Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_rear_align_effect, FFBEngine::BASE_NM_REAR_ALIGN), "Counter-steering force generated by rear tire slip.\nShould build up very quickly after the Yaw Kick, as the slip angle develops.\nThis is the active \"pull.\"\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
-        FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), " This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.");
+        FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
         
         // --- NEW: Yaw Kick Smoothing (v0.5.8) ---
         ImGui::Text("  Kick Response");
@@ -19949,11 +19934,11 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::TextColored(yaw_color, "Latency: %d ms", yaw_ms);
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##YawSmooth", &engine.m_yaw_accel_smoothing, 0.000f, 0.050f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reaction time of the slide kick.\nLower = Faster.\nHigher = Less noise.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Low Pass Filter for the Yaw Kick signal.\nSmoothes out kick noise.\nLower = Sharper/Faster kick.\nHigher = Duller/Softer kick.");
         ImGui::NextColumn();
         // ----------------------------------------
 
-        FloatSetting("Gyro Damping", &engine.m_gyro_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_gyro_gain, FFBEngine::BASE_NM_GYRO_DAMPING));
+        FloatSetting("Gyro Damping", &engine.m_gyro_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_gyro_gain, FFBEngine::BASE_NM_GYRO_DAMPING), "Simulates the gyroscopic solidity of the spinning wheels.\nResists rapid steering movements.\nPrevents oscillation and 'Tank Slappers'.\nActs like a steering damper.");
         
         // --- NEW: Gyro Smoothing (v0.5.8) ---
         ImGui::Text("  Gyro Smooth");
@@ -19963,7 +19948,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::TextColored(gyro_color, "Latency: %d ms", gyro_ms);
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##GyroSmooth", &engine.m_gyro_smoothing, 0.000f, 0.050f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Filters steering velocity.\nIncrease if damping feels 'sandy' or 'grainy'.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Filters the steering velocity signal used for damping.\nReduces noise in the damping effect.\nLow = Crisper damping, High = Smoother.");
         ImGui::NextColumn();
         // ------------------------------------
         
@@ -19989,11 +19974,11 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
                 engine.m_sop_smoothing_factor = (std::max)(0.0f, (std::min)(1.0f, engine.m_sop_smoothing_factor)); 
                 selected_preset = -1; 
             }
-            if (!changed) ImGui::SetTooltip("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
+            if (!changed) ImGui::SetTooltip("Filters the Lateral G signal.\nReduces jerkiness in the SoP effect.\nFine Tune: Arrow Keys | Exact: Ctrl+Click");
         }
         ImGui::NextColumn();
 
-        FloatSetting("  SoP Scale", &engine.m_sop_scale, 0.0f, 20.0f);
+        FloatSetting("  SoP Scale", &engine.m_sop_scale, 0.0f, 20.0f, "%.2f", "Multiplies the raw G-force signal before limiting.\nAdjusts the dynamic range of the SoP effect.");
         
         ImGui::TreePop();
     } else { 
@@ -20043,20 +20028,21 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 1.0f, 1.0f), "Simulation: %d ms", chassis_ms);
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##ChassisSmooth", &engine.m_chassis_inertia_smoothing, 0.000f, 0.100f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Simulates suspension settling time for Calculated Load.\n25ms = Stiff Race Car.\n50ms = Soft Road Car.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Simulation time for weight transfer.\nSimulates how fast the suspension settles.\nAffects calculated tire load magnitude.\n25ms = Stiff Race Car.\n50ms = Soft Road Car.");
         ImGui::NextColumn();
         // -------------------------------------
 
         // --- NEW: Optimal Slip Sliders (v0.5.7) ---
         FloatSetting("Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad", 
-            "The slip angle where peak grip occurs.\n"
-            "Lower = Earlier understeer warning (Hypercars ~0.06).\n"
-            "Higher = Later warning (GT3 ~0.10).\n"
+            "The slip angle (radians) where the tire generates peak grip.\nTuning parameter for the Grip Estimator.\nMatch this to the car's physics (GT3 ~0.10, LMDh ~0.06).\n"
+            "Lower = Earlier understeer warning.\n"
+            "Higher = Later warning.\n"
             "Affects: Understeer Effect, Lateral G Boost (Slide), Slide Texture.");
 
         FloatSetting("Optimal Slip Ratio", &engine.m_optimal_slip_ratio, 0.05f, 0.20f, "%.2f", 
-            "The longitudinal slip ratio (braking/accel) where peak grip occurs.\n"
+            "The longitudinal slip ratio (0.0-1.0) where peak braking/traction occurs.\n"
             "Typical: 0.12 - 0.15 (12-15%).\n"
+            "Used to estimate grip loss under braking/acceleration.\n"
             "Affects: How much braking/acceleration contributes to calculated grip loss.");
         // ---------------------------------
 
@@ -20087,9 +20073,9 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             ImGui::Text("Response Curve");
             ImGui::NextColumn(); ImGui::NextColumn();
 
-            FloatSetting("  Gamma", &engine.m_lockup_gamma, 0.5f, 3.0f, "%.1f", "1.0=Linear, 2.0=Quadratic, 3.0=Cubic (Late/Sharp).");
-            FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%");
-            FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%");
+            FloatSetting("  Gamma", &engine.m_lockup_gamma, 0.5f, 3.0f, "%.1f", "Response Curve Non-Linearity.\n1.0 = Linear.\n>1.0 = Progressive (Starts weak, gets strong fast).\n<1.0 = Aggressive (Starts strong). 2.0=Quadratic, 3.0=Cubic (Late/Sharp)");
+            FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", "Slip percentage where vibration begins.\n1.0% = Immediate feedback.\n5.0% = Only on deep lock.");
+            FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", "Slip percentage where vibration reaches maximum intensity.");
             
             
             // Precision formatting rationale (v0.6.0):
@@ -20101,10 +20087,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             ImGui::Text("Prediction (Advanced)");
             ImGui::NextColumn(); ImGui::NextColumn();
 
-            FloatSetting("  Sensitivity", &engine.m_lockup_prediction_sens, 20.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
-            FloatSetting("  Bump Rejection", &engine.m_lockup_bump_reject, 0.1f, 5.0f, "%.1f m/s", "Suspension velocity threshold to disable prediction.\nIncrease for bumpy tracks (Sebring).");
+            FloatSetting("  Sensitivity", &engine.m_lockup_prediction_sens, 20.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nHow aggressively the system predicts a lockup before it physically occurs.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
+            FloatSetting("  Bump Rejection", &engine.m_lockup_bump_reject, 0.1f, 5.0f, "%.1f m/s", "Suspension velocity threshold.\nDisables prediction on bumpy surfaces to prevent false positives.\nIncrease for bumpy tracks (Sebring).");
 
-            FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 3.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.");
+            FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 3.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.\nHelps distinguish rear locking (dangerous) from front locking (understeer).");
         }
 
         ImGui::Separator();
@@ -20112,9 +20098,9 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn(); ImGui::NextColumn();
 
         // ABS
-        BoolSetting("ABS Pulse", &engine.m_abs_pulse_enabled, "Injects 20Hz pulse when ABS modulates pressure.");
+        BoolSetting("ABS Pulse", &engine.m_abs_pulse_enabled, "Simulates the pulsing of an ABS system.\nInjects 20Hz pulse when ABS modulates pressure.");
         if (engine.m_abs_pulse_enabled) {
-            FloatSetting("  Pulse Gain", &engine.m_abs_gain, 0.0f, 2.0f);
+            FloatSetting("  Pulse Gain", &engine.m_abs_gain, 0.0f, 2.0f, "%.2f", "Intensity of the ABS pulse.");
         }
 
         ImGui::TreePop();
@@ -20128,26 +20114,26 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         
         FloatSetting("Texture Load Cap", &engine.m_texture_load_cap, 1.0f, 3.0f, "%.2fx", "Safety Limiter specific to Road and Slide textures.\nPrevents violent shaking when under high downforce or compression.\nONLY affects Road Details and Slide Rumble.");
 
-        BoolSetting("Slide Rumble", &engine.m_slide_texture_enabled);
+        BoolSetting("Slide Rumble", &engine.m_slide_texture_enabled, "Vibration proportional to tire sliding/scrubbing velocity.");
         if (engine.m_slide_texture_enabled) {
-            FloatSetting("  Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_slide_texture_gain, FFBEngine::BASE_NM_SLIDE_TEXTURE));
-            FloatSetting("  Slide Pitch", &engine.m_slide_freq_scale, 0.5f, 5.0f, "%.2fx");
+            FloatSetting("  Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_slide_texture_gain, FFBEngine::BASE_NM_SLIDE_TEXTURE), "Intensity of the scrubbing vibration.");
+            FloatSetting("  Slide Pitch", &engine.m_slide_freq_scale, 0.5f, 5.0f, "%.2fx", "Frequency multiplier for the scrubbing sound/feel.\nHigher = Screeching.\nLower = Grinding.");
         }
         
-        BoolSetting("Road Details", &engine.m_road_texture_enabled);
+        BoolSetting("Road Details", &engine.m_road_texture_enabled, "Vibration derived from high-frequency suspension movement.\nFeels road surface, cracks, and bumps.");
         if (engine.m_road_texture_enabled) {
-            FloatSetting("  Road Gain", &engine.m_road_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_road_texture_gain, FFBEngine::BASE_NM_ROAD_TEXTURE));
+            FloatSetting("  Road Gain", &engine.m_road_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_road_texture_gain, FFBEngine::BASE_NM_ROAD_TEXTURE), "Intensity of road details.");
         }
 
-        BoolSetting("Spin Vibration", &engine.m_spin_enabled);
+        BoolSetting("Spin Vibration", &engine.m_spin_enabled, "Vibration when wheels lose traction under acceleration (Wheel Spin).");
         if (engine.m_spin_enabled) {
-            FloatSetting("  Spin Strength", &engine.m_spin_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_spin_gain, FFBEngine::BASE_NM_SPIN_VIBRATION));
+            FloatSetting("  Spin Strength", &engine.m_spin_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_spin_gain, FFBEngine::BASE_NM_SPIN_VIBRATION), "Intensity of the wheel spin vibration.");
         }
 
-        FloatSetting("Scrub Drag", &engine.m_scrub_drag_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_scrub_drag_gain, FFBEngine::BASE_NM_SCRUB_DRAG));
+        FloatSetting("Scrub Drag", &engine.m_scrub_drag_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_scrub_drag_gain, FFBEngine::BASE_NM_SCRUB_DRAG), "Constant resistance force when pushing tires laterally (Understeer drag).\nAdds weight to the wheel when scrubbing.");
         
         const char* bottoming_modes[] = { "Method A: Scraping", "Method B: Susp. Spike" };
-        IntSetting("Bottoming Logic", &engine.m_bottoming_method, bottoming_modes, sizeof(bottoming_modes)/sizeof(bottoming_modes[0]));
+        IntSetting("Bottoming Logic", &engine.m_bottoming_method, bottoming_modes, sizeof(bottoming_modes)/sizeof(bottoming_modes[0]), "Algorithm for detecting suspension bottoming.\nScraping = Ride height based.\nSusp Spike = Force rate based.");
         
         ImGui::TreePop();
     } else { 
@@ -20932,7 +20918,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << "Starting LMUFFB (C++ Port)..." << std::endl;
+    std::cout << "Starting lmuFFB (C++ Port)..." << std::endl;
 
     // Initialize FFBEngine with T300 defaults (Single Source of Truth: Config.h Preset struct)
     Preset::ApplyDefaultsToEngine(g_engine);
