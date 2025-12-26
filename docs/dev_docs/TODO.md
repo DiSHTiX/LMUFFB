@@ -31,6 +31,8 @@ DONE: list effects affected by grip and load approximation, and list those that 
 DONE: add smoothing (and slider) for steering shaft torque
 DONE: expose sliders for additional smoothing: yaw kick, gyroscopic damping, Chassis Inertia (Load)
 DONE: lockup vibration improvements
+DONE: Add more tooltips (many sliders are missing them)
+
 
 add "basic mode" with only main sliders shown, and auto-adjust of settings.
 
@@ -78,7 +80,9 @@ more telemetry data to be used:
 * mBrakePressure: Brake Fade: Judder when overheated
 * Suspension Bottoming (Deflection Limit): Triggering a heavy jolt when mSuspensionDeflection or mFront3rdDeflection hits stops (currently uses Ride Height/Force Spike/Load).
 
-Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing
+* Doc with new effects:Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing
+Implement "Jardier" wet grip effects.
+Implement adaptive (auto) optimal slip angle (and slip rate?)
 
 understeer effect: experiment to make it work.
 
@@ -92,9 +96,9 @@ check lockup vibration effect, feel it before bracking up, enough to prevent it
 yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
 experiment with gyro damping to compensate yaw kick
 
-console prints, add timestamp
+add timestamps to console prints
 
-the game exited from the session, and there were still forces
+Fix: the game exited from the session, and there were still forces
 in particular self align torque and slide vibratio
 improve logic of detecting when not driving / not live, and stop ffb
 
@@ -106,14 +110,13 @@ the telemetry persist even after quitting the game (slide texture and rear align
 
 Bracking and lockup effects: implement wider ranges in the sliders
 
-Add more tooltips (many sliders are missing them)
-
-lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
+Basic Mode: lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
 
 add a slider for the yaw kick thresshold to determine at which acceleration or force the yaw kick effect starts to be applied. There is still too much noise in the signal, and it does not actually work when needed (feeling a kick for the rear starting to step out).
-
-Implement "Jardier" wet grip effects.
-
-Implement adaptive (auto) optimal slip angle (and slip rate?)
-
 For all vibration effects, add a slider to select the frequency of vibration (if fixed).
+
+
+
+
+
+

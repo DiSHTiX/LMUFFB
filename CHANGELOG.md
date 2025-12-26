@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.8] - 2025-12-26
+### Documentation
+- **Troubleshooting Guide**: Expanded README with common FFB tuning solutions:
+  - "FFB too weak": Suggests adjusting Master Gain or Max Torque Ref.
+  - "Baseline vibration": Explains the 10-12Hz Steering Shaft frequency fix.
+  - "Strange pull": Advises reducing Rear Align Torque.
+- **Developer Guide**: Updated build instructions to reflect the new unified test runner workflow.
+
 ## [0.6.7] - 2025-12-26
 ### Changed
 - **Unified Test Runner**: Consolidated `test_ffb_engine`, `test_windows_platform`, and `test_screenshot` into a single executable (`run_combined_tests`). This significantly reduces compilation time and provides a comprehensive pass/fail summary for all test suites at once.

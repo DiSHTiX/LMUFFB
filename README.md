@@ -62,6 +62,18 @@ Your testing and feedback is greatly appreciated! 🙏
     -   That is known to come from the Steering Shaft Torque from the game (you can temporarily disable Steering Shaft Gain to confirm it).
     -   To fix it, enable the **"Static Noise Filter"** in lmuFFB and set a **Target Frequency** of **10-12 Hz**.
     -   If some noise is still present, you can increase the **Steering Shaft Smoothing**.
+-   **FFB too weak**:
+    -   Increase **Master Gain**.
+    -   Or reduce **Max Torque Ref** (this amplifies the signal by setting a lower reference point for maximum torque).
+-   **Strange pull in some scenarios**:
+    -   If you feel a strange pull in specific driving situations, try reducing the **Rear Align Torque**.
+-   **The app has too many options and it's confusing**:
+    -   A future version will include a **"Basic Mode"** with auto adjustment and defaults for most settings.
+    -   We need to first determine which settings work best for most users and wheel types (Direct Drive vs Belt/Gear).
+    -   **Please leave feedback** on the forum thread telling us what settings work best for you: [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
+-   **Any other issue**:
+    -   Report it in the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/) to get support and help us update the app.
+    -   **Important**: You can help significantly by taking a screenshot (use the "**Save Screenshot**" button in the app) and pasting it into your forum post. This captures all your settings and the console log in one go.
 
 
 ### Upcoming Features
