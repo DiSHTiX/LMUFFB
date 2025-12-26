@@ -41,7 +41,7 @@ This is an **experimental release**, the FFB formulas may require refinement bas
 **Please help us improve lmuFFB:**
 1. **Test with caution** - Start with low wheel strength settings
 2. **Experiment with settings** - Try different effect combinations and gains
-3. **Share your results** - Post screenshots (including the "Graphs" window) to the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
+3. **Share your results** - Post screenshots (including the lmuFFB console and the "Graphs" window) to the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
 4. **Report issues** - Let us know what works and what doesn't!
 
 Your testing and feedback is greatly appreciated! 🙏
@@ -52,15 +52,12 @@ Your testing and feedback is greatly appreciated! 🙏
 -   **Inverted FFB (Force pushes away from center)**:
     -   If the FFB feels "backwards" or "inverted" while driving (wheel pushes away from center instead of pulling toward it), check the **"Invert FFB"** checkbox in the lmuFFB GUI.
     -   This reverses the force direction to match your wheel's expected behavior.
--   **FFB Too Strong / Dangerous Forces**:
-    -   **IMMEDIATELY** reduce the maximum FFB strength in your wheel device driver (Simucube TrueDrive, Fanatec Control Panel, Moza Pit House, etc.).
-    -   Set to **10% or lower** for direct drive wheels, **20-30%** for belt/gear wheels.
-    -   Do this **before** running LMU and lmuFFB again.
-    -   Then adjust the "Gain" slider in lmuFFB to fine-tune.
 -   **No FFB**: 
-    -   Ensure the "FFB Device" in lmuFFB is your real wheel.
-    -   Check if the Shared Memory is working (Does "Connected to Le Mans Ultimate" appear in the GUI?).
-    -   Verify the FFB strenght in your device driver is not too low.
+    - Ensure the "FFB Device" in lmuFFB is your real wheel
+    - Check if Connected to Le Mans Ultimate" appear in the GUI
+    - Verify the FFB strength in your device driver is not too low
+    - Increase Master Gain or reduce Max Torque Ref
+    - Check the lmuFFB console for errors
 
 
 ## LMU 1.2+ Support (v0.4.0+)
