@@ -62,7 +62,6 @@ Inverted FFB (Force pushes away from center):
     checkbox in the lmuFFB GUI
   - This reverses the force direction to match your wheel's expected behavior
 
-
 No FFB:
   - Ensure the "FFB Device" in lmuFFB is your real wheel
   - Check if Connected to Le Mans Ultimate" appear in the GUI
@@ -70,6 +69,10 @@ No FFB:
   - Increase Master Gain or reduce Max Torque Ref
   - Check the lmuFFB console for errors
 
+Baseline vibration from the FFB:
+  - That is known to come from the Steering Shaft Torque from the game (you can temporarily disable Steering Shaft Gain to confirm it)
+  - To fix it, enable the "Static Noise Filter" in lmuFFB and set a Target Frequency of 10-12 Hz
+  - If some noise is still present, you can increase the Steering Shaft Smoothing.
 
 UPCOMING FEATURES
 -----------------

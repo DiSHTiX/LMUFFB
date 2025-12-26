@@ -58,6 +58,10 @@ Your testing and feedback is greatly appreciated! 🙏
     - Verify the FFB strength in your device driver is not too low
     - Increase Master Gain or reduce Max Torque Ref
     - Check the lmuFFB console for errors
+-   **Baseline vibration from the FFB**:
+    -   That is known to come from the Steering Shaft Torque from the game (you can temporarily disable Steering Shaft Gain to confirm it).
+    -   To fix it, enable the **"Static Noise Filter"** in lmuFFB and set a **Target Frequency** of **10-12 Hz**.
+    -   If some noise is still present, you can increase the **Steering Shaft Smoothing**.
 
 
 ### Upcoming Features
