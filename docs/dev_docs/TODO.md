@@ -33,8 +33,7 @@ DONE: expose sliders for additional smoothing: yaw kick, gyroscopic damping, Cha
 DONE: lockup vibration improvements
 DONE: Add more tooltips (many sliders are missing them). update existing tooltips
 DONE: add console prints for missing telemetry data, including mLateralForce 
-
-
+Done: in the GUI, rename "SoP Lateral G" to "lateral G", and "Real Align Torque" to "SoP Self-Aligning Torque" 
 
 * Static noise / notch filter: add a range or width slider: how many frequency to the left and right of the center frequency should we also suppress.
     * set the default blocked center frequency to 10-12 Hz, which as reported by user Neebula is the correct one to block the baseline vibration. Set the default range accordingly, to block from 10 to 12 Hz. (so center frequency is 11 Hz?) 
@@ -105,6 +104,7 @@ Basic Mode: lmuFFB has now so many advance options. This might be confusing for 
 overhaul the graphs: add new ones for new effects.
 reorganize them, so they also take less vertical and horizontal space.
 
+auto save last configuration. Is the save config button any longer needed?
 
 add timestamps to console prints
 

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.9] - 2025-12-26
+### Changed
+- **GUI Label Refinements**:
+  - Renamed "SoP Lateral G" to **"Lateral G"** for clarity and conciseness.
+  - Renamed "Rear Align Torque" to **"SoP Self-Aligning Torque"** to better reflect the physical phenomenon (Self-Aligning Torque) being simulated by the Seat of Pants (SoP) model.
+
 ## [0.6.8] - 2025-12-26
 ### Documentation
 - **Troubleshooting Guide**: Expanded README with common FFB tuning solutions:
