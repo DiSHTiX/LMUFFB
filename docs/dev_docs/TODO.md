@@ -49,7 +49,7 @@ Inlcude:
 * Yaw Kick: max at 100% (which is already way too much), down from 200%
 * Lateral G Boost (Slide): max up to 400% (from 200%)
 
-* Static noise / notchfilter: add a range or width slider: how many frequency to the left and right of the center frequency should we also suppress.
+* Static noise / notch filter: add a range or width slider: how many frequency to the left and right of the center frequency should we also suppress.
     * set the default blocked center frequency to 10-12 Hz, which as reported by user Neebula is the correct one to block the baseline vibration. Set the default range accordingly, to block from 10 to 12 Hz. (so center frequency is 11 Hz?) 
     Note: user Neebula reports that the current notch filter set at 10-12 did not seem to  take away any important feedback (no difference found), it just resulted in much smoother ffb. However, some noise was still remaining.
 
