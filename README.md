@@ -41,7 +41,7 @@ This is an **experimental release**, the FFB formulas may require refinement bas
 **Please help us improve lmuFFB:**
 1. **Test with caution** - Start with low wheel strength settings
 2. **Experiment with settings** - Try different effect combinations and gains
-3. **Share your results** - Post screenshots (including the lmuFFB console and the "Graphs" window) to the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
+3. **Share your results** - Post screenshots (including the lmuFFB console and the "Graphs" window) to the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
 4. **Report issues** - Let us know what works and what doesn't!
 
 Your testing and feedback is greatly appreciated! 🙏
@@ -72,7 +72,7 @@ Your testing and feedback is greatly appreciated! 🙏
 ## Feedback & Support
 
 For feedback, questions, or support:
-*   **LMU Forum Thread**: [irFFB for LMU (lmuFFB)](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
+*   **LMU Forum Thread**: [irFFB for LMU (lmuFFB)](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
 *   **GitHub Issues**: [Report bugs or request features](https://github.com/coasting-nc/LMUFFB/issues)
 
 
