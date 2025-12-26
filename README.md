@@ -39,7 +39,7 @@ Experimental alpha version.
 This is an **experimental release**, the FFB formulas may require refinement based on real-world testing.
 
 **Please help us improve lmuFFB:**
-1. **Test with caution** - Start with low wheel strength settings (see Safety Warning above)
+1. **Test with caution** - Start with low wheel strength settings
 2. **Experiment with settings** - Try different effect combinations and gains
 3. **Share your results** - Post screenshots of the "Troubleshooting Graphs" window and the main app window to the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/irffb-for-lmu-lmuffb.10440/)
 4. **Report issues** - Let us know what works and what doesn't!
