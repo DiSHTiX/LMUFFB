@@ -88,7 +88,7 @@ FEEDBACK & SUPPORT
 ------------------
 
 For feedback, questions, or support:
-- LMU Forum Thread: 
+- LMU Forum Thread for lmuFFB App: 
   https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/
 - GitHub Issues: 
   https://github.com/coasting-nc/LMUFFB/issues
