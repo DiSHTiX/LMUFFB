@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.4] - 2025-12-26
+### Documentation
+- **Enhanced Tooltips**: 
+  - Overhauled all GUI tooltips in `GuiLayer.cpp` to provide deep technical context, tuning advice, and physical explanations for every FFB parameter.
+  - Added specific examples for common hardware (e.g., T300 vs DD) and guidance on how settings like "Steering Shaft Smoothing" or "Slip Angle Smoothing" affect latency and feel.
+  - Clarified complex interactions (e.g., Lateral G Boost vs Rear Align Torque) to help users achieve their desired handling balance.
+
 ## [0.6.3] - 2025-12-26
 ### Documentation
 - **FFB Formulas Update**: 
