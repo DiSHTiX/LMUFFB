@@ -65,6 +65,7 @@ test and fix current effects:
 * For all vibration effects, add a slider to select the frequency of vibration (if fixed).
 * experiment with gyro damping to compensate yaw kick
 * spin vibration might also not be working
+* min force: set a value that works wheel for belt and gear driven wheels. The point it to overcome the resistance of the belt/gear for these wheels, to feel the lower forces of the FFB.
 
 verify and investigate: LMU 1.2 bug where mLateralForce is zero for rear wheels; see the workaround in use.
 
