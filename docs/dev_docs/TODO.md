@@ -39,6 +39,8 @@ Done: in the GUI, rename "SoP Lateral G" to "lateral G", and "Real Align Torque"
     * set the default blocked center frequency to 10-12 Hz, which as reported by user Neebula is the correct one to block the baseline vibration. Set the default range accordingly, to block from 10 to 12 Hz. (so center frequency is 11 Hz?) 
     Note: user Neebula reports that the current notch filter set at 10-12 did not seem to  take away any important feedback (no difference found), it just resulted in much smoother ffb ("from the short testing i did i couldnt find a difference except much smoother ffb"). However, some noise was still remaining.
 
+in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics.
+
 expand the range of some sliders that currently are maxed out or minimized, to give more range to feel the effects when too weak. 
 Inlcude: 
 * Understeer Effect (what "measure unit" is this value?) Increase the max from 50 to 200.
