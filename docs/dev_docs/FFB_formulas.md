@@ -3,6 +3,7 @@
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
 > Critical: `mSteeringShaftTorque` is in **Newton-meters (Nm)**.
+> *History: Replaced `mSteeringArmForce` in v0.4.0.*
 
 The final output sent to the DirectInput driver is a normalized value between **-1.0** and **1.0**.
 
@@ -44,7 +45,7 @@ Texture and vibration effects are scaled by normalized tire load (`Load / 4000N`
     *   **Input**: `AvgLoad = (FL.Load + FR.Load) / 2.0`.
     *   **Robustness Check**: Uses a hysteresis counter; if `AvgLoad < 1.0` while `|Velocity| > 1.0 m/s`, it defaults to **4000N** (1.0 Load Factor) to prevent signal loss during telemetry glitches.
     *   $F_{\text{load-texture}} = \text{Clamp}(\text{AvgLoad} / 4000.0, 0.0, m_{\text{texture-load-cap}})$
-    *   **Max Cap**: 2.0.
+    *   **Max Cap**: 2.0. (Updated from legacy 1.5).
 
 2.  **Brake Load Factor (Lockup)**:
     *   $F_{\text{load-brake}} = \text{Clamp}(\text{AvgLoad} / 4000.0, 0.0, m_{\text{brake-load-cap}})$
@@ -182,7 +183,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   $\text{SteerAngle} = \text{UnfilteredInput} \times (\text{RangeInRadians} / 2.0)$
     *   $\text{SteerVel} = (\text{Angle}_{\text{current}} - \text{Angle}_{\text{prev}}) / dt$
 *   **Formula**: $-\text{SteerVel}_{\text{smooth}} \times K_{\text{gyro}} \times (\text{Speed} / 10.0) \times 1.0\text{Nm} \times K_{\text{decouple}}$.
-*   **Smoothing**: Time-Corrected LPF.
+*   **Smoothing**: Time-Corrected LPF ($\tau = K_{\text{smooth}} \times 0.1$).
 
 **3. Time-Corrected LPF (Algorithm)**
 Standard exponential smoothing filter used for Slip Angle, Gyro, SoP, and Shaft Torque.
