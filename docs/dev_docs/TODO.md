@@ -31,12 +31,14 @@ DONE: list effects affected by grip and load approximation, and list those that 
 DONE: add smoothing (and slider) for steering shaft torque
 DONE: expose sliders for additional smoothing: yaw kick, gyroscopic damping, Chassis Inertia (Load)
 DONE: lockup vibration improvements
-DONE: Add more tooltips (many sliders are missing them)
+DONE: Add more tooltips (many sliders are missing them). update existing tooltips
+DONE: add console prints for missing telemetry data, including mLateralForce 
 
 
-add "basic mode" with only main sliders shown, and auto-adjust of settings.
 
-fix: "curbs and road surface almost mute, i'm racing at Sebring and i can hear curbs by ingame sound not wheel.."
+* Static noise / notch filter: add a range or width slider: how many frequency to the left and right of the center frequency should we also suppress.
+    * set the default blocked center frequency to 10-12 Hz, which as reported by user Neebula is the correct one to block the baseline vibration. Set the default range accordingly, to block from 10 to 12 Hz. (so center frequency is 11 Hz?) 
+    Note: user Neebula reports that the current notch filter set at 10-12 did not seem to  take away any important feedback (no difference found), it just resulted in much smoother ffb ("from the short testing i did i couldnt find a difference except much smoother ffb"). However, some noise was still remaining.
 
 expand the range of some sliders that currently are maxed out or minimized, to give more range to feel the effects when too weak. 
 Inlcude: 
@@ -50,15 +52,23 @@ Inlcude:
 * Lockup prediction Rear boost: max up to 10x (from 3x)
 * Yaw Kick: max at 100% (which is already way too much), down from 200%
 * Lateral G Boost (Slide): max up to 400% (from 200%)
+* (Bracking and lockup effects: implement wider ranges in the sliders)
 
-* Static noise / notch filter: add a range or width slider: how many frequency to the left and right of the center frequency should we also suppress.
-    * set the default blocked center frequency to 10-12 Hz, which as reported by user Neebula is the correct one to block the baseline vibration. Set the default range accordingly, to block from 10 to 12 Hz. (so center frequency is 11 Hz?) 
-    Note: user Neebula reports that the current notch filter set at 10-12 did not seem to  take away any important feedback (no difference found), it just resulted in much smoother ffb ("from the short testing i did i couldnt find a difference except much smoother ffb"). However, some noise was still remaining.
-
-overhaul the graphs: add new ones for new effects.
-reorganize them, so they also take less vertical and horizontal space.
+test and fix current effects:
+* understeer effect: experiment to make it work.
+* fix: "curbs and road surface almost mute, i'm racing at Sebring and i can hear curbs by ingame sound not wheel.."
+* test default values after 0-100% normalization of sliders
+* test if some vibration effects are muted
+* check lockup vibration effect, feel it before bracking up, enough to prevent it
+* yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
+    * add a slider for the yaw kick thresshold to determine at which acceleration or force the yaw kick effect starts to be applied. There is still too much noise in the signal, and it does not actually work when needed (feeling a kick for the rear starting to step out).
+* For all vibration effects, add a slider to select the frequency of vibration (if fixed).
+* experiment with gyro damping to compensate yaw kick
+* spin vibration might also not be working
 
 verify and investigate: LMU 1.2 bug where mLateralForce is zero for rear wheels; see the workaround in use.
+
+add "basic mode" with only main sliders shown, and auto-adjust of settings.
 
 more telemetry data to be used: 
 * High Priority: mLocalRot, mLocalRotAccel. Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta
@@ -84,39 +94,18 @@ more telemetry data to be used:
 Implement "Jardier" wet grip effects.
 Implement adaptive (auto) optimal slip angle (and slip rate?)
 
-understeer effect: experiment to make it work.
-
-update tooltips
-
-test default values after 0-100% normalization of sliders
-
-test if some vibration effects are muted
-check lockup vibration effect, feel it before bracking up, enough to prevent it
-
-yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
-experiment with gyro damping to compensate yaw kick
-
-add timestamps to console prints
 
 Fix: the game exited from the session, and there were still forces
 in particular self align torque and slide vibratio
 improve logic of detecting when not driving / not live, and stop ffb
 
-spin vibration might also not be working
-
-
-we need a button for ..disconnect from game? reset data from dame? signal session finished?
-the telemetry persist even after quitting the game (slide texture and rear align torque)
-
-Bracking and lockup effects: implement wider ranges in the sliders
+add timestamps to console prints
 
 Basic Mode: lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
 
-add a slider for the yaw kick thresshold to determine at which acceleration or force the yaw kick effect starts to be applied. There is still too much noise in the signal, and it does not actually work when needed (feeling a kick for the rear starting to step out).
-For all vibration effects, add a slider to select the frequency of vibration (if fixed).
+overhaul the graphs: add new ones for new effects.
+reorganize them, so they also take less vertical and horizontal space.
 
-
-
-
-
+we need a button for ..disconnect from game? reset data from dame? signal session finished?
+the telemetry persist even after quitting the game (slide texture and rear align torque)
 
