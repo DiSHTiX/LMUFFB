@@ -39,6 +39,7 @@ Done: in the GUI, rename "SoP Lateral G" to "lateral G", and "Real Align Torque"
 ## Troubleshooting 25
 
 ### Signal Processing
+This is ready to implement (the latency stuff has been moved to another doc).
 * [Report: Signal Processing & Latency Optimization](report_signal_processing_latency.md)
 
 * Static noise / notch filter: add a range or width slider: how many frequency to the left and right of the center frequency should we also suppress.
@@ -46,11 +47,10 @@ Done: in the GUI, rename "SoP Lateral G" to "lateral G", and "Real Align Torque"
     Note: user Neebula reports that the current notch filter set at 10-12 did not seem to  take away any important feedback (no difference found), it just resulted in much smoother ffb ("from the short testing i did i couldnt find a difference except much smoother ffb"). However, some noise was still remaining.
 * add a slider for the yaw kick thresshold to determine at which acceleration or force the yaw kick effect starts to be applied. There is still too much noise in the signal, and it does not actually work when needed (feeling a kick for the rear starting to step out).
 
-### Other stuff
 
-in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics.
-
-* remove "Manual Slip Calc", not needed, all physics info there to get slip info.
+### Effect Tuning & Slider Range Expansion
+This is ready to implement.
+* [Report: Effect Tuning & Slider Range Expansion](report_effect_tuning_slider_ranges.md)
 
 expand the range of some sliders that currently are maxed out or minimized, to give more range to feel the effects when too weak. 
 Inlcude: 
@@ -66,42 +66,14 @@ Inlcude:
 * Lateral G Boost (Slide): max up to 400% (from 200%)
 * (Bracking and lockup effects: implement wider ranges in the sliders)
 
-test and fix current effects:
-* understeer effect: experiment to make it work.
-* fix: "curbs and road surface almost mute, i'm racing at Sebring and i can hear curbs by ingame sound not wheel.."
-* test default values after 0-100% normalization of sliders
-* test if some vibration effects are muted
-* check lockup vibration effect, feel it before bracking up, enough to prevent it
-* yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
-    
 * For all vibration effects, add a slider to select the frequency of vibration (if fixed).
-* experiment with gyro damping to compensate yaw kick
-* spin vibration might also not be working
-* min force: set a value that works wheel for belt and gear driven wheels. The point it to overcome the resistance of the belt/gear for these wheels, to feel the lower forces of the FFB.
 
-verify and investigate: LMU 1.2 bug where mLateralForce is zero for rear wheels; see the workaround in use.
-* check if the new console warning for missing data triggers
-
-overhaul the presets:
-delete the test and possibly also the guide presets
-add a zero latency preset
-presets for future: t300, g29, standard DD (<20 bit encoder), high end DD (>20 bit encoder)
+* remove "Manual Slip Calc", not needed, all physics info there to get slip info.
 
 
----
+### New Telemetry Effects & Advanced Physics
+* [Report: New Telemetry Effects & Advanced Physics](report_new_telemetry_advanced_physics.md)
 
-possible notes for readme:
-the current version of the app uses a steering rack force that, in the case of GT3s, corresponds to the game FFB (LMU 1.2). In the case of the LMP2, the ingame FFB (LMU 1.2) adds significant smoothing or damping (this seems to mask a baseline tire vibration) so even the steering rack force alone is significantly more detailed in lmuFFB. In lmuFFB there are some settings to get rid of the baseline tire vibration from the steering rack (satich notch filter, steering torque smoothing). 
-
-lmuFFB is particularly useful for lower end wheels (belt/gear driven, and DDs < 12 Nm), because it enhances details that are difficult to feel or absent otherwise.
-
----
-
-Fix: the game exited from the session, and there were still forces
-in particular self align torque and slide vibration
-improve logic of detecting when not driving / not live, and stop ffb
-
-add "basic mode" with only main sliders shown, and auto-adjust of settings.
 
 more telemetry data to be used: 
 * High Priority: mLocalRot, mLocalRotAccel. Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta
@@ -128,11 +100,56 @@ more telemetry data to be used:
     * considering that the current lockup effect is a vibration (although with varying amplitude and frequency), should we also add something that is not a "vibration effect" but a change in a continuous force effect? (also "change of deceleration" effect?)
 -> the planned feature for dynamic longitudinal weight transfer migth help convey this "rubbery" feeling of locking up as a load force
 
-* Doc with new effects:Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing
+
+### Other stuff
+
+overhaul the presets:
+delete the test and possibly also the guide presets
+add a zero latency preset
+presets for future: t300, g29, standard DD (<20 bit encoder), high end DD (>20 bit encoder)
+
+Fix: the game exited from the session, and there were still forces
+in particular self align torque and slide vibration
+improve logic of detecting when not driving / not live, and stop ffb
+
+add "basic mode" with only main sliders shown, and auto-adjust of settings.
+Basic Mode: lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
+
+in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics.
+
+
+test and fix current effects (this requires manual testing of the app; only check if we need to implement anything to support such testing):
+* understeer effect: experiment to make it work.
+* fix: "curbs and road surface almost mute, i'm racing at Sebring and i can hear curbs by ingame sound not wheel.."
+* test default values after 0-100% normalization of sliders
+* test if some vibration effects are muted
+* check lockup vibration effect, feel it before bracking up, enough to prevent it
+* yaw kick further fixes? smoothing? higher thresholds? non linear transformation? 
+* experiment with gyro damping to compensate yaw kick
+* spin vibration might also not be working
+
+* min force: set a value that works wheel for belt and gear driven wheels. The point it to overcome the resistance of the belt/gear for these wheels, to feel the lower forces of the FFB.
+
+verify and investigate: LMU 1.2 bug where mLateralForce is zero for rear wheels; see the workaround in use.
+* check if the new console warning for missing data triggers
+
+
+---
+
+possible notes for readme:
+the current version of the app uses a steering rack force that, in the case of GT3s, corresponds to the game FFB (LMU 1.2). In the case of the LMP2, the ingame FFB (LMU 1.2) adds significant smoothing or damping (this seems to mask a baseline tire vibration) so even the steering rack force alone is significantly more detailed in lmuFFB. In lmuFFB there are some settings to get rid of the baseline tire vibration from the steering rack (satich notch filter, steering torque smoothing). 
+
+lmuFFB is particularly useful for lower end wheels (belt/gear driven, and DDs < 12 Nm), because it enhances details that are difficult to feel or absent otherwise.
+
+---
+
+
+
+* See this doc with new effects to be implemented (some already are implemented): "Yaw Kick Smoothing, Gyroscopic Damping Smoothing, Chassis Inertia (Load) Smoothing"
 Implement "Jardier" wet grip effects.
 Implement adaptive (auto) optimal slip angle (and slip rate?)
 
-Basic Mode: lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
+
 
 overhaul the graphs: add new ones for new effects.
 reorganize them, so they also take less vertical and horizontal space.
@@ -150,4 +167,4 @@ the telemetry persist even after quitting the game (slide texture and rear align
 * [Report: Effect Tuning & Slider Range Expansion](report_effect_tuning_slider_ranges.md)
 * [Report: Robustness & Game Integration](report_robustness_game_integration.md)
 * [Report: UI/UX Overhaul & Presets](report_ui_ux_overhaul.md)
-* [Report: New Telemetry Effects & Advanced Physics](report_new_telemetry_advanced_physics.md)
+* [Report: Latency Investigation](report_latency_investigation.md)
