@@ -249,7 +249,9 @@ public:
     
     // Static Notch Filter (v0.4.43)
     bool m_static_notch_enabled = false;
-    float m_static_notch_freq = 50.0f;
+    float m_static_notch_freq = 11.0f;
+    float m_static_notch_width = 2.0f; // New v0.6.10: Width in Hz
+    float m_yaw_kick_threshold = 0.2f; // New v0.6.10: Threshold in rad/s^2 (Default 0.2 matching legacy gate)
     
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
@@ -803,8 +805,13 @@ public:
         
         // 3. Static Notch Filter (v0.4.43)
         if (m_static_notch_enabled) {
-             // Fixed Q of 5.0 (Surgical)
-             m_static_notch_filter.Update((double)m_static_notch_freq, 1.0/dt, 5.0);
+             // v0.6.10: Variable Width (Bandwidth based Q calculation)
+             // Q = CenterFreq / Bandwidth
+             double bw = (double)m_static_notch_width;
+             if (bw < 0.1) bw = 0.1; // Safety clamp
+             double q = (double)m_static_notch_freq / bw;
+             
+             m_static_notch_filter.Update((double)m_static_notch_freq, 1.0/dt, q);
              game_force = m_static_notch_filter.Process(game_force);
         } else {
              m_static_notch_filter.Reset();
@@ -1144,9 +1151,9 @@ public:
         if (car_v_long < 5.0) {
             raw_yaw_accel = 0.0;
         }
-        // Noise Gate (Deadzone): Filter out micro-corrections and road bumps
-        // Real slides generate >> 2.0 rad/s², road noise is typically < 0.2 rad/s²
-        else if (std::abs(raw_yaw_accel) < 0.2) {
+        // v0.6.10: Configurable Noise Gate (Activation Threshold)
+        // Filter out micro-corrections and road bumps based on user preference
+        else if (std::abs(raw_yaw_accel) < (double)m_yaw_kick_threshold) {
             raw_yaw_accel = 0.0;
         }
         

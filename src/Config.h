@@ -76,7 +76,9 @@ struct Preset {
     float flatspot_strength = 1.0f;
     
     bool static_notch_enabled = false;
-    float static_notch_freq = 50.0f;
+    float static_notch_freq = 11.0f;
+    float static_notch_width = 2.0f; // New v0.6.10
+    float yaw_kick_threshold = 0.2f; // New v0.6.10
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
@@ -129,11 +131,13 @@ struct Preset {
         return *this; 
     }
     
-    Preset& SetStaticNotch(bool enabled, float freq) {
+    Preset& SetStaticNotch(bool enabled, float freq, float width = 2.0f) {
         static_notch_enabled = enabled;
         static_notch_freq = freq;
+        static_notch_width = width;
         return *this;
     }
+    Preset& SetYawKickThreshold(float v) { yaw_kick_threshold = v; return *this; }
 
     Preset& SetOptimalSlip(float angle, float ratio) {
         optimal_slip_angle = angle;
@@ -207,6 +211,8 @@ struct Preset {
         engine.m_flatspot_strength = flatspot_strength;
         engine.m_static_notch_enabled = static_notch_enabled;
         engine.m_static_notch_freq = static_notch_freq;
+        engine.m_static_notch_width = static_notch_width;
+        engine.m_yaw_kick_threshold = yaw_kick_threshold;
         engine.m_optimal_slip_angle = optimal_slip_angle;
         engine.m_optimal_slip_ratio = optimal_slip_ratio;
         engine.m_steering_shaft_smoothing = steering_shaft_smoothing;
@@ -259,6 +265,8 @@ struct Preset {
         flatspot_strength = engine.m_flatspot_strength;
         static_notch_enabled = engine.m_static_notch_enabled;
         static_notch_freq = engine.m_static_notch_freq;
+        static_notch_width = engine.m_static_notch_width;
+        yaw_kick_threshold = engine.m_yaw_kick_threshold;
         optimal_slip_angle = engine.m_optimal_slip_angle;
         optimal_slip_ratio = engine.m_optimal_slip_ratio;
         steering_shaft_smoothing = engine.m_steering_shaft_smoothing;

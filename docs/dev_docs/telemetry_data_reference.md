@@ -16,7 +16,7 @@
 
 ## Overview
 
-This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.3) and explores potential future uses for enhanced Force Feedback.
+This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.10) and explores potential future uses for enhanced Force Feedback.
 
 **Changes from rFactor 2:** LMU 1.2 introduced native shared memory support with:
 - **Direct torque measurement**: `mSteeringShaftTorque` (Nm) replaced force-based `mSteeringArmForce` (N)
@@ -30,13 +30,13 @@ This document lists the physics data available from the **Le Mans Ultimate 1.2 N
 
 These values describe the state of the vehicle chassis and engine.
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | `mDeltaTime` | seconds | Time since last physics update | **Used**: Oscillator integration, Time-Corrected Smoothing, Frequency Estimation | |
 | `mElapsedTime` | seconds | Session time | **Used**: Zero-crossing frequency analysis timestamps | Logging |
 | **`mSteeringShaftTorque`** | **Nm** | **Torque around steering shaft** (replaces `mSteeringArmForce`) | **Used**: Primary FFB source, Signal Analysis (Freq Estimator) | |
 | `mLocalAccel` | m/s² | Acceleration in car-local space (X=Lat, Y=Vert, Z=Long) | **Used**: `x` for SoP (Seat of Pants), `x/z` for **Kinematic Load Reconstruction** | `z` for braking dive/acceleration squat cues |
-| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (with noise filtering) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
+| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (with configurable Activation Threshold: 0.0-10.0 rad/s²) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
 | `mLocalVel` | m/s | Velocity in local coordinates | **Used**: `z` for speed-based frequency scaling, Kinematic Load, & sanity checks | |
 | `mUnfilteredThrottle` | 0.0-1.0 | Raw throttle input | **Used**: Trigger for Wheel Spin effects | |
 | `mUnfilteredBrake` | 0.0-1.0 | Raw brake input | **Used**: Trigger for Lockup effects and **Predictive Logic Gating**, **ABS Trigger** | |
@@ -53,7 +53,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Forces & Grip
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | **`mTireLoad`** | **N** | **Vertical load on tire** | **Used**: Load scaling (Split Caps: Texture vs Brake), Bottoming (Legacy), Kinematic Model switch | **Load Sensitivity**: Reduce FFB gain if front tires are unloaded |
 | **`mGripFract`** | **0.0-1.0** | **Grip usage fraction** (0=full grip available, 1=at limit) | **Used**: Understeer/Oversteer detection, Slide Texture Scrub work-scaling | |
@@ -63,7 +63,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Motion & Slip
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | **`mLateralPatchVel`** | **m/s** | **Lateral velocity at contact patch** | **Used**: Slip Angle calc, Slide Texture frequency/amplitude, Scrub Drag | More accurate "scrub" feel |
 | **`mLongitudinalPatchVel`** | **m/s** | **Longitudinal velocity at contact patch** | **Used**: Slip ratio calculation, Traction Loss | |
@@ -73,7 +73,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Suspension & Surface
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | `mVerticalTireDeflection` | m | Compression of tire rubber | **Used**: Road Texture (High-pass filter), **Lockup Bump Rejection** (Velocity) | |
 | `mSuspensionDeflection` | m | Compression of spring/damper | Unused | **Bottoming Out**: Harsh "thud" if deflection hits max travel |
@@ -85,7 +85,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Condition
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | `mTemperature[3]` | Kelvin | Inner/Middle/Outer tire temps | Unused | **Cold Tire Feel**: Reduce grip when cold |
 | `mWear` | 0.0-1.0 | Tire wear fraction | Unused | **Wear Feel**: Reduce overall gain as tires wear |

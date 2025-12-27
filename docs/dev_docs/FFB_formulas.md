@@ -1,4 +1,4 @@
-# FFB Mathematical Formulas (v0.6.2)
+# FFB Mathematical Formulas (v0.6.10)
 
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
@@ -105,7 +105,8 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   **Input**: `mLocalRotAccel.y` (rad/s²). **Note**: Inverted (-1.0) to comply with SDK requirement to negate rotation data.
     *   **Conditioning**:
         *   **Low Speed Cutoff**: 0.0 if Speed < 5.0 m/s.
-        *   **Noise Gate**: 0.0 if $|Accel| < 0.2$ rad/s².
+        *   **Activation Threshold**: 0.0 if $|Accel| < m_{\text{yaw-kick-threshold}}$ rad/s². 
+            *   *Default*: 0.2 rad/s². Configurable to filter road noise.
     *   **Rationale**: Requires heavy smoothing (LPF) to separate true chassis rotation from "Slide Texture" vibration noise, preventing a feedback loop where vibration is mistaken for rotation.
     *   **Formula**: $-\text{YawAccel}_{\text{smooth}} \times K_{\text{yaw}} \times 5.0 \text{Nm} \times K_{\text{decouple}}$.
     *   **Note**: Negative sign provides counter-steering torque.
@@ -178,7 +179,9 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Notch Filters**:
     *   **Dynamic**: $Freq = \text{Speed} / \text{Circumference}$. Uses Biquad.
         *   *Safety*: If radius is invalid, defaults to **0.33m** (33cm).
-    *   **Static**: Fixed frequency (e.g. 50Hz) Biquad.
+    *   **Static**: Biquad Notch with variable bandwidth.
+        *   **Quality Factor (Q)**: $Q = Freq / Width$.
+        *   *Default*: 11.0 Hz center, 2.0 Hz width (targets 10-12 Hz baseline vibration).
 *   **Frequency Estimator**: Tracks zero-crossings of `mSteeringShaftTorque` (AC coupled).
 
 **2. Gyroscopic Damping ($F_{\text{gyro}}$)**

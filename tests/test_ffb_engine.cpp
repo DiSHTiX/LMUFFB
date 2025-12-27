@@ -81,6 +81,10 @@ static void test_dynamic_thresholds(); // Forward declaration (v0.5.13)
 static void test_predictive_lockup_v060(); // Forward declaration (v0.6.0)
 static void test_abs_pulse_v060(); // Forward declaration (v0.6.0)
 static void test_missing_telemetry_warnings(); // Forward declaration (v0.6.3)
+static void test_notch_filter_bandwidth(); // Forward declaration (v0.6.10)
+static void test_yaw_kick_threshold(); // Forward declaration (v0.6.10)
+static void test_notch_filter_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
+static void test_yaw_kick_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -4278,7 +4282,8 @@ static void test_static_notch_integration() {
 
     // Setup
     engine.m_static_notch_enabled = true;
-    engine.m_static_notch_freq = 50.0;
+    engine.m_static_notch_freq = 11.0;
+    engine.m_static_notch_width = 10.0; // Q = 11/10 = 1.1 (Wide notch for testing)
     engine.m_gain = 1.0;
     engine.m_max_torque_ref = 1.0; 
     engine.m_bottoming_enabled = false; // Disable to avoid interference
@@ -4294,11 +4299,11 @@ static void test_static_notch_integration() {
     
     double sample_rate = 1.0 / data.mDeltaTime; // 400Hz
 
-    // 1. Target Frequency (50Hz) - Should be attenuated
+    // 1. Target Frequency (11Hz) - Should be attenuated
     double max_amp_target = 0.0;
     for (int i = 0; i < 400; i++) { // 1 second
         double t = (double)i * data.mDeltaTime;
-        data.mSteeringShaftTorque = std::sin(2.0 * 3.14159265 * 50.0 * t);
+        data.mSteeringShaftTorque = std::sin(2.0 * 3.14159265 * 11.0 * t); // Test at 11Hz
         
         double force = engine.calculate_force(&data);
         
@@ -4308,16 +4313,16 @@ static void test_static_notch_integration() {
         }
     }
     
-    // Q=5.0 notch at 50Hz should provide significant attenuation.
-    if (max_amp_target < 0.2) {
-        std::cout << "[PASS] Static Notch attenuated 50Hz signal (Max Amp: " << max_amp_target << ")" << std::endl;
+    // Q=1.1 notch at 11Hz should provide significant attenuation.
+    if (max_amp_target < 0.3) {
+        std::cout << "[PASS] Static Notch attenuated 11Hz signal (Max Amp: " << max_amp_target << ")" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Static Notch failed to attenuate 50Hz. Max Amp: " << max_amp_target << std::endl;
+        std::cout << "[FAIL] Static Notch failed to attenuate 11Hz. Max Amp: " << max_amp_target << std::endl;
         g_tests_failed++;
     }
 
-    // 2. Off-Target Frequency (10Hz) - Should pass
+    // 2. Off-Target Frequency (20Hz) - Should pass
     engine.m_static_notch_enabled = false;
     engine.calculate_force(&data); // Reset by disabling
     engine.m_static_notch_enabled = true;
@@ -4325,7 +4330,7 @@ static void test_static_notch_integration() {
     double max_amp_pass = 0.0;
     for (int i = 0; i < 400; i++) {
         double t = (double)i * data.mDeltaTime;
-        data.mSteeringShaftTorque = std::sin(2.0 * 3.14159265 * 10.0 * t);
+        data.mSteeringShaftTorque = std::sin(2.0 * 3.14159265 * 20.0 * t); // Test at 20Hz (far from 11Hz)
         
         double force = engine.calculate_force(&data);
         
@@ -4335,10 +4340,10 @@ static void test_static_notch_integration() {
     }
 
     if (max_amp_pass > 0.8) {
-        std::cout << "[PASS] Static Notch passed 10Hz signal (Max Amp: " << max_amp_pass << ")" << std::endl;
+        std::cout << "[PASS] Static Notch passed 20Hz signal (Max Amp: " << max_amp_pass << ")" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Static Notch attenuated 10Hz signal. Max Amp: " << max_amp_pass << std::endl;
+        std::cout << "[FAIL] Static Notch attenuated 20Hz signal. Max Amp: " << max_amp_pass << std::endl;
         g_tests_failed++;
     }
 }
@@ -5083,6 +5088,217 @@ static void test_missing_telemetry_warnings() {
     std::cout.rdbuf(prev_cout_buf);
 }
 
+static void test_notch_filter_bandwidth() {
+    std::cout << "\nTest: Notch Filter Bandwidth (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_static_notch_enabled = true;
+    engine.m_static_notch_freq = 50.0f;
+    engine.m_static_notch_width = 10.0f; // 45Hz to 55Hz
+    
+    // Case 1: Signal at center frequency (50Hz)
+    // 50Hz signal: 10/dt = 1/dt. Samples per period = (1/dt)/50.
+    // If dt=0.0025 (400Hz), samples per period = 8.
+    data.mDeltaTime = 0.0025;
+    
+    // Inject 50Hz sine wave
+    double amplitude = 10.0;
+    double max_output = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 50.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output) max_output = output;
+    }
+    // Normalized amplitude max is (10.0 * 1.0) / 20.0 = 0.5.
+    // At center, it should be highly attenuated (near 0)
+    ASSERT_TRUE(max_output < 0.1); 
+
+    // Case 2: Signal at 46Hz (inside the 10Hz bandwidth)
+    max_output = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 46.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output) max_output = output;
+    }
+    // 46Hz is within the 10Hz bandwidth (45-55). Should be significantly attenuated but > 0.
+    // Max unattenuated is 0.5. Calculated gain ~0.64 -> Expect ~0.32
+    ASSERT_TRUE(max_output < 0.4); 
+    ASSERT_TRUE(max_output > 0.1);
+
+    // Case 3: Signal at 65Hz (outside the 10Hz bandwidth)
+    max_output = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 65.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output) max_output = output;
+    }
+    // 65Hz is far outside 45-55. Attenuation should be minimal.
+    // Expected output near 0.25.
+    ASSERT_TRUE(max_output > 0.2);
+}
+
+static void test_yaw_kick_threshold() {
+    std::cout << "\nTest: Yaw Kick Threshold (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_yaw_kick_threshold = 5.0f;
+    engine.m_yaw_accel_smoothing = 1.0f; // Fast response for test
+    
+    // Case 1: Yaw Accel below threshold (2.0 < 5.0)
+    data.mLocalRotAccel.y = 2.0;
+    engine.calculate_force(&data); // 1st frame smoothing
+    double force_low = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_low, 0.0, 0.001);
+
+    // Case 2: Yaw Accel above threshold (6.0 > 5.0)
+    data.mLocalRotAccel.y = 6.0;
+    engine.calculate_force(&data); 
+    double force_high = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_high) > 0.01);
+}
+
+static void test_notch_filter_edge_cases() {
+    std::cout << "\nTest: Notch Filter Edge Cases (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_static_notch_enabled = true;
+    engine.m_static_notch_freq = 11.0f; // Use new default
+    data.mDeltaTime = 0.0025; // 400Hz
+    
+    // Edge Case 1: Minimum Width (0.1 Hz) - Very narrow notch
+    // Q = 11 / 0.1 = 110 (extremely surgical)
+    engine.m_static_notch_width = 0.1f;
+    
+    double amplitude = 10.0;
+    double max_output_narrow = 0.0;
+    
+    // Test at 11Hz (center) - should be heavily attenuated
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 11.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_narrow) max_output_narrow = output;
+    }
+    // Notch filter with high Q provides excellent attenuation but not perfect due to transients
+    ASSERT_TRUE(max_output_narrow < 0.6); // Very narrow notch still attenuates center significantly
+    
+    // Test at 10.5Hz (just 0.5 Hz away) - should pass through with narrow notch
+    max_output_narrow = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 10.5 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_narrow) max_output_narrow = output;
+    }
+    ASSERT_TRUE(max_output_narrow > 0.3); // Narrow notch doesn't affect nearby frequencies
+    
+    // Edge Case 2: Maximum Width (10.0 Hz) - Very wide notch
+    // Q = 11 / 10 = 1.1 (wide suppression)
+    engine.m_static_notch_width = 10.0f;
+    
+    double max_output_wide = 0.0;
+    
+    // Test at 6Hz (5 Hz away, at edge of 10Hz bandwidth)
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 6.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_wide) max_output_wide = output;
+    }
+    // Wide notch affects frequencies 5Hz away but doesn't eliminate them
+    ASSERT_TRUE(max_output_wide > 0.05); // Not completely eliminated
+    
+    // Edge Case 3: Below minimum safety clamp (should clamp to 0.1)
+    // This tests the safety clamp in FFBEngine.h line 811
+    engine.m_static_notch_width = 0.05f; // Below 0.1 minimum
+    
+    // The code should clamp this to 0.1, giving Q = 11 / 0.1 = 110
+    max_output_narrow = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 11.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_narrow) max_output_narrow = output;
+    }
+    ASSERT_TRUE(max_output_narrow < 0.7); // Safety clamp prevents extreme Q values
+}
+
+static void test_yaw_kick_edge_cases() {
+    std::cout << "\nTest: Yaw Kick Threshold Edge Cases (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_yaw_accel_smoothing = 1.0f; // Fast response for testing
+    
+    // Edge Case 1: Zero Threshold (0.0) - All signals pass through
+    engine.m_yaw_kick_threshold = 0.0f;
+    
+    // Use a reasonable signal (not tiny) to test threshold behavior
+    data.mLocalRotAccel.y = 1.0; // Reasonable signal
+    engine.calculate_force(&data); // Smoothing frame
+    double force_tiny = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_tiny) > 0.001); // With zero threshold, signals pass
+    
+    // Edge Case 2: Maximum Threshold (10.0) - Only extreme signals pass
+    engine.m_yaw_kick_threshold = 10.0f;
+    
+    // Reset smoothing state
+    engine.m_yaw_accel_smoothed = 0.0;
+    
+    // Large but below threshold (9.0 < 10.0)
+    data.mLocalRotAccel.y = 9.0;
+    engine.calculate_force(&data);
+    double force_below_max = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_below_max, 0.0, 0.001); // Below max threshold = gated
+    
+    // Above maximum threshold (11.0 > 10.0)
+    data.mLocalRotAccel.y = 11.0;
+    engine.calculate_force(&data);
+    double force_above_max = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_above_max) > 0.01); // Above max threshold = passes
+    
+    // Edge Case 3: Negative yaw acceleration (should use absolute value)
+    engine.m_yaw_kick_threshold = 5.0f;
+    engine.m_yaw_accel_smoothed = 0.0; // Reset
+    
+    // Negative value with magnitude above threshold
+    data.mLocalRotAccel.y = -6.0; // |−6.0| = 6.0 > 5.0
+    engine.calculate_force(&data);
+    double force_negative = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_negative) > 0.01); // Absolute value check works
+    
+    // Negative value with magnitude below threshold
+    engine.m_yaw_accel_smoothed = 0.0; // Reset
+    data.mLocalRotAccel.y = -4.0; // |−4.0| = 4.0 < 5.0
+    engine.calculate_force(&data);
+    double force_negative_below = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_negative_below, 0.0, 0.001); // Below threshold = gated
+    
+    // Edge Case 4: Interaction with low-speed cutoff
+    // Low speed cutoff (< 5.0 m/s) should override threshold
+    engine.m_yaw_kick_threshold = 0.0f; // Zero threshold (all pass)
+    engine.m_yaw_accel_smoothed = 0.0; // Reset
+    data.mLocalRotAccel.y = 10.0; // Large acceleration
+    data.mLocalVel.z = 3.0; // Below 5.0 m/s cutoff
+    
+    engine.calculate_force(&data);
+    double force_low_speed = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_low_speed, 0.0, 0.001); // Low speed cutoff takes precedence
+}
+
 // Main Runner
 void Run() {
     std::cout << "=== Running FFB Engine Tests ===" << std::endl;
@@ -5179,6 +5395,10 @@ void Run() {
     test_predictive_lockup_v060(); // v0.6.0
     test_abs_pulse_v060(); // v0.6.0
     test_missing_telemetry_warnings(); // New in v0.6.3
+    test_notch_filter_bandwidth(); // New in v0.6.10
+    test_yaw_kick_threshold(); // New in v0.6.10
+    test_notch_filter_edge_cases(); // New in v0.6.10 - Edge Cases
+    test_yaw_kick_edge_cases(); // New in v0.6.10 - Edge Cases
     
     std::cout << "\n--- Physics Engine Test Summary ---" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

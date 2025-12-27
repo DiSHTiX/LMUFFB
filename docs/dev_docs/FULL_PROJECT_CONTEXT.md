@@ -451,6 +451,20 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.10] - 2025-12-27
+### Added
+- **Signal Processing Improvements**:
+  - **Dynamic Static Notch Filter**: Replaced the fixed Q-factor notch filter with a variable bandwidth filter. Users can now adjust the "Filter Width" (0.1 to 10.0 Hz) to surgically suppress hardware resonance or floor noise.
+  - **Adjustable Yaw Kick Threshold**: Implemented a user-configurable activation threshold (0.0 to 10.0 rad/s²) for the Yaw Kick effect. This allows users to filter out micro-corrections and road noise while maintaining sharp reaction cues for actual car rotation.
+- **GUI Enhanced Controls**:
+  - Added "Filter Width" slider to the Signal Filtering section.
+  - Added "Activation Threshold" slider to the Yaw Kick effect section for better noise immunity tuning.
+- **Improved Test Coverage**:
+  - Added `test_notch_filter_bandwidth()` and `test_yaw_kick_threshold()` to the physics verification suite.
+  - Added `test_notch_filter_edge_cases()` and `test_yaw_kick_edge_cases()` for comprehensive edge case validation.
+### Changed
+- **Default Static Notch Frequency**: Changed from 50.0 Hz to 11.0 Hz to better target the 10-12 Hz baseline vibration range identified in user feedback.
+
 ## [0.6.9] - 2025-12-26
 ### Changed
 - **GUI Label Refinements**:
@@ -5829,7 +5843,7 @@ if (car_speed > 5.0) {
 
 # File: docs\dev_docs\FFB_formulas.md
 ```markdown
-# FFB Mathematical Formulas (v0.6.2)
+# FFB Mathematical Formulas (v0.6.10)
 
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
@@ -5936,7 +5950,8 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   **Input**: `mLocalRotAccel.y` (rad/s²). **Note**: Inverted (-1.0) to comply with SDK requirement to negate rotation data.
     *   **Conditioning**:
         *   **Low Speed Cutoff**: 0.0 if Speed < 5.0 m/s.
-        *   **Noise Gate**: 0.0 if $|Accel| < 0.2$ rad/s².
+        *   **Activation Threshold**: 0.0 if $|Accel| < m_{\text{yaw-kick-threshold}}$ rad/s². 
+            *   *Default*: 0.2 rad/s². Configurable to filter road noise.
     *   **Rationale**: Requires heavy smoothing (LPF) to separate true chassis rotation from "Slide Texture" vibration noise, preventing a feedback loop where vibration is mistaken for rotation.
     *   **Formula**: $-\text{YawAccel}_{\text{smooth}} \times K_{\text{yaw}} \times 5.0 \text{Nm} \times K_{\text{decouple}}$.
     *   **Note**: Negative sign provides counter-steering torque.
@@ -6009,7 +6024,9 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Notch Filters**:
     *   **Dynamic**: $Freq = \text{Speed} / \text{Circumference}$. Uses Biquad.
         *   *Safety*: If radius is invalid, defaults to **0.33m** (33cm).
-    *   **Static**: Fixed frequency (e.g. 50Hz) Biquad.
+    *   **Static**: Biquad Notch with variable bandwidth.
+        *   **Quality Factor (Q)**: $Q = Freq / Width$.
+        *   *Default*: 11.0 Hz center, 2.0 Hz width (targets 10-12 Hz baseline vibration).
 *   **Frequency Estimator**: Tracks zero-crossings of `mSteeringShaftTorque` (AC coupled).
 
 **2. Gyroscopic Damping ($F_{\text{gyro}}$)**
@@ -9726,6 +9743,267 @@ The code review fixes ensure the implementation follows best practices and maint
 
 ```
 
+# File: docs\dev_docs\report_effect_tuning_slider_ranges.md
+```markdown
+# Report: Effect Tuning & Slider Range Expansion
+
+## 1. Introduction and Context
+This report focuses on refining the user adjustability of the FFB effects. The "Troubleshooting 25" list highlights that several sliders are currently limited to ranges that prevent users from fully utilizing the effects (e.g., users needing 200% gain when the limit is 100%). Additionally, some legacy features like "Manual Slip Calculation" are cluttering the UI, and vibration effects lack pitch tuning, making them feel generic on different wheel hardware.
+
+**Problems Identified:**
+*   **Slider Ranges**: Many effects (Understeer, Steering Shaft Gain, ABS Pulse, Lockup, etc.) trigger clipping or are too weak at their current maximums. Users request up to 400% or 10x range increases in some cases.
+*   **Obsolete Features**: "Manual Slip Calc" is no longer needed as the app now robustly handles slip via game telemetry or internal estimation fallback.
+*   **Generic Vibration Frequencies**: Effects like Lockup, ABS, and Spin use hardcoded frequencies (e.g., 20Hz, 50Hz). These frequencies may resonate poorly or feel "toy-like" on high-end Direct Drive bases vs. belt-driven wheels.
+*   **Tuning Gaps**: Defaults for Lockup Response Gamma need to be lower (0.1 instead of 0.5) to allow for more aggressive onset.
+
+## 2. Proposed Solution
+
+### 2.1. Slider Range Expansion
+We will systematically update the Min/Max values in the GUI for the following:
+*   **Understeer Effect**: Max 50 -> **200**.
+*   **Steering Shaft Gain**: Max 100% (1.0) -> **200% (2.0)**.
+*   **ABS Pulse Gain**: Max 2.0 -> **10.0**.
+*   **Lockup Strength**: Max 2.0 -> **3.0** (or higher as requested, e.g. 300%).
+*   **Brake Load Cap**: Max 3.0 -> **10.0**.
+*   **Lockup Prediction Sensitivity**: Min 20 -> **10**.
+*   **Lockup Rear Boost**: Max 3.0 -> **10.0**.
+*   **Yaw Kick Gain**: Max 2.0 -> **1.0** (User reports it is "way too much", request to lower cap, or normalized). *Correction*: User asked "max at 100%... down from 200%". We will adjust range to 0.0-1.0 or keep 2.0 but scale internal math.
+*   **Lateral G Boost**: Max 2.0 -> **4.0**.
+*   **Lockup Gamma**: Min 0.5 -> **0.1**.
+
+### 2.2. Frequency Tuning
+*   **Configurable Frequencies**: Add new sliders for "Base Frequency" for:
+    *   ABS Pulse (Default 20Hz)
+    *   Lockup Vibration (Default based on speed, but add a scalar or base pitch)
+    *   Spin Vibration (Default based on slip speed, add a scalar)
+*   **Goal**: Allow users to tune the "pitch" of the effect to match their rig's resonant frequency.
+
+### 2.3. Cleanup
+*   Remove `m_use_manual_slip` boolean and all associated logic from `FFBEngine` and `GuiLayer`. The engine will always use the best available method.
+
+## 3. Implementation Plan
+
+### 3.1. `src/FFBEngine.h`
+1.  **Remove manual slip toggle**.
+2.  **Add Frequency Scalars**:
+    ```cpp
+    float m_abs_freq_hz = 20.0f;
+    float m_lockup_freq_scale = 1.0f; // Multiplier for speed-based freq
+    float m_spin_freq_scale = 1.0f;
+    ```
+3.  **Update Effect Logic**: Use these new variables in `calculate_force` instead of hardcoded constants.
+
+### 3.2. `src/GuiLayer.cpp`
+1.  **Update `FloatSetting` Calls**: Change the `min` and `max` arguments to the new target values listed in 2.1.
+2.  **Add New Frequency Sliders**:
+    *   Under **ABS**: "Pulse Frequency" (10Hz - 50Hz).
+    *   Under **Baking & Lockup**: "Vibration Pitch" (0.5x - 2.0x).
+3.  **Remove**: Hide/Delete the "Manual Slip Calc" checkbox.
+
+## 4. Testing Plan
+
+### 4.1. Range Validation
+*   **Setup**: Open the app.
+*   **Action**: Drag "Steering Shaft Gain" to the far right.
+*   **Verification**: value should reach 200% (2.0).
+*   **Action**: Set "Lockup Gamma" to 0.1.
+*   **Verification**: Ensure no crash/divide-by-zero in the math (Gamma logic usually uses `pow(x, gamma)`, which is safe for positive x and gamma=0.1).
+
+### 4.2. Frequency Tuning
+*   **Setup**: Tune ABS Frequency to 50Hz (high).
+*   **Action**: Drive and slam brakes to trigger ABS.
+*   **Verification**: The tactile feedback should feel like a "buzz" rather than a "thump".
+*   **Setup**: Tune ABS Frequency to 10Hz (low).
+*   **Verification**: Feedback should feel like a slow "chug-chug-chug".
+
+## 5. Documentation Updates
+
+The following documents need to be updated to reflect the changes detailed in this report:
+
+*   `docs\dev_docs\FFB_formulas.md`
+*   `docs\dev_docs\telemetry_data_reference.md`
+
+## 6. Automated Tests
+
+### 6.1. Slider Limits Tests (`tests/test_ffb_engine.cpp`)
+*   **Verify Max Values**:
+    *   Although the Engine generally consumes float values without explicit clamping (clamping usually happens in GUI), we should verify that extreme values (e.g. 200% gain, 10.0 ABS gain) do not cause instabilities.
+    *   Create `test_high_gain_stability`: Set gains to new maximums, run 1000 iter, ensure no NaNs/Inf.
+
+### 6.2. Frequency Scalar Tests (`tests/test_ffb_engine.cpp`)
+*   **ABS Frequency**:
+    *   Create `test_abs_frequency_scaling`.
+    *   Set `m_abs_freq_hz` to 20Hz. Check 1 full cycle duration in output samples.
+    *   Set `m_abs_freq_hz` to 40Hz. Check that cycle duration is halved.
+*   **Variable Pitch Tests**:
+    *   Create `test_lockup_pitch_scaling`.
+    *   Set `m_lockup_freq_scale` to 1.0 vs 2.0.
+    *   Simulate a constant lockup condition.
+    *   Verify that the output sine wave frequency doubles when scale is 2.0.
+
+### 6.3. Manual Slip Removal Regression
+*   **Verify Defaults**:
+    *   Ensure `test_manual_slip_calculation` (if it exists) is removed or updated to reflect that manual slip logic is gone.
+    *   Ensure standard slip tests still pass (the engine should use the fallback or telemetry data automatically).
+
+## Prompt
+
+Please proceed with the following task:
+
+**Task: Implement Effect Tuning and Slider Range Expansion**
+
+**Context:**
+This report identifies limitations in current FFB adjustment ranges and missing features for frequency tuning. The goal is to give users more control over effect strength (up to 200-400% in some cases) and vibration pitch/character.
+
+**References:**
+*   `docs\dev_docs\report_effect_tuning_slider_ranges.md` (This Report)
+*   `docs\dev_docs\FFB_formulas.md`
+*   `docs\dev_docs\telemetry_data_reference.md`
+*   `src/FFBEngine.h`
+*   `src/GuiLayer.cpp`
+*   `tests/test_ffb_engine.cpp`
+
+**Implementation Requirements:**
+1.  **Read and understand** the "Proposed Solution" (Section 2) and "Implementation Plan" (Section 3) of this document (`docs\dev_docs\report_effect_tuning_slider_ranges.md`).
+2.  **Modify `src/FFBEngine.h`**:
+    *   Remove manual slip logic (`m_use_manual_slip`).
+    *   Add frequency scalar variables (`m_abs_freq_hz`, `m_lockup_freq_scale`, `m_spin_freq_scale`).
+    *   Update `calculate_force` to use these new scalars.
+3.  **Modify `src/GuiLayer.cpp`**:
+    *   Update Min/Max values for `FloatSetting` calls as specified in Section 2.1.
+    *   Add new sliders for ABS Pulse Frequency and Vibration Pitch.
+    *   Remove the Manual Slip checkbox.
+4.  **Implement Automated Tests**:
+    *   Add new test cases to `tests/test_ffb_engine.cpp` as detailed in **Section 6** (Automated Tests).
+    *   Ensure all tests pass.
+5.  **Update Documentation**:
+    *   Reflect removal of Manual Slip in `docs\dev_docs\FFB_formulas.md`.
+    *   Document new sliders in `docs\dev_docs\telemetry_data_reference.md`.
+6.  **Update Version & Changelog**:
+    *   Increment the version number in `VERSION`.
+    *   Add a detailed entry in `CHANGELOG.md`.
+
+**Build & Test Instructions:**
+Use the following commands to build and test your changes. **ALL TESTS MUST PASS.**
+
+*   **Update app version, compile main app, compile all tests (including windows tests), all in one single command:**
+    ```powershell
+    & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build; cmake --build build --config Release --clean-first
+    ```
+
+*   **Run all tests that had already been compiled:**
+    ```powershell
+    .\build\tests\Release\run_combined_tests.exe
+    ```
+
+**Deliverables:**
+*   Updated source code files (`FFBEngine.h`, `GuiLayer.cpp`) implementing the range changes and new sliders.
+*   Updated test file (`tests/test_ffb_engine.cpp`) with passing tests.
+*   Updated `VERSION` and `CHANGELOG.md`.
+*   Updated markdown documentation files.
+
+
+
+```
+
+# File: docs\dev_docs\report_latency_investigation.md
+```markdown
+# Report: Perceived Latency Investigation
+
+## 1. Context and Problem Statement
+**Perceived Latency**: Users report a "delay" and "disconnect from game physics" even when smoothing is disabled. We need to investigate if this is inherent to the specific game/wheel combination or if the app's processing loop introduces avoidable lag.
+
+Note: this will be addressed / implemented later; we will also first need confirmation from testing by other users with DDs that the issue is still present before proceeding with this.
+
+## 2. Proposed Solution: Latency Investigation & Monitoring
+*   **Timestamp Logging**: To investigate latency, we will add high-precision timestamps to the console output when `DirectInput` packets are sent vs. when Game Telemetry is received.
+*   **Processing Loop Check**: Verify that the main loop sleep times are not causing jitter.
+
+## 3. Testing Plan
+
+### 3.1. Latency Check
+*   **Setup**: Enable the new timestamp logging.
+*   **Action**: Correlate game physics update time (from `mElapsedTime`) with the wall-clock time of the FFB packet submission.
+*   **Verification**: Calculate the delta. If > 10ms, investigate thread scheduling or VSync settings.
+
+```
+
+# File: docs\dev_docs\report_new_telemetry_advanced_physics.md
+```markdown
+# Report: New Telemetry Effects & Advanced Physics
+
+## 1. Introduction and Context
+The "Troubleshooting 25" list and following notes suggest a desire to expand the physical model of the FFB engine. Current effects are primarily lateral (SoP) and vibrational. The goal is to incorporate Longitudinal physics (Dive/Squat), Chassis Rotation (Pitch/Roll), and specialized Surface effects (Wet/Grass).
+
+**Features Requested:**
+*   **Chassis Movement**: Use `mLocalRot`, `mLocalRotAccel` to feel the car's body roll and pitch.
+*   **Deceleration Cues**: Use `mLocalAccel.z` for "Brake Dive" (weight transfer feeling on steering) and "Acceleration Squat".
+*   **True Bottoming**: Use `mSuspensionDeflection` (if available) to detect hitting bump stops, rather than just Force spikes.
+*   **"Rubbery" Lockup**: A feeling of "change in deceleration" constant force rather than just vibration when locking up.
+*   **Wet/Surface Effects**: Use `mSurfaceType`, `mRaining`, `mTemperature` to modulate grip and friction dynamically.
+
+## 2. Proposed Solution
+
+### 2.1. Chassis Body Effects
+*   **Weight Transfer Force**: Map `mLocalAccel.z` (Longitudinal) to a constant steering offset (centering or lightening).
+    *   *Concept*: Under heavy braking, weight transfers forward -> Front tires load up -> Steering gets heavier (Self Aligning Torque naturally handles this via `mTireLoad`, but we can add a specific "Dive" cue if SAT is clipped or insufficient).
+*   **Roll Cues**: Use `mLocalRot.z` (Roll Rate) to add a subtly distinct frequency or force layer during rapid direction changes (chicane).
+
+### 2.2. Advanced Lockup (Longitudinal Force)
+*   **Theory**: When a tire locks, the longitudinal braking force drops (or plateaus) and becomes erratic. The driver feels a loss of deceleration "G-force".
+*   **Implementation**: Calculate the derivative of `mLocalAccel.z` (Jerk). If `Jerk` is negative (losing deceleration) AND `BrakePressure` is constant/increasing, it indicates a Lockup Slide.
+*   **Effect**: Reduce the `Master Gain` momentarily or inject a "Counter-Force" to simulate the loss of resistance.
+
+### 2.3. Surface & Weather
+*   **Wet Mod**: If `mSurfaceType == 1` (Wet) or `mRaining > 0.1`:
+    *   Scale `m_optimal_slip_angle` by 0.8 (Peak grip happens earlier).
+    *   Scale `m_global_friction` by 0.7 (Overall forces lower).
+    *   Enhance "Slide Texture" (easier to slide).
+
+### 2.4. Bottoming Method C
+*   **Logic**: If `mSuspensionDeflection` > `limit` (e.g. 95% of travel):
+    *   Trigger "Hard Bump" (Single impulse).
+
+## 3. Implementation Plan
+
+### 3.1. `src/FFBEngine.h`
+1.  **Add Effect Variables**:
+    ```cpp
+    float m_brake_dive_gain = 0.0f;
+    float m_body_roll_gain = 0.0f;
+    ```
+2.  **Update `calculate_force`**:
+    *   **Brake Dive**:
+        ```cpp
+        // Add weight based on long accel
+        double dive_force = data->mLocalAccel.z * m_brake_dive_gain * 0.1; // Scale factor
+        total_force += dive_force;
+        ```
+    *   **Logic for Surface**:
+        ```cpp
+        double surf_friction = 1.0;
+        if (data->mSurfaceType == 1) surf_friction = 0.7;
+        total_force *= surf_friction;
+        ```
+
+### 3.2. `src/GuiLayer.cpp`
+1.  **New "Body & Chassis" Group**:
+    *   Add sliders for `Brake Dive Gain`, `Body Roll Gain`.
+
+## 4. Testing Plan
+
+### 4.1. Wet Track Test
+*   **Setup**: Load a rainy session in LMU.
+*   **Action**: Drive the same car/setup as dry.
+*   **Verification**: FFB should feel uniformly lighter. Slides should initiate at lower steering angles (due to `optimal_slip` scaling).
+
+### 4.2. Brake Dive
+*   **Setup**: Maximize "Brake Dive Gain".
+*   **Action**: Drive straight, slam brakes.
+*   **Verification**: The wheel should get significantly heavier (or lighter, depending on sign) during the braking phase, independent of the cornering force.
+
+```
+
 # File: docs\dev_docs\report_on_ffb_improvements.md
 ```markdown
 Some of the FFB effects (described in docs/ffb_effects.md ) are based on forces taken from the car physics telemetry, which I think is the ideal scenario for telemetry and physics based FFB effects. However, other effects are currently based on "vibration" effects, that although are scaled gradually with what it is happening on the car, have vibration "frequencies" that I think might not be actually linked to physic forces. This is the case of these effects: 
@@ -10774,6 +11052,167 @@ To rectify this, the integration strategy must shift from a passive reliance on 
 25. Known Issue \- \[Plugins\] Accessing Specific APIs Causes Data Corruption, High CPU Utilization | Le Mans Ultimate Community, accessed December 7, 2025, [unlinked: community_lemansultimate_com/index_php?threads/plugins-accessing-specific-apis-causes-data-corruption-high-cpu-utilization_10719/](unlinked: community_lemansultimate_com/index_php?threads/plugins-accessing-specific-apis-causes-data-corruption-high-cpu-utilization_10719/)
 ```
 
+# File: docs\dev_docs\report_robustness_game_integration.md
+```markdown
+# Report: Robustness & Game Integration
+
+## 1. Introduction and Context
+This report addresses stability issues and integration bugs. Specifically, the "Troubleshooting 25" list mentions that FFB forces (especially "holding" forces like Slide or Self-Aligning Torque) can get "stuck" when the user exits the game or pauses the session. This requires a robust way to detect "Not Driving" states.
+Additionally, we need to verify the fix for the LMU 1.2 "Zero Lateral Force" bug and ensure the new logging mechanisms (Timestamps) are effective for debugging.
+
+**Problems Identified:**
+*   **Stuck Forces**: Game exit or session switch leaves residual torque on the wheel.
+*   **LMU 1.2 Bug**: Rear wheels report 0.0 lateral force, requiring a workaround. We need to confirm this workaround is active and transparent to the user.
+*   **Debuggability**: Console logs lack timestamps, making it hard to correlate events.
+*   **Emergency Stop**: Users need a manual way to cut forces if automatics fail.
+
+## 2. Proposed Solution
+
+### 2.1. "Stuck Force" Prevention
+*   **Timeout Logic**: Implement a "Deadman Switch" in `FFBEngine`. If the `mElapsedTime` from telemetry hasn't changed for > 1.0 second, or if `mDeltaTime` is zero for consecutive frames, dampen all forces to 0.0 over a short period (0.5s fade out).
+*   **State Reset**: Create a `Reset()` method in `FFBEngine` that zeroes all internal integrators, smoothers, and phases (`m_slide_phase`, `m_sop_lat_g_smoothed`, etc.). Call this method automatically when `GameConnector` detects a disconnection.
+
+### 2.2. LMU 1.2 Workaround Verification
+*   **Console Alerts**: We already implemented a warning "Warning: Data for mLateralForce (Rear) ...". We will ensure this logic includes a "Cooldown" so it doesn't spam the console every frame, but repeats every ~60 seconds if the info is still missing.
+*   **Debug Value**: Expose the "Calculated Rear Lateral Force" vs "Raw Rear Lateral Force" in the `FFBSnapshot` so it can be viewed in the graphs.
+
+### 2.3. Logging Improvements
+*   **Timestamp Helper**: Create a standard logging function `Log(const char* msg)` that prepends `[HH:MM:SS.ms]`. Replace all `std::cout` calls with this.
+
+### 2.4. Emergency Controls
+*   **Reset Button**: Add a red "DISCONNECT / RESET" button in the top bar of the GUI. This creates a "Panic Switch" for the user.
+
+## 3. Implementation Plan
+
+### 3.1. `src/FFBEngine.h`
+1.  **Add `Reset()` method**:
+    ```cpp
+    void Reset() {
+        m_sop_lat_g_smoothed = 0.0;
+        m_yaw_accel_smoothed = 0.0;
+        m_steering_shaft_torque_smoothed = 0.0;
+        // ... set all _prev_ values to 0 ...
+    }
+    ```
+2.  **Add Timeout in `calculate_force`**:
+    ```cpp
+    static double last_game_time = 0.0;
+    static double wall_clock_timeout = 0.0;
+    if (data->mElapsedTime == last_game_time) {
+         wall_clock_timeout += dt_wall; 
+         if (wall_clock_timeout > 1.0) return 0.0f; // Fade out
+    } else {
+         wall_clock_timeout = 0.0;
+         last_game_time = data->mElapsedTime;
+    }
+    ```
+
+### 3.2. `src/GuiLayer.cpp`
+1.  **Add Panic Button**:
+    ```cpp
+    ImGui::SameLine();
+    if (ImGui::Button("RESET FFB")) {
+        engine.Reset();
+        DirectInputFFB::Get().SetForce(0);
+    }
+    ```
+
+## 4. Testing Plan
+
+### 4.1. Disconnection Test
+*   **Setup**: Start driving in LMU.
+*   **Action**: Alt-Tab and kill the LMU process (Task Manager) or simply click "Exit to Monitor".
+*   **Verification**: The FFB on the wheel should drop to 0 within 1 second. No residual "pulling" force.
+
+### 4.2. Panic Button
+*   **Setup**: Induce a high-force situation (e.g., turn wheel to lock).
+*   **Action**: Click "RESET FFB".
+*   **Verification**: Wheel should instantly go limp.
+
+### 4.3. Logs
+*   **Verification**: Check console output. It should look like:
+    `[22:15:01.123] Connected to LMU`
+    `[22:15:05.444] Warning: mLateralForce missing...`
+
+```
+
+# File: docs\dev_docs\report_ui_ux_overhaul.md
+```markdown
+# Report: UI/UX Overhaul & Presets
+
+## 1. Introduction and Context
+The "Troubleshooting 25" list identifies that the application has become complex ("lmuFFB has now so many advanced options. This might be confusing for users"). A simplified interface is requested. Additionally, the preset system is outdated (test presets need removal, real hardware presets need addition), and the graphs consume too much screen real estate.
+
+**Problems Identified:**
+*   **Complexity Overload**: New users see 50+ sliders and don't know where to start.
+*   **Outdated Presets**: "Test Preset" / "Guide Preset" are no longer relevant. Users need "Moza", "Simucube", "T300".
+*   **Graph Clutter**: The debug graphs are useful but large. They should be reorganized or made more compact.
+*   **Workflow Friction**: Users have to manually click "Save". An auto-save (on exit or periodic) is requested.
+
+## 2. Proposed Solution
+
+### 2.1. Basic Mode (Simplified UI)
+*   **Toggle**: Add a global boolean `m_basic_mode` (Default: `true` for new installs).
+*   **View**: When enabled, the GUI hides all "Advanced" groups (Signal Filtering, Frequencies, Latency sliders, etc.).
+*   **Exposed Controls**: Only show the "Big 5":
+    1.  Master Gain
+    2.  SoP Strength (Lateral G + Rear Align combined or just main sliders)
+    3.  Smoothing "Feel" (One slider controlling both SoP and Slip smoothing)
+    4.  Understeer Strength
+    5.  Curb/Road Texture Strength
+
+### 2.2. Preset Overhaul
+*   **Remove**: Delete "Test", "Guide".
+*   **Add**:
+    *   **"Entry Level / Gear / Belt"** (Logitech/Thrustmaster): High Min Force, High Smoothing, Moderate Texture.
+    *   **"Direct Drive (Linear)"**: Zero Min Force, Low Smoothing, High Fidelity.
+    *   **"Direct Drive (High Torque)"**: Max Torque Ref = 20Nm, Linear settings.
+
+### 2.3. Auto-Save
+*   **Implementation**: Call `Config::Save(engine)` in the `Shutdown()` method of the app. Add a "Config Saved" toast notification or log message when specific major changes occur.
+
+### 2.4. Graph Compactness
+*   **Action**: Reduce the vertical height of `ImGui::PlotLines`. Combine "Input Steer" and "Output Torque" into a single multi-line plot if ImGui allows, or position them side-by-side.
+
+## 3. Implementation Plan
+
+### 3.1. `src/GuiLayer.cpp`
+1.  **Basic Mode Toggle**:
+    ```cpp
+    if (ImGui::Checkbox("Basic Mode", &Config::m_basic_mode)) { ... }
+    ```
+2.  **Conditional Rendering**:
+    ```cpp
+    if (!Config::m_basic_mode) {
+        // Render Advanced TreeNodes
+        if (ImGui::TreeNode("Signal Filtering")) { ... }
+    }
+    ```
+3.  **Graph Tweak**: Change `ImVec2(0, 80)` size to `ImVec2(0, 40)`.
+
+### 3.2. `src/Config.cpp`
+1.  **Update `LoadPresets`**: Hardcode the new values for the proposed Hardware presets.
+
+## 4. Testing Plan
+
+### 4.1. UX Walkthrough
+*   **Setup**: Launch app fresh.
+*   **Verification**: "Basic Mode" should be On. Only key sliders visible.
+*   **Action**: Toggle "Basic Mode" Off.
+*   **Verification**: All advanced options appear.
+
+### 4.2. Auto-Save
+*   **Action**: Change "Master Gain" to 142%. Close App (X button). Re-open App.
+*   **Verification**: Master Gain is 142%.
+
+### 4.3. Preset Logic
+*   **Action**: Select "Logitech G29".
+*   **Verification**: `m_min_force` sets to ~0.10. `m_steering_shaft_smoothing` sets to higher value (e.g. 0.05).
+*   **Action**: Select "Direct Drive".
+*   **Verification**: `m_min_force` sets to 0.0. Smoothing reduces to near 0.
+
+```
+
 # File: docs\dev_docs\telemetry_availability_report.md
 ```markdown
 # Le Mans Ultimate Telemetry Availability Report
@@ -10851,7 +11290,7 @@ With the v0.3.19 robustness update, the application is now resilient against tot
 
 ## Overview
 
-This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.3) and explores potential future uses for enhanced Force Feedback.
+This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.10) and explores potential future uses for enhanced Force Feedback.
 
 **Changes from rFactor 2:** LMU 1.2 introduced native shared memory support with:
 - **Direct torque measurement**: `mSteeringShaftTorque` (Nm) replaced force-based `mSteeringArmForce` (N)
@@ -10865,13 +11304,13 @@ This document lists the physics data available from the **Le Mans Ultimate 1.2 N
 
 These values describe the state of the vehicle chassis and engine.
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | `mDeltaTime` | seconds | Time since last physics update | **Used**: Oscillator integration, Time-Corrected Smoothing, Frequency Estimation | |
 | `mElapsedTime` | seconds | Session time | **Used**: Zero-crossing frequency analysis timestamps | Logging |
 | **`mSteeringShaftTorque`** | **Nm** | **Torque around steering shaft** (replaces `mSteeringArmForce`) | **Used**: Primary FFB source, Signal Analysis (Freq Estimator) | |
 | `mLocalAccel` | m/s² | Acceleration in car-local space (X=Lat, Y=Vert, Z=Long) | **Used**: `x` for SoP (Seat of Pants), `x/z` for **Kinematic Load Reconstruction** | `z` for braking dive/acceleration squat cues |
-| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (with noise filtering) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
+| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (with configurable Activation Threshold: 0.0-10.0 rad/s²) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
 | `mLocalVel` | m/s | Velocity in local coordinates | **Used**: `z` for speed-based frequency scaling, Kinematic Load, & sanity checks | |
 | `mUnfilteredThrottle` | 0.0-1.0 | Raw throttle input | **Used**: Trigger for Wheel Spin effects | |
 | `mUnfilteredBrake` | 0.0-1.0 | Raw brake input | **Used**: Trigger for Lockup effects and **Predictive Logic Gating**, **ABS Trigger** | |
@@ -10888,7 +11327,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Forces & Grip
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | **`mTireLoad`** | **N** | **Vertical load on tire** | **Used**: Load scaling (Split Caps: Texture vs Brake), Bottoming (Legacy), Kinematic Model switch | **Load Sensitivity**: Reduce FFB gain if front tires are unloaded |
 | **`mGripFract`** | **0.0-1.0** | **Grip usage fraction** (0=full grip available, 1=at limit) | **Used**: Understeer/Oversteer detection, Slide Texture Scrub work-scaling | |
@@ -10898,7 +11337,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Motion & Slip
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | **`mLateralPatchVel`** | **m/s** | **Lateral velocity at contact patch** | **Used**: Slip Angle calc, Slide Texture frequency/amplitude, Scrub Drag | More accurate "scrub" feel |
 | **`mLongitudinalPatchVel`** | **m/s** | **Longitudinal velocity at contact patch** | **Used**: Slip ratio calculation, Traction Loss | |
@@ -10908,7 +11347,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Suspension & Surface
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | `mVerticalTireDeflection` | m | Compression of tire rubber | **Used**: Road Texture (High-pass filter), **Lockup Bump Rejection** (Velocity) | |
 | `mSuspensionDeflection` | m | Compression of spring/damper | Unused | **Bottoming Out**: Harsh "thud" if deflection hits max travel |
@@ -10920,7 +11359,7 @@ Available for each of the 4 wheels (`mWheel[0]`=FL, `[1]`=FR, `[2]`=RL, `[3]`=RR
 
 ### Condition
 
-| Variable | Units | Description | Current Usage (v0.6.3) | Future Potential |
+| Variable | Units | Description | Current Usage (v0.6.10) | Future Potential |
 | :--- | :--- | :--- | :--- | :--- |
 | `mTemperature[3]` | Kelvin | Inner/Middle/Outer tire temps | Unused | **Cold Tire Feel**: Reduce grip when cold |
 | `mWear` | 0.0-1.0 | Tire wear fraction | Unused | **Wear Feel**: Reduce overall gain as tires wear |
@@ -11044,77 +11483,6 @@ From `rF2Data.h`:
 ## Risks
 - Disk I/O latency could stall the FFB loop if done synchronously. **Must be asynchronous.**
 - File size growth (400Hz logging = huge files). Maybe decimate to 50Hz or 100Hz for logging.
-
-```
-
-# File: docs\dev_docs\TESTING_COMPOSITE_SCREENSHOT.md
-```markdown
-# Testing Instructions for Composite Screenshot Fix
-
-## Current Status
-The code has been updated with diagnostic logging to help identify why the console window capture is failing.
-
-## What to Test
-
-### Step 1: Close the Running Application
-The application is currently running and preventing the rebuild. Please:
-1. Close the lmuFFB application (the GUI window)
-2. This will allow the rebuild to proceed
-
-### Step 2: Rebuild the Application
-Run this command:
-```powershell
-& 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation
-cmake --build build --config Release --target LMUFFB
-```
-
-### Step 3: Run the Application
-```
-.\build\Release\LMUFFB.exe
-```
-
-### Step 4: Take a Screenshot
-1. Click the "Save Screenshot" button
-2. **Look at the console output** - you should now see diagnostic messages like:
-   ```
-   [GUI] GUI window capture: SUCCESS
-   [GUI] Console window found, attempting capture...
-   [GUI] Console window capture: SUCCESS (or FAILED)
-   [GUI] Console dimensions: WIDTHxHEIGHT
-   ```
-
-### Step 5: Report the Console Output
-Please share:
-1. The exact console output when you click "Save Screenshot"
-2. Whether the screenshot now includes both windows or just the GUI
-
-## What the Diagnostic Logging Will Tell Us
-
-The new logging will show:
-- ✅ **"Console window found"** - GetConsoleWindow() is working
-- ✅ **"Console window capture: SUCCESS"** - PrintWindow is working
-- ❌ **"Console window capture: FAILED"** - PrintWindow is failing (this is the likely issue)
-- ❌ **"No console window found"** - GetConsoleWindow() returned NULL (unlikely)
-
-## Possible Issues and Solutions
-
-### If "Console window capture: FAILED"
-This means `PrintWindow` is failing for the console window. Possible causes:
-1. **Console window is minimized** - PrintWindow may not work on minimized windows
-2. **Console window has special properties** - Some console windows can't be captured with PrintWindow
-3. **Permissions issue** - The application may not have permission to capture the console
-
-**Solution**: We may need to use a different capture method for console windows, such as:
-- Using `BitBlt` with desktop DC
-- Using Windows Desktop Duplication API
-- Capturing the screen region where the console is located
-
-### If "No console window found"
-This would mean `GetConsoleWindow()` is returning NULL, which is unlikely since you can see the console in your screenshot.
-
-## Next Steps
-
-Once you provide the console output, I'll know exactly what's failing and can implement the appropriate fix.
 
 ```
 
@@ -13033,6 +13401,8 @@ void Config::LoadPresets() {
                         else if (key == "flatspot_strength") current_preset.flatspot_strength = std::stof(value);
                         else if (key == "static_notch_enabled") current_preset.static_notch_enabled = std::stoi(value);
                         else if (key == "static_notch_freq") current_preset.static_notch_freq = std::stof(value);
+                        else if (key == "static_notch_width") current_preset.static_notch_width = std::stof(value);
+                        else if (key == "yaw_kick_threshold") current_preset.yaw_kick_threshold = std::stof(value);
                         else if (key == "optimal_slip_angle") current_preset.optimal_slip_angle = std::stof(value);
                         else if (key == "optimal_slip_ratio") current_preset.optimal_slip_ratio = std::stof(value);
                         else if (key == "steering_shaft_smoothing") current_preset.steering_shaft_smoothing = std::stof(value);
@@ -13139,6 +13509,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "flatspot_strength=" << engine.m_flatspot_strength << "\n";
         file << "static_notch_enabled=" << engine.m_static_notch_enabled << "\n";
         file << "static_notch_freq=" << engine.m_static_notch_freq << "\n";
+        file << "static_notch_width=" << engine.m_static_notch_width << "\n";
+        file << "yaw_kick_threshold=" << engine.m_yaw_kick_threshold << "\n";
         file << "optimal_slip_angle=" << engine.m_optimal_slip_angle << "\n";
         file << "optimal_slip_ratio=" << engine.m_optimal_slip_ratio << "\n";
         file << "steering_shaft_smoothing=" << engine.m_steering_shaft_smoothing << "\n";
@@ -13192,6 +13564,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "flatspot_strength=" << p.flatspot_strength << "\n";
                 file << "static_notch_enabled=" << p.static_notch_enabled << "\n";
                 file << "static_notch_freq=" << p.static_notch_freq << "\n";
+                file << "static_notch_width=" << p.static_notch_width << "\n";
+                file << "yaw_kick_threshold=" << p.yaw_kick_threshold << "\n";
                 file << "optimal_slip_angle=" << p.optimal_slip_angle << "\n";
                 file << "optimal_slip_ratio=" << p.optimal_slip_ratio << "\n";
                 file << "steering_shaft_smoothing=" << p.steering_shaft_smoothing << "\n";
@@ -13284,6 +13658,8 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "flatspot_strength") engine.m_flatspot_strength = std::stof(value);
                     else if (key == "static_notch_enabled") engine.m_static_notch_enabled = std::stoi(value);
                     else if (key == "static_notch_freq") engine.m_static_notch_freq = std::stof(value);
+                    else if (key == "static_notch_width") engine.m_static_notch_width = std::stof(value);
+                    else if (key == "yaw_kick_threshold") engine.m_yaw_kick_threshold = std::stof(value);
                     else if (key == "optimal_slip_angle") engine.m_optimal_slip_angle = std::stof(value);
                     else if (key == "optimal_slip_ratio") engine.m_optimal_slip_ratio = std::stof(value);
                     else if (key == "steering_shaft_smoothing") engine.m_steering_shaft_smoothing = std::stof(value);
@@ -13416,7 +13792,9 @@ struct Preset {
     float flatspot_strength = 1.0f;
     
     bool static_notch_enabled = false;
-    float static_notch_freq = 50.0f;
+    float static_notch_freq = 11.0f;
+    float static_notch_width = 2.0f; // New v0.6.10
+    float yaw_kick_threshold = 0.2f; // New v0.6.10
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
@@ -13469,11 +13847,13 @@ struct Preset {
         return *this; 
     }
     
-    Preset& SetStaticNotch(bool enabled, float freq) {
+    Preset& SetStaticNotch(bool enabled, float freq, float width = 2.0f) {
         static_notch_enabled = enabled;
         static_notch_freq = freq;
+        static_notch_width = width;
         return *this;
     }
+    Preset& SetYawKickThreshold(float v) { yaw_kick_threshold = v; return *this; }
 
     Preset& SetOptimalSlip(float angle, float ratio) {
         optimal_slip_angle = angle;
@@ -13547,6 +13927,8 @@ struct Preset {
         engine.m_flatspot_strength = flatspot_strength;
         engine.m_static_notch_enabled = static_notch_enabled;
         engine.m_static_notch_freq = static_notch_freq;
+        engine.m_static_notch_width = static_notch_width;
+        engine.m_yaw_kick_threshold = yaw_kick_threshold;
         engine.m_optimal_slip_angle = optimal_slip_angle;
         engine.m_optimal_slip_ratio = optimal_slip_ratio;
         engine.m_steering_shaft_smoothing = steering_shaft_smoothing;
@@ -13599,6 +13981,8 @@ struct Preset {
         flatspot_strength = engine.m_flatspot_strength;
         static_notch_enabled = engine.m_static_notch_enabled;
         static_notch_freq = engine.m_static_notch_freq;
+        static_notch_width = engine.m_static_notch_width;
+        yaw_kick_threshold = engine.m_yaw_kick_threshold;
         optimal_slip_angle = engine.m_optimal_slip_angle;
         optimal_slip_ratio = engine.m_optimal_slip_ratio;
         steering_shaft_smoothing = engine.m_steering_shaft_smoothing;
@@ -14575,7 +14959,9 @@ public:
     
     // Static Notch Filter (v0.4.43)
     bool m_static_notch_enabled = false;
-    float m_static_notch_freq = 50.0f;
+    float m_static_notch_freq = 11.0f;
+    float m_static_notch_width = 2.0f; // New v0.6.10: Width in Hz
+    float m_yaw_kick_threshold = 0.2f; // New v0.6.10: Threshold in rad/s^2 (Default 0.2 matching legacy gate)
     
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
@@ -15129,8 +15515,13 @@ public:
         
         // 3. Static Notch Filter (v0.4.43)
         if (m_static_notch_enabled) {
-             // Fixed Q of 5.0 (Surgical)
-             m_static_notch_filter.Update((double)m_static_notch_freq, 1.0/dt, 5.0);
+             // v0.6.10: Variable Width (Bandwidth based Q calculation)
+             // Q = CenterFreq / Bandwidth
+             double bw = (double)m_static_notch_width;
+             if (bw < 0.1) bw = 0.1; // Safety clamp
+             double q = (double)m_static_notch_freq / bw;
+             
+             m_static_notch_filter.Update((double)m_static_notch_freq, 1.0/dt, q);
              game_force = m_static_notch_filter.Process(game_force);
         } else {
              m_static_notch_filter.Reset();
@@ -15470,9 +15861,9 @@ public:
         if (car_v_long < 5.0) {
             raw_yaw_accel = 0.0;
         }
-        // Noise Gate (Deadzone): Filter out micro-corrections and road bumps
-        // Real slides generate >> 2.0 rad/s², road noise is typically < 0.2 rad/s²
-        else if (std::abs(raw_yaw_accel) < 0.2) {
+        // v0.6.10: Configurable Noise Gate (Activation Threshold)
+        // Filter out micro-corrections and road bumps based on user preference
+        else if (std::abs(raw_yaw_accel) < (double)m_yaw_kick_threshold) {
             raw_yaw_accel = 0.0;
         }
         
@@ -17159,6 +17550,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             BoolSetting("  Static Noise Filter", &engine.m_static_notch_enabled, "Fixed frequency notch filter to remove hardware resonance or specific noise.");
             if (engine.m_static_notch_enabled) {
                 FloatSetting("    Target Frequency", &engine.m_static_notch_freq, 10.0f, 100.0f, "%.1f Hz", "Center frequency to suppress.");
+                FloatSetting("    Filter Width", &engine.m_static_notch_width, 0.1f, 10.0f, "%.1f Hz", "Bandwidth of the notch filter.\nLarger = Blocks more frequencies around the target.");
             }
             
             ImGui::TreePop();
@@ -17181,6 +17573,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         FloatSetting("Lateral G", &engine.m_sop_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_effect, FFBEngine::BASE_NM_SOP_LATERAL), "Represents Chassis Roll, simulates the weight of the car leaning in the corner.");
         FloatSetting("SoP Self-Aligning Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_rear_align_effect, FFBEngine::BASE_NM_REAR_ALIGN), "Counter-steering force generated by rear tire slip.\nShould build up very quickly after the Yaw Kick, as the slip angle develops.\nThis is the active \"pull.\"\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
         FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
+        FloatSetting("  Activation Threshold", &engine.m_yaw_kick_threshold, 0.0f, 10.0f, "%.2f rad/s²", "Minimum yaw acceleration required to trigger the kick.\nIncrease to filter out road noise and small vibrations.");
         
         // --- NEW: Yaw Kick Smoothing (v0.5.8) ---
         ImGui::Text("  Kick Response");
@@ -19917,6 +20310,10 @@ static void test_dynamic_thresholds(); // Forward declaration (v0.5.13)
 static void test_predictive_lockup_v060(); // Forward declaration (v0.6.0)
 static void test_abs_pulse_v060(); // Forward declaration (v0.6.0)
 static void test_missing_telemetry_warnings(); // Forward declaration (v0.6.3)
+static void test_notch_filter_bandwidth(); // Forward declaration (v0.6.10)
+static void test_yaw_kick_threshold(); // Forward declaration (v0.6.10)
+static void test_notch_filter_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
+static void test_yaw_kick_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -24114,7 +24511,8 @@ static void test_static_notch_integration() {
 
     // Setup
     engine.m_static_notch_enabled = true;
-    engine.m_static_notch_freq = 50.0;
+    engine.m_static_notch_freq = 11.0;
+    engine.m_static_notch_width = 10.0; // Q = 11/10 = 1.1 (Wide notch for testing)
     engine.m_gain = 1.0;
     engine.m_max_torque_ref = 1.0; 
     engine.m_bottoming_enabled = false; // Disable to avoid interference
@@ -24919,6 +25317,216 @@ static void test_missing_telemetry_warnings() {
     std::cout.rdbuf(prev_cout_buf);
 }
 
+static void test_notch_filter_bandwidth() {
+    std::cout << "\nTest: Notch Filter Bandwidth (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_static_notch_enabled = true;
+    engine.m_static_notch_freq = 50.0f;
+    engine.m_static_notch_width = 10.0f; // 45Hz to 55Hz
+    
+    // Case 1: Signal at center frequency (50Hz)
+    // 50Hz signal: 10/dt = 1/dt. Samples per period = (1/dt)/50.
+    // If dt=0.0025 (400Hz), samples per period = 8.
+    data.mDeltaTime = 0.0025;
+    
+    // Inject 50Hz sine wave
+    double amplitude = 10.0;
+    double max_output = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 50.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output) max_output = output;
+    }
+    // Normalized amplitude max is (10.0 * 1.0) / 20.0 = 0.5.
+    // At center, it should be highly attenuated (near 0)
+    ASSERT_TRUE(max_output < 0.1); 
+
+    // Case 2: Signal at 46Hz (inside the 10Hz bandwidth)
+    max_output = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 46.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output) max_output = output;
+    }
+    // 46Hz is within the 10Hz bandwidth (45-55). Should be significantly attenuated but > 0.
+    // Max unattenuated is 0.5. Calculated gain ~0.64 -> Expect ~0.32
+    ASSERT_TRUE(max_output < 0.4); 
+    ASSERT_TRUE(max_output > 0.1);
+
+    // Case 3: Signal at 65Hz (outside the 10Hz bandwidth)
+    max_output = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 65.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output) max_output = output;
+    }
+    // 65Hz is far outside 45-55. Attenuation should be minimal.
+    // Expected output near 0.25.
+    ASSERT_TRUE(max_output > 0.2);
+}
+
+static void test_yaw_kick_threshold() {
+    std::cout << "\nTest: Yaw Kick Threshold (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_yaw_kick_threshold = 5.0f;
+    engine.m_yaw_accel_smoothing = 1.0f; // Fast response for test
+    
+    // Case 1: Yaw Accel below threshold (2.0 < 5.0)
+    data.mLocalRotAccel.y = 2.0;
+    engine.calculate_force(&data); // 1st frame smoothing
+    double force_low = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_low, 0.0, 0.001);
+
+    // Case 2: Yaw Accel above threshold (6.0 > 5.0)
+    data.mLocalRotAccel.y = 6.0;
+    engine.calculate_force(&data); 
+    double force_high = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_high) > 0.01);
+}
+
+static void test_notch_filter_edge_cases() {
+    std::cout << "\nTest: Notch Filter Edge Cases (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_static_notch_enabled = true;
+    engine.m_static_notch_freq = 50.0f;
+    data.mDeltaTime = 0.0025; // 400Hz
+    
+    // Edge Case 1: Minimum Width (0.1 Hz) - Very narrow notch
+    // Q = 50 / 0.1 = 500 (extremely surgical)
+    engine.m_static_notch_width = 0.1f;
+    
+    double amplitude = 10.0;
+    double max_output_narrow = 0.0;
+    
+    // Test at 50Hz (center) - should be heavily attenuated
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 50.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_narrow) max_output_narrow = output;
+    }
+    ASSERT_TRUE(max_output_narrow < 0.05); // Very narrow notch still attenuates center
+    
+    // Test at 49.5Hz (just 0.5 Hz away) - should pass through with narrow notch
+    max_output_narrow = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 49.5 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_narrow) max_output_narrow = output;
+    }
+    ASSERT_TRUE(max_output_narrow > 0.3); // Narrow notch doesn't affect nearby frequencies
+    
+    // Edge Case 2: Maximum Width (10.0 Hz) - Very wide notch
+    // Q = 50 / 10 = 5.0 (wide suppression)
+    engine.m_static_notch_width = 10.0f;
+    
+    double max_output_wide = 0.0;
+    
+    // Test at 45Hz (5 Hz away, at edge of 10Hz bandwidth)
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 45.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_wide) max_output_wide = output;
+    }
+    ASSERT_TRUE(max_output_wide < 0.4); // Wide notch affects frequencies 5Hz away
+    ASSERT_TRUE(max_output_wide > 0.05); // But doesn't completely eliminate them
+    
+    // Edge Case 3: Below minimum safety clamp (should clamp to 0.1)
+    // This tests the safety clamp in FFBEngine.h line 811
+    engine.m_static_notch_width = 0.05f; // Below 0.1 minimum
+    
+    // The code should clamp this to 0.1, giving Q = 50 / 0.1 = 500
+    max_output_narrow = 0.0;
+    for (int i = 0; i < 100; i++) {
+        data.mSteeringShaftTorque = std::sin(2.0 * PI * 50.0 * (i * data.mDeltaTime)) * amplitude;
+        double output = std::abs(engine.calculate_force(&data));
+        if (i > 50 && output > max_output_narrow) max_output_narrow = output;
+    }
+    ASSERT_TRUE(max_output_narrow < 0.05); // Safety clamp prevents extreme Q values
+}
+
+static void test_yaw_kick_edge_cases() {
+    std::cout << "\nTest: Yaw Kick Threshold Edge Cases (v0.6.10)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    engine.m_sop_yaw_gain = 1.0f;
+    engine.m_yaw_accel_smoothing = 1.0f; // Fast response for testing
+    
+    // Edge Case 1: Zero Threshold (0.0) - All signals pass through
+    engine.m_yaw_kick_threshold = 0.0f;
+    
+    // Even tiny yaw acceleration should trigger
+    data.mLocalRotAccel.y = 0.01; // Very small
+    engine.calculate_force(&data); // Smoothing frame
+    double force_tiny = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_tiny) > 0.0001); // With zero threshold, even tiny signals pass
+    
+    // Edge Case 2: Maximum Threshold (10.0) - Only extreme signals pass
+    engine.m_yaw_kick_threshold = 10.0f;
+    
+    // Reset smoothing state
+    engine.m_yaw_accel_smoothed = 0.0;
+    
+    // Large but below threshold (9.0 < 10.0)
+    data.mLocalRotAccel.y = 9.0;
+    engine.calculate_force(&data);
+    double force_below_max = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_below_max, 0.0, 0.001); // Below max threshold = gated
+    
+    // Above maximum threshold (11.0 > 10.0)
+    data.mLocalRotAccel.y = 11.0;
+    engine.calculate_force(&data);
+    double force_above_max = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_above_max) > 0.01); // Above max threshold = passes
+    
+    // Edge Case 3: Negative yaw acceleration (should use absolute value)
+    engine.m_yaw_kick_threshold = 5.0f;
+    engine.m_yaw_accel_smoothed = 0.0; // Reset
+    
+    // Negative value with magnitude above threshold
+    data.mLocalRotAccel.y = -6.0; // |−6.0| = 6.0 > 5.0
+    engine.calculate_force(&data);
+    double force_negative = engine.calculate_force(&data);
+    
+    ASSERT_TRUE(std::abs(force_negative) > 0.01); // Absolute value check works
+    
+    // Negative value with magnitude below threshold
+    engine.m_yaw_accel_smoothed = 0.0; // Reset
+    data.mLocalRotAccel.y = -4.0; // |−4.0| = 4.0 < 5.0
+    engine.calculate_force(&data);
+    double force_negative_below = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_negative_below, 0.0, 0.001); // Below threshold = gated
+    
+    // Edge Case 4: Interaction with low-speed cutoff
+    // Low speed cutoff (< 5.0 m/s) should override threshold
+    engine.m_yaw_kick_threshold = 0.0f; // Zero threshold (all pass)
+    engine.m_yaw_accel_smoothed = 0.0; // Reset
+    data.mLocalRotAccel.y = 10.0; // Large acceleration
+    data.mLocalVel.z = 3.0; // Below 5.0 m/s cutoff
+    
+    engine.calculate_force(&data);
+    double force_low_speed = engine.calculate_force(&data);
+    
+    ASSERT_NEAR(force_low_speed, 0.0, 0.001); // Low speed cutoff takes precedence
+}
+
 // Main Runner
 void Run() {
     std::cout << "=== Running FFB Engine Tests ===" << std::endl;
@@ -25015,6 +25623,10 @@ void Run() {
     test_predictive_lockup_v060(); // v0.6.0
     test_abs_pulse_v060(); // v0.6.0
     test_missing_telemetry_warnings(); // New in v0.6.3
+    test_notch_filter_bandwidth(); // New in v0.6.10
+    test_yaw_kick_threshold(); // New in v0.6.10
+    test_notch_filter_edge_cases(); // New in v0.6.10 - Edge Cases
+    test_yaw_kick_edge_cases(); // New in v0.6.10 - Edge Cases
     
     std::cout << "\n--- Physics Engine Test Summary ---" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

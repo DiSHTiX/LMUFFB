@@ -351,6 +351,8 @@ void Config::LoadPresets() {
                         else if (key == "flatspot_strength") current_preset.flatspot_strength = std::stof(value);
                         else if (key == "static_notch_enabled") current_preset.static_notch_enabled = std::stoi(value);
                         else if (key == "static_notch_freq") current_preset.static_notch_freq = std::stof(value);
+                        else if (key == "static_notch_width") current_preset.static_notch_width = std::stof(value);
+                        else if (key == "yaw_kick_threshold") current_preset.yaw_kick_threshold = std::stof(value);
                         else if (key == "optimal_slip_angle") current_preset.optimal_slip_angle = std::stof(value);
                         else if (key == "optimal_slip_ratio") current_preset.optimal_slip_ratio = std::stof(value);
                         else if (key == "steering_shaft_smoothing") current_preset.steering_shaft_smoothing = std::stof(value);
@@ -457,6 +459,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "flatspot_strength=" << engine.m_flatspot_strength << "\n";
         file << "static_notch_enabled=" << engine.m_static_notch_enabled << "\n";
         file << "static_notch_freq=" << engine.m_static_notch_freq << "\n";
+        file << "static_notch_width=" << engine.m_static_notch_width << "\n";
+        file << "yaw_kick_threshold=" << engine.m_yaw_kick_threshold << "\n";
         file << "optimal_slip_angle=" << engine.m_optimal_slip_angle << "\n";
         file << "optimal_slip_ratio=" << engine.m_optimal_slip_ratio << "\n";
         file << "steering_shaft_smoothing=" << engine.m_steering_shaft_smoothing << "\n";
@@ -510,6 +514,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "flatspot_strength=" << p.flatspot_strength << "\n";
                 file << "static_notch_enabled=" << p.static_notch_enabled << "\n";
                 file << "static_notch_freq=" << p.static_notch_freq << "\n";
+                file << "static_notch_width=" << p.static_notch_width << "\n";
+                file << "yaw_kick_threshold=" << p.yaw_kick_threshold << "\n";
                 file << "optimal_slip_angle=" << p.optimal_slip_angle << "\n";
                 file << "optimal_slip_ratio=" << p.optimal_slip_ratio << "\n";
                 file << "steering_shaft_smoothing=" << p.steering_shaft_smoothing << "\n";
@@ -602,6 +608,8 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "flatspot_strength") engine.m_flatspot_strength = std::stof(value);
                     else if (key == "static_notch_enabled") engine.m_static_notch_enabled = std::stoi(value);
                     else if (key == "static_notch_freq") engine.m_static_notch_freq = std::stof(value);
+                    else if (key == "static_notch_width") engine.m_static_notch_width = std::stof(value);
+                    else if (key == "yaw_kick_threshold") engine.m_yaw_kick_threshold = std::stof(value);
                     else if (key == "optimal_slip_angle") engine.m_optimal_slip_angle = std::stof(value);
                     else if (key == "optimal_slip_ratio") engine.m_optimal_slip_ratio = std::stof(value);
                     else if (key == "steering_shaft_smoothing") engine.m_steering_shaft_smoothing = std::stof(value);

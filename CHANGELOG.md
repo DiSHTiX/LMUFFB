@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.10] - 2025-12-27
+### Added
+- **Signal Processing Improvements**:
+  - **Dynamic Static Notch Filter**: Replaced the fixed Q-factor notch filter with a variable bandwidth filter. Users can now adjust the "Filter Width" (0.1 to 10.0 Hz) to surgically suppress hardware resonance or floor noise.
+  - **Adjustable Yaw Kick Threshold**: Implemented a user-configurable activation threshold (0.0 to 10.0 rad/s²) for the Yaw Kick effect. This allows users to filter out micro-corrections and road noise while maintaining sharp reaction cues for actual car rotation.
+- **GUI Enhanced Controls**:
+  - Added "Filter Width" slider to the Signal Filtering section.
+  - Added "Activation Threshold" slider to the Yaw Kick effect section for better noise immunity tuning.
+- **Improved Test Coverage**:
+  - Added `test_notch_filter_bandwidth()` and `test_yaw_kick_threshold()` to the physics verification suite.
+  - Added `test_notch_filter_edge_cases()` and `test_yaw_kick_edge_cases()` for comprehensive edge case validation.
+### Changed
+- **Default Static Notch Frequency**: Changed from 50.0 Hz to 11.0 Hz to better target the 10-12 Hz baseline vibration range identified in user feedback.
+
 ## [0.6.9] - 2025-12-26
 ### Changed
 - **GUI Label Refinements**:
