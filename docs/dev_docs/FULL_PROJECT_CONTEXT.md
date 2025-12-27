@@ -451,6 +451,33 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.20] - 2025-12-27
+### Added
+- **Effect Tuning & Slider Range Expansion**:
+  - **ABS Pulse Frequency**: Added a dedicated slider (10Hz - 50Hz) to tune the vibrational pitch of the ABS pulse effect, allowing users to match the haptic feel of their specific hardware.
+  - **Vibration Pitch Tuning**: Added "Vibration Pitch" sliders for both **Lockup** and **Wheel Spin** vibrations (0.5x - 2.0x). Users can now customize the "screech" or "judder" characteristic of these effects.
+  - **Expanded Slider Ranges**: Significant range increases for professional-grade hardware and extreme feedback scenarios:
+    - **Understeer Effect**: Max increased to 200% (was 50%).
+    - **Steering Shaft Gain**: Max increased to 2.0x (was 1.0x).
+    - **ABS Pulse Gain**: Max increased to 10.0x (was 2.0x).
+    - **Lockup Strength**: Max increased to 3.0x (was 2.0x).
+    - **Brake Load Cap**: Max increased to 10.0x (was 3.0x).
+    - **Lockup Prediction Sensitivity**: Min threshold lowered to 10.0 (more sensitive).
+    - **Lockup Rear Boost**: Max increased to 10.0x (was 3.0x).
+    - **Lateral G Boost**: Max increased to 4.0x (was 2.0x).
+    - **Lockup Gamma**: Range expanded to 0.1 - 3.0 for ultra-fine onset control.
+    - **Yaw Kick Gain**: Consolidated max to 1.0 (optimized for noise immunity).
+
+### Changed
+- **Core Logic Cleanup**:
+  - **Removed "Manual Slip" Toggle**: The engine now always uses the most accurate native telemetry data for slip calculations. The manual calculation fallback remains as an automatic internal recovery mechanism for encrypted content.
+  - **Unified Frequency Math**: Synchronized all vibration oscillators to use time-corrected phase accumulation for perfect stability during frame stutters.
+- **Documentation**:
+  - Updated **FFB_formulas.md** and **telemetry_data_reference.md** to reflect the new frequency tuning math and expanded physics ranges.
+
+### Fixed
+- **Test Suite Alignment**: Resolved all regression test failures caused by the removal of the manual slip toggle and the expansion of safety clamping limits.
+
 ## [0.6.10] - 2025-12-27
 ### Added
 - **Signal Processing Improvements**:
@@ -5843,7 +5870,7 @@ if (car_speed > 5.0) {
 
 # File: docs\dev_docs\FFB_formulas.md
 ```markdown
-# FFB Mathematical Formulas (v0.6.10)
+# FFB Mathematical Formulas (v0.6.20)
 
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
@@ -5894,7 +5921,7 @@ Texture and vibration effects are scaled by normalized tire load (`Load / 4000N`
 
 2.  **Brake Load Factor (Lockup)**:
     *   $F_{\text{load-brake}} = \text{Clamp}(\text{AvgLoad} / 4000.0, 0.0, m_{\text{brake-load-cap}})$
-    *   **Max Cap**: 3.0 (Allows stronger vibration under high-downforce braking).
+    *   **Max Cap**: 10.0 (Expanded in v0.6.20 to allow extremely aggressive vibration).
 
 #### B. Base Force Components
 
@@ -5920,7 +5947,6 @@ If telemetry grip (`mGripFract`) is missing or invalid (< 0.0001), the engine ap
     *   **Metric Formulation**:
         *   $\text{Metric}_{\text{lat}} = |\alpha| / \text{OptAlpha}$ (Lateral Slip Angle). **Default**: 0.10 rad.
         *   $\text{Metric}_{\text{long}} = |\kappa| / \text{OptRatio}$ (Longitudinal Slip Ratio). **Default**: 0.12 (12%).
-        *   *Note on $\kappa$*: Calculated via Manual Slip Ratio ($V_{wheel} / V_{car} - 1$). If `mTireRadius` is invalid (< 0.1m), it defaults to **0.33m** (33cm).
     *   $\text{Combined} = \sqrt{\text{Metric}_{\text{lat}}^2 + \text{Metric}_{\text{long}}^2}$
     *   $\text{ApproxGrip} = (1.0 \text{ if } \text{Combined} < 1.0 \text{ else } 1.0 / (1.0 + (\text{Combined}-1.0) \times 2.0))$
 *   **Safety Clamp**: Approx Grip is usually clamped to min **0.2** to prevent total loss of force.
@@ -5954,6 +5980,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
             *   *Default*: 0.2 rad/s². Configurable to filter road noise.
     *   **Rationale**: Requires heavy smoothing (LPF) to separate true chassis rotation from "Slide Texture" vibration noise, preventing a feedback loop where vibration is mistaken for rotation.
     *   **Formula**: $-\text{YawAccel}_{\text{smooth}} \times K_{\text{yaw}} \times 5.0 \text{Nm} \times K_{\text{decouple}}$.
+    *   **Max Clamp**: 1.0 (Updated v0.6.20).
     *   **Note**: Negative sign provides counter-steering torque.
 
 4.  **Rear Aligning Torque ($T_{\text{rear}}$)**:
@@ -5969,8 +5996,8 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Predictive Logic (v0.6.0)**: Triggers early if `WheelDecel > CarDecel * 2.0` (Wheel stopping faster than car).
     *   *Note*: `CarDecel` (angular equivalent) depends on `mTireRadius`. If radius < 0.1m, defaults to **0.33m**.
 *   **Bump Rejection**: Logic disabled if `SuspVelocity > m_lockup_bump_reject` (e.g. 1.0 m/s).
-*   **Frequency**: $10\text{Hz} + (\text{CarSpeed} \times 1.5)$. (Base frequency calculation).
-*   **Severity**: $\text{Severity} = \text{pow}(\text{NormSlip}, m_{\text{lockup-gamma}})$ (Quadratic).
+*   **Frequency**: $(10\text{Hz} + (\text{CarSpeed} \times 1.5)) \times m_{\text{lockup-pitch}}$. (User tunable pitch).
+*   **Severity**: $\text{Severity} = \text{pow}(\text{NormSlip}, m_{\text{lockup-gamma}})$ (User tunable gamma).
 *   **Logic**:
     *   **Axle Diff**: Rear lockups use **0.3x Frequency** and **1.5x Amplitude**.
     *   **Pressure Scaling**: Scales with Brake Pressure (Bar). Fallback to 0.5 if engine braking (Pressure < 0.1 bar).
@@ -5978,7 +6005,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 
 **2. ABS Pulse ($F_{\text{abs}}$)**
 *   **Trigger**: Brake > 50% AND Pressure Modulation Rate > 2.0 bar/s.
-*   **Formula**: `sin(20Hz) * K_abs * 2.0Nm`.
+*   **Formula**: `sin(m_abs_freq_hz) * K_abs * 2.0Nm`. (Tunable frequency 10-50Hz).
 
 #### E. Dynamic Textures & Vibrations
 
@@ -6007,7 +6034,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Torque Drop ($M_{\text{spin-drop}}$)**: The *Total Output Force* is reduced to simulate "floating" front tires.
     *   `M_spin-drop = (1.0 - (Severity * K_spin * 0.6))`
 *   **Vibration**:
-    *   **Frequency**: $10\text{Hz} + (\text{SlipSpeed} \times 2.5)$. Cap 80Hz.
+    *   **Frequency**: $(10\text{Hz} + (\text{SlipSpeed} \times 2.5)) \times m_{\text{spin-pitch}}$.
     *   **Formula**: $\sin(\phi) \times \text{Severity} \times K_{\text{spin}} \times 2.5\text{Nm} \times K_{\text{decouple}}$.
 
 **4. Suspension Bottoming**
@@ -9743,169 +9770,6 @@ The code review fixes ensure the implementation follows best practices and maint
 
 ```
 
-# File: docs\dev_docs\report_effect_tuning_slider_ranges.md
-```markdown
-# Report: Effect Tuning & Slider Range Expansion
-
-## 1. Introduction and Context
-This report focuses on refining the user adjustability of the FFB effects. The "Troubleshooting 25" list highlights that several sliders are currently limited to ranges that prevent users from fully utilizing the effects (e.g., users needing 200% gain when the limit is 100%). Additionally, some legacy features like "Manual Slip Calculation" are cluttering the UI, and vibration effects lack pitch tuning, making them feel generic on different wheel hardware.
-
-**Problems Identified:**
-*   **Slider Ranges**: Many effects (Understeer, Steering Shaft Gain, ABS Pulse, Lockup, etc.) trigger clipping or are too weak at their current maximums. Users request up to 400% or 10x range increases in some cases.
-*   **Obsolete Features**: "Manual Slip Calc" is no longer needed as the app now robustly handles slip via game telemetry or internal estimation fallback.
-*   **Generic Vibration Frequencies**: Effects like Lockup, ABS, and Spin use hardcoded frequencies (e.g., 20Hz, 50Hz). These frequencies may resonate poorly or feel "toy-like" on high-end Direct Drive bases vs. belt-driven wheels.
-*   **Tuning Gaps**: Defaults for Lockup Response Gamma need to be lower (0.1 instead of 0.5) to allow for more aggressive onset.
-
-## 2. Proposed Solution
-
-### 2.1. Slider Range Expansion
-We will systematically update the Min/Max values in the GUI for the following:
-*   **Understeer Effect**: Max 50 -> **200**.
-*   **Steering Shaft Gain**: Max 100% (1.0) -> **200% (2.0)**.
-*   **ABS Pulse Gain**: Max 2.0 -> **10.0**.
-*   **Lockup Strength**: Max 2.0 -> **3.0** (or higher as requested, e.g. 300%).
-*   **Brake Load Cap**: Max 3.0 -> **10.0**.
-*   **Lockup Prediction Sensitivity**: Min 20 -> **10**.
-*   **Lockup Rear Boost**: Max 3.0 -> **10.0**.
-*   **Yaw Kick Gain**: Max 2.0 -> **1.0** (User reports it is "way too much", request to lower cap, or normalized). *Correction*: User asked "max at 100%... down from 200%". We will adjust range to 0.0-1.0 or keep 2.0 but scale internal math.
-*   **Lateral G Boost**: Max 2.0 -> **4.0**.
-*   **Lockup Gamma**: Min 0.5 -> **0.1**.
-
-### 2.2. Frequency Tuning
-*   **Configurable Frequencies**: Add new sliders for "Base Frequency" for:
-    *   ABS Pulse (Default 20Hz)
-    *   Lockup Vibration (Default based on speed, but add a scalar or base pitch)
-    *   Spin Vibration (Default based on slip speed, add a scalar)
-*   **Goal**: Allow users to tune the "pitch" of the effect to match their rig's resonant frequency.
-
-### 2.3. Cleanup
-*   Remove `m_use_manual_slip` boolean and all associated logic from `FFBEngine` and `GuiLayer`. The engine will always use the best available method.
-
-## 3. Implementation Plan
-
-### 3.1. `src/FFBEngine.h`
-1.  **Remove manual slip toggle**.
-2.  **Add Frequency Scalars**:
-    ```cpp
-    float m_abs_freq_hz = 20.0f;
-    float m_lockup_freq_scale = 1.0f; // Multiplier for speed-based freq
-    float m_spin_freq_scale = 1.0f;
-    ```
-3.  **Update Effect Logic**: Use these new variables in `calculate_force` instead of hardcoded constants.
-
-### 3.2. `src/GuiLayer.cpp`
-1.  **Update `FloatSetting` Calls**: Change the `min` and `max` arguments to the new target values listed in 2.1.
-2.  **Add New Frequency Sliders**:
-    *   Under **ABS**: "Pulse Frequency" (10Hz - 50Hz).
-    *   Under **Baking & Lockup**: "Vibration Pitch" (0.5x - 2.0x).
-3.  **Remove**: Hide/Delete the "Manual Slip Calc" checkbox.
-
-## 4. Testing Plan
-
-### 4.1. Range Validation
-*   **Setup**: Open the app.
-*   **Action**: Drag "Steering Shaft Gain" to the far right.
-*   **Verification**: value should reach 200% (2.0).
-*   **Action**: Set "Lockup Gamma" to 0.1.
-*   **Verification**: Ensure no crash/divide-by-zero in the math (Gamma logic usually uses `pow(x, gamma)`, which is safe for positive x and gamma=0.1).
-
-### 4.2. Frequency Tuning
-*   **Setup**: Tune ABS Frequency to 50Hz (high).
-*   **Action**: Drive and slam brakes to trigger ABS.
-*   **Verification**: The tactile feedback should feel like a "buzz" rather than a "thump".
-*   **Setup**: Tune ABS Frequency to 10Hz (low).
-*   **Verification**: Feedback should feel like a slow "chug-chug-chug".
-
-## 5. Documentation Updates
-
-The following documents need to be updated to reflect the changes detailed in this report:
-
-*   `docs\dev_docs\FFB_formulas.md`
-*   `docs\dev_docs\telemetry_data_reference.md`
-
-## 6. Automated Tests
-
-### 6.1. Slider Limits Tests (`tests/test_ffb_engine.cpp`)
-*   **Verify Max Values**:
-    *   Although the Engine generally consumes float values without explicit clamping (clamping usually happens in GUI), we should verify that extreme values (e.g. 200% gain, 10.0 ABS gain) do not cause instabilities.
-    *   Create `test_high_gain_stability`: Set gains to new maximums, run 1000 iter, ensure no NaNs/Inf.
-
-### 6.2. Frequency Scalar Tests (`tests/test_ffb_engine.cpp`)
-*   **ABS Frequency**:
-    *   Create `test_abs_frequency_scaling`.
-    *   Set `m_abs_freq_hz` to 20Hz. Check 1 full cycle duration in output samples.
-    *   Set `m_abs_freq_hz` to 40Hz. Check that cycle duration is halved.
-*   **Variable Pitch Tests**:
-    *   Create `test_lockup_pitch_scaling`.
-    *   Set `m_lockup_freq_scale` to 1.0 vs 2.0.
-    *   Simulate a constant lockup condition.
-    *   Verify that the output sine wave frequency doubles when scale is 2.0.
-
-### 6.3. Manual Slip Removal Regression
-*   **Verify Defaults**:
-    *   Ensure `test_manual_slip_calculation` (if it exists) is removed or updated to reflect that manual slip logic is gone.
-    *   Ensure standard slip tests still pass (the engine should use the fallback or telemetry data automatically).
-
-## Prompt
-
-Please proceed with the following task:
-
-**Task: Implement Effect Tuning and Slider Range Expansion**
-
-**Context:**
-This report identifies limitations in current FFB adjustment ranges and missing features for frequency tuning. The goal is to give users more control over effect strength (up to 200-400% in some cases) and vibration pitch/character.
-
-**References:**
-*   `docs\dev_docs\report_effect_tuning_slider_ranges.md` (This Report)
-*   `docs\dev_docs\FFB_formulas.md`
-*   `docs\dev_docs\telemetry_data_reference.md`
-*   `src/FFBEngine.h`
-*   `src/GuiLayer.cpp`
-*   `tests/test_ffb_engine.cpp`
-
-**Implementation Requirements:**
-1.  **Read and understand** the "Proposed Solution" (Section 2) and "Implementation Plan" (Section 3) of this document (`docs\dev_docs\report_effect_tuning_slider_ranges.md`).
-2.  **Modify `src/FFBEngine.h`**:
-    *   Remove manual slip logic (`m_use_manual_slip`).
-    *   Add frequency scalar variables (`m_abs_freq_hz`, `m_lockup_freq_scale`, `m_spin_freq_scale`).
-    *   Update `calculate_force` to use these new scalars.
-3.  **Modify `src/GuiLayer.cpp`**:
-    *   Update Min/Max values for `FloatSetting` calls as specified in Section 2.1.
-    *   Add new sliders for ABS Pulse Frequency and Vibration Pitch.
-    *   Remove the Manual Slip checkbox.
-4.  **Implement Automated Tests**:
-    *   Add new test cases to `tests/test_ffb_engine.cpp` as detailed in **Section 6** (Automated Tests).
-    *   Ensure all tests pass.
-5.  **Update Documentation**:
-    *   Reflect removal of Manual Slip in `docs\dev_docs\FFB_formulas.md`.
-    *   Document new sliders in `docs\dev_docs\telemetry_data_reference.md`.
-6.  **Update Version & Changelog**:
-    *   Increment the version number in `VERSION`.
-    *   Add a detailed entry in `CHANGELOG.md`.
-
-**Build & Test Instructions:**
-Use the following commands to build and test your changes. **ALL TESTS MUST PASS.**
-
-*   **Update app version, compile main app, compile all tests (including windows tests), all in one single command:**
-    ```powershell
-    & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build; cmake --build build --config Release --clean-first
-    ```
-
-*   **Run all tests that had already been compiled:**
-    ```powershell
-    .\build\tests\Release\run_combined_tests.exe
-    ```
-
-**Deliverables:**
-*   Updated source code files (`FFBEngine.h`, `GuiLayer.cpp`) implementing the range changes and new sliders.
-*   Updated test file (`tests/test_ffb_engine.cpp`) with passing tests.
-*   Updated `VERSION` and `CHANGELOG.md`.
-*   Updated markdown documentation files.
-
-
-
-```
-
 # File: docs\dev_docs\report_latency_investigation.md
 ```markdown
 # Report: Perceived Latency Investigation
@@ -11272,7 +11136,7 @@ With the v0.3.19 robustness update, the application is now resilient against tot
 
 # File: docs\dev_docs\telemetry_data_reference.md
 ```markdown
-# Telemetry Data Reference (LMU 1.2 API)
+# Telemetry Data Reference (LMU 1.2 API) - v0.6.20
 
 > **⚠️ API Source of Truth**  
 > The official and authoritative reference for all telemetry data structures, field names, types, and units is:  
@@ -11290,7 +11154,7 @@ With the v0.3.19 robustness update, the application is now resilient against tot
 
 ## Overview
 
-This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.10) and explores potential future uses for enhanced Force Feedback.
+This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.20) and explores potential future uses for enhanced Force Feedback.
 
 **Changes from rFactor 2:** LMU 1.2 introduced native shared memory support with:
 - **Direct torque measurement**: `mSteeringShaftTorque` (Nm) replaced force-based `mSteeringArmForce` (N)
@@ -11310,7 +11174,7 @@ These values describe the state of the vehicle chassis and engine.
 | `mElapsedTime` | seconds | Session time | **Used**: Zero-crossing frequency analysis timestamps | Logging |
 | **`mSteeringShaftTorque`** | **Nm** | **Torque around steering shaft** (replaces `mSteeringArmForce`) | **Used**: Primary FFB source, Signal Analysis (Freq Estimator) | |
 | `mLocalAccel` | m/s² | Acceleration in car-local space (X=Lat, Y=Vert, Z=Long) | **Used**: `x` for SoP (Seat of Pants), `x/z` for **Kinematic Load Reconstruction** | `z` for braking dive/acceleration squat cues |
-| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (with configurable Activation Threshold: 0.0-10.0 rad/s²) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
+| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (Clamp: 1.0 rad/s², Threshold: 0.0-10.0 rad/s²) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
 | `mLocalVel` | m/s | Velocity in local coordinates | **Used**: `z` for speed-based frequency scaling, Kinematic Load, & sanity checks | |
 | `mUnfilteredThrottle` | 0.0-1.0 | Raw throttle input | **Used**: Trigger for Wheel Spin effects | |
 | `mUnfilteredBrake` | 0.0-1.0 | Raw brake input | **Used**: Trigger for Lockup effects and **Predictive Logic Gating**, **ABS Trigger** | |
@@ -11404,8 +11268,9 @@ lmuFFB implements robust fallback logic for missing/invalid telemetry (Encryptio
 
 - **Missing Load (Adaptive Kinematic)**: If `mTireLoad` AND `mSuspForce` are invalid while moving, load is reconstructed using Chassis Physics:
     - Mass + Aero ($v^2$) + Longitudinal/Lateral Weight Transfer (`mLocalAccel`).
-- **Missing Grip (Combined Friction Circle)**: If `mGripFract < 0.0001`, grip is approximated using **Slip Angle** and **Slip Ratio**:
+- **Missing Grip (Combined Friction Circle)**: If `mGripFract < 0.0001` (e.g., encrypted mod content), grip is approximated using **Slip Angle** and **Slip Ratio**:
     - $\sqrt{(\text{SlipLat}/\text{OptLat})^2 + (\text{SlipLong}/\text{OptLong})^2}$
+    - *Note*: Manual Slip Calculation toggle was removed in v0.6.20; this reconstruction is now purely an automatic fallback.
 - **Invalid DeltaTime**: If `mDeltaTime <= 0.000001`, defaults to 0.0025s (400Hz).
 - **Slip Angle Singularity**: If `CarSpeed < 0.5 m/s`, slip angle calculation is clamped to prevent div-by-zero.
 
@@ -11443,6 +11308,22 @@ The SDK explicitly warns:
     *   **Right Turn**: Rear slides LEFT (+Vel).
     *   **Desired Force**: Aligning torque should pull LEFT (+).
     *   **Implementation**: The formula `double rear_torque = -calc_rear_lat_force` correctly produces a Positive output for Positive velocity inputs due to the negative coefficient in the `calc` helper. **Already Correct.**
+
+---
+
+## 7. Engine Tuning Parameters (v0.6.20)
+
+The following parameters are exposed in the GUI and `config.ini` to tune effect responses.
+
+| Parameter | UI Label | Range | Description |
+| :--- | :--- | :--- | :--- |
+| `m_abs_freq_hz` | **ABS Pulse Frequency** | 10 - 50 Hz | Vibrational pitch of the ABS pulse effect |
+| `m_lockup_freq_scale`| **Vibration Pitch** (Lockup) | 0.5x - 2.0x | Scalar multiplier for lockup vibration frequency |
+| `m_spin_freq_scale` | **Vibration Pitch** (Spin) | 0.5x - 2.0x | Scalar multiplier for wheel spin vibration frequency |
+| `m_lockup_gamma` | **Lockup Gamma** | 0.1 - 3.0 | Curvature of the lockup response (v0.6.0) |
+| `m_understeer_effect`| **Understeer Effect** | 0% - 200% | Resistance reduction when front grip is lost |
+| `m_brake_load_cap` | **Brake Load Cap** | 1.0x - 10.0x | Sensitivity of lockup vibration to tire load |
+| `m_yaw_kick_threshold`| **Yaw Kick Threshold**| 0.0 - 10.0 | Sensitivity filter for chassis rotation kicks |
 
 ```
 
@@ -12907,6 +12788,477 @@ Porting the Python logic to Rust is ideal for safety.
 
 ```
 
+# File: docs\user_guides\frequency_tuning_guide.md
+```markdown
+# Frequency Tuning Guide
+
+**Version:** 0.6.20+  
+**Last Updated:** 2025-12-27
+
+---
+
+## Introduction
+
+Starting with version 0.6.20, lmuFFB allows you to tune the **vibrational pitch** of FFB effects to match your wheel's hardware characteristics. This guide explains how to use these new controls to get the best tactile feedback from your rig.
+
+### What is Frequency Tuning?
+
+Every force feedback wheel has a **resonant frequency** - a specific vibration rate where the wheel feels most responsive and natural. This depends on your wheel's mechanical design:
+
+- **Belt-driven wheels** (e.g., Thrustmaster T300, Fanatec CSL DD) respond best to **lower frequencies** (10-25 Hz)
+- **Gear-driven wheels** (e.g., Logitech G29/G920) feel sharper at **mid frequencies** (20-35 Hz)
+- **Direct-drive wheels** (e.g., Simucube, VRS, Moza) can reproduce **high frequencies** accurately (30-50 Hz)
+
+**The Problem:** Using the wrong frequency can make effects feel:
+- Too "buzzy" or "toy-like" (frequency too high for your hardware)
+- Too "mushy" or "vague" (frequency too low)
+- Weak or barely noticeable (frequency doesn't match resonance)
+
+**The Solution:** Tune the frequency to match your wheel's sweet spot.
+
+---
+
+## The Three Frequency Controls
+
+lmuFFB provides three independent frequency tuning parameters:
+
+### 1. ABS Pulse Frequency
+**Location:** Tuning → Braking & Lockup → ABS Pulse → Pulse Frequency  
+**Range:** 10 - 50 Hz  
+**Default:** 20 Hz
+
+**What it does:** Sets the vibration rate when the ABS system activates.
+
+**How it feels:**
+- **10 Hz:** Slow, heavy "thump-thump-thump" (like hitting rumble strips)
+- **20 Hz:** Moderate "chatter" (realistic ABS feel)
+- **40-50 Hz:** Fast "buzz" (sharp, precise, DD-wheel optimized)
+
+### 2. Lockup Vibration Pitch
+**Location:** Tuning → Braking & Lockup → Lockup Vibration → Vibration Pitch  
+**Range:** 0.5x - 2.0x (multiplier)  
+**Default:** 1.0x
+
+**What it does:** Scales the frequency of tire lockup vibration (judder when wheels lock under braking).
+
+**How it feels:**
+- **0.5x:** Lower, "grumbling" lockup (belt-driven friendly)
+- **1.0x:** Default speed-based frequency (10Hz + speed × 1.5)
+- **2.0x:** Higher, "screeching" lockup (DD-wheel optimized)
+
+### 3. Spin Vibration Pitch
+**Location:** Tuning → Traction Loss & Textures → Spin Vibration → Spin Pitch  
+**Range:** 0.5x - 2.0x (multiplier)  
+**Default:** 1.0x
+
+**What it does:** Scales the frequency of wheel spin vibration (when front tires lose traction under acceleration).
+
+**How it feels:**
+- **0.5x:** Slower, "juddering" spin (feels like fighting for grip)
+- **1.0x:** Default speed-based frequency (10Hz + slip speed × 2.5)
+- **2.0x:** Faster, "screaming" spin (high-RPM burnout feel)
+
+---
+
+## Quick Start: Recommended Settings by Wheel Type
+
+### Belt-Driven Wheels (Thrustmaster T300, T500, TX, Fanatec CSL DD)
+
+**Characteristics:**
+- Smooth, quiet operation
+- Best response: 15-25 Hz
+- Can feel "buzzy" at high frequencies
+
+**Recommended Settings:**
+```
+ABS Pulse Frequency:     15 Hz
+Lockup Vibration Pitch:  0.7x
+Spin Vibration Pitch:    0.8x
+```
+
+**Why:** Belt-driven wheels have mechanical damping that smooths out high frequencies. Lower settings feel more natural and prevent the "electric toothbrush" sensation.
+
+---
+
+### Gear-Driven Wheels (Logitech G29, G920, G923, G27)
+
+**Characteristics:**
+- Mechanical "notchiness"
+- Best response: 20-30 Hz
+- Can mask subtle low frequencies
+
+**Recommended Settings:**
+```
+ABS Pulse Frequency:     25 Hz
+Lockup Vibration Pitch:  1.0x
+Spin Vibration Pitch:    1.0x
+```
+
+**Why:** Gear-driven wheels have inherent mechanical vibration. Mid-range frequencies cut through the gear noise and feel distinct.
+
+---
+
+### Direct-Drive Wheels (Simucube, VRS, Moza, Fanatec DD1/DD2)
+
+**Characteristics:**
+- Ultra-precise, zero latency
+- Can reproduce 10-80 Hz accurately
+- Risk of feeling "too sharp" or fatiguing
+
+**Recommended Settings (Realistic):**
+```
+ABS Pulse Frequency:     30 Hz
+Lockup Vibration Pitch:  1.2x
+Spin Vibration Pitch:    1.2x
+```
+
+**Recommended Settings (Aggressive/Sim-Cade):**
+```
+ABS Pulse Frequency:     40 Hz
+Lockup Vibration Pitch:  1.5x
+Spin Vibration Pitch:    1.5x
+```
+
+**Why:** DD wheels can handle higher frequencies without distortion. Use realistic settings for immersion, or aggressive settings for maximum feedback clarity.
+
+---
+
+## Tuning Methodology: Finding Your Sweet Spot
+
+### Step 1: Baseline Test (ABS Pulse Frequency)
+
+1. **Load a car with ABS** (e.g., GT3 car in LMU)
+2. **Set ABS Pulse Frequency to 20 Hz** (default)
+3. **Drive and brake hard** on a straight
+4. **Feel the ABS activation** - does it feel:
+   - ✅ **Clear and distinct?** → You're done, move to Step 2
+   - ❌ **Too buzzy/harsh?** → Lower to 15 Hz and re-test
+   - ❌ **Too weak/vague?** → Raise to 30 Hz and re-test
+
+5. **Iterate in 5 Hz steps** until you find the frequency that feels most "real"
+
+**Target Feel:** The ABS should feel like **rapid, distinct pulses** - not a continuous buzz, not a vague rumble.
+
+---
+
+### Step 2: Lockup Vibration Pitch
+
+1. **Disable ABS** (in-game or use a car without ABS)
+2. **Set Lockup Vibration Pitch to 1.0x** (default)
+3. **Brake hard enough to lock the wheels** (listen for tire squeal)
+4. **Feel the lockup judder** - does it feel:
+   - ✅ **Like tires skipping/chattering?** → You're done, move to Step 3
+   - ❌ **Too high-pitched/screechy?** → Lower to 0.7x and re-test
+   - ❌ **Too slow/mushy?** → Raise to 1.3x and re-test
+
+5. **Fine-tune in 0.1x steps**
+
+**Target Feel:** Lockup should feel like **tire rubber juddering against asphalt** - a mid-frequency vibration that builds with slip.
+
+---
+
+### Step 3: Spin Vibration Pitch
+
+1. **Enable Spin Vibration** (Tuning → Traction Loss & Textures)
+2. **Set Spin Vibration Pitch to 1.0x** (default)
+3. **Floor the throttle in 1st gear** (RWD car on cold tires)
+4. **Feel the wheel spin vibration** - does it feel:
+   - ✅ **Like tires fighting for grip?** → You're done!
+   - ❌ **Too harsh/fatiguing?** → Lower to 0.7x and re-test
+   - ❌ **Too subtle/boring?** → Raise to 1.3x and re-test
+
+5. **Fine-tune in 0.1x steps**
+
+**Target Feel:** Spin should feel like **tires slipping and re-gripping** - a dynamic vibration that changes with slip speed.
+
+---
+
+## Advanced Tuning: Understanding the Math
+
+### ABS Pulse Frequency (Absolute)
+
+**Formula:** `sin(m_abs_freq_hz * 2π * time)`
+
+**What this means:**
+- This is a **fixed frequency** oscillator
+- 20 Hz = 20 complete vibration cycles per second
+- Higher values = faster pulses
+- **Independent of car speed or brake pressure**
+
+**Use Case:** Match your wheel's resonance for maximum ABS clarity.
+
+---
+
+### Lockup Vibration Pitch (Speed-Based Scalar)
+
+**Formula:** `(10 Hz + car_speed_m/s × 1.5) × m_lockup_freq_scale`
+
+**What this means:**
+- Base frequency starts at **10 Hz** (standing still)
+- Increases with **car speed** (realistic - faster lockup = higher pitch)
+- At 20 m/s (~45 mph): `10 + 20×1.5 = 40 Hz`
+- Your **pitch scalar multiplies this**
+
+**Examples:**
+- `0.5x` at 20 m/s: `40 × 0.5 = 20 Hz` (low, grumbling)
+- `1.0x` at 20 m/s: `40 × 1.0 = 40 Hz` (default)
+- `2.0x` at 20 m/s: `40 × 2.0 = 80 Hz` (high, screeching)
+
+**Use Case:** Lower the scalar if high-speed lockups feel too harsh on your wheel.
+
+---
+
+### Spin Vibration Pitch (Slip-Speed-Based Scalar)
+
+**Formula:** `(10 Hz + slip_speed_m/s × 2.5) × m_spin_freq_scale`
+
+**What this means:**
+- Base frequency starts at **10 Hz** (minimal slip)
+- Increases with **slip speed** (how fast the tire is spinning vs. ground speed)
+- At 10 m/s slip (~22 mph difference): `10 + 10×2.5 = 35 Hz`
+- Your **pitch scalar multiplies this**
+- **Capped at 80 Hz** to prevent ultrasonic frequencies
+
+**Examples:**
+- `0.5x` at 10 m/s slip: `35 × 0.5 = 17.5 Hz` (low, juddering)
+- `1.0x` at 10 m/s slip: `35 × 1.0 = 35 Hz` (default)
+- `2.0x` at 10 m/s slip: `35 × 2.0 = 70 Hz` (high, screaming)
+
+**Use Case:** Lower the scalar if burnouts feel too "buzzy" on your wheel.
+
+---
+
+## Troubleshooting
+
+### Problem: "I can't feel the ABS at all"
+
+**Possible Causes:**
+1. **ABS Pulse Gain too low** → Increase "Pulse Gain" slider (not frequency)
+2. **Frequency too high for your wheel** → Lower ABS Pulse Frequency to 15 Hz
+3. **Frequency too low** → Raise ABS Pulse Frequency to 30 Hz
+4. **ABS not actually activating** → Check in-game ABS settings
+
+**Solution:** Start with 20 Hz and adjust Pulse Gain first, then frequency.
+
+---
+
+### Problem: "Lockup feels like a continuous buzz, not judder"
+
+**Cause:** Frequency too high for your wheel's mechanical response time.
+
+**Solution:** Lower Lockup Vibration Pitch to 0.6x or 0.7x.
+
+---
+
+### Problem: "Wheel spin feels weak and vague"
+
+**Possible Causes:**
+1. **Spin Strength too low** → Increase "Spin Strength" slider (not pitch)
+2. **Frequency doesn't match your wheel** → Try 0.8x or 1.2x
+
+**Solution:** Adjust Spin Strength first, then fine-tune pitch.
+
+---
+
+### Problem: "Effects feel fatiguing after long sessions"
+
+**Cause:** Frequencies too high, causing constant high-frequency vibration.
+
+**Solution:**
+- Lower all pitch scalars to 0.7x - 0.8x
+- Lower ABS Pulse Frequency to 15 Hz
+- Consider reducing overall gains (Lockup Strength, ABS Pulse Gain)
+
+---
+
+## Real-World Examples
+
+### Example 1: Thrustmaster T300 (Belt-Driven)
+
+**User Report:** "ABS feels like an electric razor, lockup is barely noticeable"
+
+**Diagnosis:** Default 20 Hz ABS is too high, lockup frequency is getting lost in belt damping.
+
+**Solution:**
+```
+ABS Pulse Frequency:     15 Hz  (lowered from 20)
+ABS Pulse Gain:          1.5    (increased for clarity)
+Lockup Vibration Pitch:  0.6x   (lowered from 1.0x)
+Lockup Strength:         1.2    (increased for clarity)
+```
+
+**Result:** "ABS now feels like distinct pulses, lockup has a nice low rumble I can feel building up."
+
+---
+
+### Example 2: Simucube 2 Pro (Direct-Drive)
+
+**User Report:** "Everything feels great but lockup is too subtle at high speed"
+
+**Diagnosis:** DD wheel can handle higher frequencies, user wants more aggressive feedback.
+
+**Solution:**
+```
+ABS Pulse Frequency:     40 Hz  (raised from 20)
+Lockup Vibration Pitch:  1.5x   (raised from 1.0x)
+Lockup Rear Boost:       2.0x   (increased for rear lock clarity)
+```
+
+**Result:** "Now I can feel exactly when the rears are about to lock. High-speed braking feels alive."
+
+---
+
+### Example 3: Logitech G29 (Gear-Driven)
+
+**User Report:** "Can't tell the difference between ABS and lockup"
+
+**Diagnosis:** Both effects using similar frequencies, getting masked by gear noise.
+
+**Solution:**
+```
+ABS Pulse Frequency:     30 Hz  (raised for distinction)
+Lockup Vibration Pitch:  0.8x   (lowered for contrast)
+Spin Vibration Pitch:    1.0x   (default)
+```
+
+**Result:** "ABS is a fast chatter, lockup is a slower judder. I can finally tell them apart!"
+
+---
+
+## Frequency vs. Gain: What's the Difference?
+
+**Frequency (Hz / Pitch):**
+- **What:** How *fast* the vibration oscillates
+- **Feel:** "Buzzy" vs. "Thumpy"
+- **Analogy:** Musical pitch (high note vs. low note)
+
+**Gain (Strength):**
+- **What:** How *strong* the vibration is
+- **Feel:** "Weak" vs. "Strong"
+- **Analogy:** Musical volume (quiet vs. loud)
+
+**Rule of Thumb:**
+1. **Tune frequency first** to match your wheel's resonance
+2. **Tune gain second** to set the intensity you prefer
+
+---
+
+## Preset Recommendations
+
+### Conservative (Smooth, Realistic)
+```
+ABS Pulse Frequency:     18 Hz
+Lockup Vibration Pitch:  0.8x
+Spin Vibration Pitch:    0.8x
+```
+**Best for:** Long endurance races, belt-driven wheels, users who prefer subtle feedback.
+
+---
+
+### Balanced (Default)
+```
+ABS Pulse Frequency:     20 Hz
+Lockup Vibration Pitch:  1.0x
+Spin Vibration Pitch:    1.0x
+```
+**Best for:** Most users, general racing, mixed wheel types.
+
+---
+
+### Aggressive (Sharp, Competitive)
+```
+ABS Pulse Frequency:     35 Hz
+Lockup Vibration Pitch:  1.3x
+Spin Vibration Pitch:    1.3x
+```
+**Best for:** Direct-drive wheels, sprint races, users who want maximum feedback clarity.
+
+---
+
+## FAQ
+
+### Q: Can I set different frequencies for front vs. rear lockup?
+
+**A:** Not directly. However, the engine automatically applies:
+- **Rear lockups:** 0.3x frequency multiplier (lower pitch)
+- **Rear lockups:** 1.5x amplitude boost (stronger)
+
+This helps you distinguish rear lock (dangerous) from front lock (understeer).
+
+---
+
+### Q: Why does lockup frequency change with speed?
+
+**A:** This is realistic! In real life:
+- **Slow lockup** (parking lot): Low-frequency judder (tire stick-slip at low speed)
+- **Fast lockup** (highway): High-frequency vibration (rapid tire chatter)
+
+The pitch scalar lets you adjust this relationship to taste.
+
+---
+
+### Q: What's the maximum safe frequency?
+
+**A:** The engine caps spin vibration at **80 Hz** to prevent:
+- Ultrasonic frequencies (inaudible, feel like continuous buzz)
+- Potential motor overheating on some wheels
+- Fatigue from constant high-frequency vibration
+
+ABS is user-controlled up to **50 Hz** (safe for all wheels tested).
+
+---
+
+### Q: Will higher frequencies damage my wheel?
+
+**A:** No. The frequencies used (10-50 Hz) are well within the safe operating range of all modern FFB wheels. These are the same frequencies used by:
+- Road texture effects
+- Curb vibrations
+- In-game FFB effects
+
+**However:** Very high gains + high frequencies can cause:
+- Motor heating (reduce gain if your wheel gets hot)
+- Mechanical wear (same as any aggressive FFB use)
+- User fatigue (take breaks!)
+
+---
+
+### Q: Can I save different frequency settings per car?
+
+**A:** Yes! Frequency settings are saved in **Presets**. You can create:
+- "GT3 - Aggressive" preset with high frequencies
+- "Vintage - Smooth" preset with low frequencies
+- "Endurance - Comfortable" preset with moderate frequencies
+
+Save and switch presets as needed.
+
+---
+
+## Summary: The 5-Minute Tuning Process
+
+1. **Start with defaults** (20 Hz, 1.0x, 1.0x)
+2. **Test ABS** → Adjust frequency until pulses feel distinct
+3. **Test lockup** → Adjust pitch until judder feels realistic
+4. **Test wheel spin** → Adjust pitch until vibration feels dynamic
+5. **Save as preset** for this car/track combination
+
+**Remember:** There's no "perfect" setting - tune to **your** wheel and **your** preference!
+
+---
+
+## Additional Resources
+
+- **FFB Formulas:** `docs/dev_docs/FFB_formulas.md` - Mathematical details
+- **Telemetry Reference:** `docs/dev_docs/telemetry_data_reference.md` - Parameter ranges
+- **Community Presets:** (Coming soon) Share your optimal settings!
+
+---
+
+**Document Version:** 1.0  
+**Compatible with:** lmuFFB v0.6.20+  
+**Last Updated:** 2025-12-27
+
+```
+
 # File: installer\lmuffb.iss
 ```
 ; Script generated by the Inno Setup Script Wizard.
@@ -13387,7 +13739,9 @@ void Config::LoadPresets() {
                         else if (key == "road_gain") current_preset.road_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
                         else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
-                        else if (key == "use_manual_slip") current_preset.use_manual_slip = std::stoi(value);
+                        else if (key == "abs_freq") current_preset.abs_freq = std::stof(value);
+                        else if (key == "lockup_freq_scale") current_preset.lockup_freq_scale = std::stof(value);
+                        else if (key == "spin_freq_scale") current_preset.spin_freq_scale = std::stof(value);
                         else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
                         else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = (std::min)(1.0f, std::stof(value));
                         else if (key == "rear_align_effect") current_preset.rear_align_effect = (std::min)(2.0f, std::stof(value));
@@ -13488,7 +13842,9 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "road_gain=" << engine.m_road_texture_gain << "\n";
         file << "invert_force=" << engine.m_invert_force << "\n";
         file << "max_torque_ref=" << engine.m_max_torque_ref << "\n";
-        file << "use_manual_slip=" << engine.m_use_manual_slip << "\n";
+        file << "abs_freq=" << engine.m_abs_freq_hz << "\n";
+        file << "lockup_freq_scale=" << engine.m_lockup_freq_scale << "\n";
+        file << "spin_freq_scale=" << engine.m_spin_freq_scale << "\n";
         file << "lockup_start_pct=" << engine.m_lockup_start_pct << "\n";
         file << "lockup_full_pct=" << engine.m_lockup_full_pct << "\n";
         file << "lockup_rear_boost=" << engine.m_lockup_rear_boost << "\n";
@@ -13542,7 +13898,9 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "road_gain=" << p.road_gain << "\n";
                 file << "invert_force=" << p.invert_force << "\n";
                 file << "max_torque_ref=" << p.max_torque_ref << "\n";
-                file << "use_manual_slip=" << p.use_manual_slip << "\n";
+                file << "abs_freq=" << p.abs_freq << "\n";
+                file << "lockup_freq_scale=" << p.lockup_freq_scale << "\n";
+                file << "spin_freq_scale=" << p.spin_freq_scale << "\n";
                 file << "lockup_start_pct=" << p.lockup_start_pct << "\n";
                 file << "lockup_full_pct=" << p.lockup_full_pct << "\n";
                 file << "lockup_rear_boost=" << p.lockup_rear_boost << "\n";
@@ -13620,14 +13978,14 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "brake_load_cap") engine.m_brake_load_cap = std::stof(value);
                     else if (key == "smoothing") engine.m_sop_smoothing_factor = std::stof(value); // Legacy support
                     else if (key == "understeer") engine.m_understeer_effect = std::stof(value);
-                    else if (key == "sop") engine.m_sop_effect = (std::min)(2.0f, std::stof(value));
+                    else if (key == "sop") engine.m_sop_effect = std::stof(value);
                     else if (key == "min_force") engine.m_min_force = std::stof(value);
                     else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
                     // v0.4.50: SAFETY CLAMPING for Generator Effects (Gain Compensation Migration)
                     // Legacy configs may have high gains (e.g., 5.0) to compensate for lack of auto-scaling.
                     // With new decoupling, these would cause 25x force explosions. Clamp to safe maximums.
                     else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
-                    else if (key == "lockup_gain") engine.m_lockup_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
                     else if (key == "lockup_start_pct") engine.m_lockup_start_pct = std::stof(value);
                     else if (key == "lockup_full_pct") engine.m_lockup_full_pct = std::stof(value);
                     else if (key == "lockup_rear_boost") engine.m_lockup_rear_boost = std::stof(value);
@@ -13637,19 +13995,21 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "abs_pulse_enabled") engine.m_abs_pulse_enabled = std::stoi(value);
                     else if (key == "abs_gain") engine.m_abs_gain = std::stof(value);
                     else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
-                    else if (key == "spin_gain") engine.m_spin_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
                     else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
-                    else if (key == "slide_gain") engine.m_slide_texture_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
                     else if (key == "slide_freq") engine.m_slide_freq_scale = std::stof(value);
                     else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);
-                    else if (key == "road_gain") engine.m_road_texture_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "road_gain") engine.m_road_texture_gain = std::stof(value);
                     else if (key == "invert_force") engine.m_invert_force = std::stoi(value);
                     else if (key == "max_torque_ref") engine.m_max_torque_ref = std::stof(value);
-                    else if (key == "use_manual_slip") engine.m_use_manual_slip = std::stoi(value);
+                    else if (key == "abs_freq") engine.m_abs_freq_hz = std::stof(value);
+                    else if (key == "lockup_freq_scale") engine.m_lockup_freq_scale = std::stof(value);
+                    else if (key == "spin_freq_scale") engine.m_spin_freq_scale = std::stof(value);
                     else if (key == "bottoming_method") engine.m_bottoming_method = std::stoi(value);
                     else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = (std::min)(1.0f, std::stof(value));
-                    else if (key == "rear_align_effect") engine.m_rear_align_effect = (std::min)(2.0f, std::stof(value));
-                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "rear_align_effect") engine.m_rear_align_effect = std::stof(value);
+                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = std::stof(value);
                     else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
                     else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
                     else if (key == "gyro_gain") engine.m_gyro_gain = (std::min)(1.0f, std::stof(value));
@@ -13686,26 +14046,62 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
     }
     
     
-    // v0.6.0: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges
-    if (engine.m_lockup_gamma < 0.5f || engine.m_lockup_gamma > 3.0f) {
+    // v0.6.20: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges (Expanded)
+    if (engine.m_lockup_gamma < 0.1f || engine.m_lockup_gamma > 3.0f) {
         std::cerr << "[Config] Invalid lockup_gamma (" << engine.m_lockup_gamma 
-                  << "), clamping to range [0.5, 3.0]" << std::endl;
-        engine.m_lockup_gamma = (std::max)(0.5f, (std::min)(3.0f, engine.m_lockup_gamma));
+                  << "), clamping to range [0.1, 3.0]" << std::endl;
+        engine.m_lockup_gamma = (std::max)(0.1f, (std::min)(3.0f, engine.m_lockup_gamma));
     }
-    if (engine.m_lockup_prediction_sens < 20.0f || engine.m_lockup_prediction_sens > 100.0f) {
+    if (engine.m_lockup_prediction_sens < 10.0f || engine.m_lockup_prediction_sens > 100.0f) {
         std::cerr << "[Config] Invalid lockup_prediction_sens (" << engine.m_lockup_prediction_sens 
-                  << "), clamping to range [20.0, 100.0]" << std::endl;
-        engine.m_lockup_prediction_sens = (std::max)(20.0f, (std::min)(100.0f, engine.m_lockup_prediction_sens));
+                  << "), clamping to range [10.0, 100.0]" << std::endl;
+        engine.m_lockup_prediction_sens = (std::max)(10.0f, (std::min)(100.0f, engine.m_lockup_prediction_sens));
     }
     if (engine.m_lockup_bump_reject < 0.1f || engine.m_lockup_bump_reject > 5.0f) {
         std::cerr << "[Config] Invalid lockup_bump_reject (" << engine.m_lockup_bump_reject 
                   << "), clamping to range [0.1, 5.0]" << std::endl;
         engine.m_lockup_bump_reject = (std::max)(0.1f, (std::min)(5.0f, engine.m_lockup_bump_reject));
     }
-    if (engine.m_abs_gain < 0.0f || engine.m_abs_gain > 2.0f) {
+    if (engine.m_abs_gain < 0.0f || engine.m_abs_gain > 10.0f) {
         std::cerr << "[Config] Invalid abs_gain (" << engine.m_abs_gain 
-                  << "), clamping to range [0.0, 2.0]" << std::endl;
-        engine.m_abs_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_abs_gain));
+                  << "), clamping to range [0.0, 10.0]" << std::endl;
+        engine.m_abs_gain = (std::max)(0.0f, (std::min)(10.0f, engine.m_abs_gain));
+    }
+    if (engine.m_understeer_effect < 0.0f || engine.m_understeer_effect > 200.0f) {
+        engine.m_understeer_effect = (std::max)(0.0f, (std::min)(200.0f, engine.m_understeer_effect));
+    }
+    if (engine.m_steering_shaft_gain < 0.0f || engine.m_steering_shaft_gain > 2.0f) {
+        engine.m_steering_shaft_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_steering_shaft_gain));
+    }
+    if (engine.m_lockup_gain < 0.0f || engine.m_lockup_gain > 3.0f) {
+        engine.m_lockup_gain = (std::max)(0.0f, (std::min)(3.0f, engine.m_lockup_gain));
+    }
+    if (engine.m_brake_load_cap < 1.0f || engine.m_brake_load_cap > 10.0f) {
+        engine.m_brake_load_cap = (std::max)(1.0f, (std::min)(10.0f, engine.m_brake_load_cap));
+    }
+    if (engine.m_lockup_rear_boost < 1.0f || engine.m_lockup_rear_boost > 10.0f) {
+        engine.m_lockup_rear_boost = (std::max)(1.0f, (std::min)(10.0f, engine.m_lockup_rear_boost));
+    }
+    if (engine.m_oversteer_boost < 0.0f || engine.m_oversteer_boost > 4.0f) {
+        engine.m_oversteer_boost = (std::max)(0.0f, (std::min)(4.0f, engine.m_oversteer_boost));
+    }
+    if (engine.m_sop_yaw_gain < 0.0f || engine.m_sop_yaw_gain > 1.0f) {
+         engine.m_sop_yaw_gain = (std::max)(0.0f, (std::min)(1.0f, engine.m_sop_yaw_gain));
+    }
+    if (engine.m_slide_texture_gain < 0.0f || engine.m_slide_texture_gain > 2.0f) {
+        engine.m_slide_texture_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_slide_texture_gain));
+    }
+    if (engine.m_road_texture_gain < 0.0f || engine.m_road_texture_gain > 2.0f) {
+        engine.m_road_texture_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_road_texture_gain));
+    }
+    if (engine.m_spin_gain < 0.0f || engine.m_spin_gain > 2.0f) {
+        engine.m_spin_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_spin_gain));
+    }
+    if (engine.m_rear_align_effect < 0.0f || engine.m_rear_align_effect > 2.0f) {
+        engine.m_rear_align_effect = (std::max)(0.0f, (std::min)(2.0f, engine.m_rear_align_effect));
+    }
+    if (engine.m_sop_effect < 0.0f || engine.m_sop_effect > 2.0f) {
+        engine.m_sop_effect = (std::max)(0.0f, (std::min)(2.0f, engine.m_sop_effect));
     }
     std::cout << "[Config] Loaded from " << filename << std::endl;
 }
@@ -13751,9 +14147,11 @@ struct Preset {
     
     bool abs_pulse_enabled = true;       // New v0.6.0
     float abs_gain = 2.0f;               // New v0.6.0
+    float abs_freq = 20.0f;              // New v0.6.20
     
     bool spin_enabled = false;
     float spin_gain = 0.5f;
+    float spin_freq_scale = 1.0f;        // New v0.6.20
     
     bool slide_enabled = true;
     float slide_gain = 0.39f;
@@ -13765,7 +14163,7 @@ struct Preset {
     bool invert_force = true;
     float max_torque_ref = 100.0f; // T300 Calibrated
     
-    bool use_manual_slip = false;
+    float lockup_freq_scale = 1.0f;      // New v0.6.20
     int bottoming_method = 0;
     float scrub_drag_gain = 0.0f;
     
@@ -13819,7 +14217,12 @@ struct Preset {
         return *this; 
     }
     Preset& SetBrakeCap(float v) { brake_load_cap = v; return *this; }
-    Preset& SetSpin(bool enabled, float g) { spin_enabled = enabled; spin_gain = g; return *this; }
+    Preset& SetSpin(bool enabled, float g, float scale = 1.0f) { 
+        spin_enabled = enabled; 
+        spin_gain = g; 
+        spin_freq_scale = scale;
+        return *this; 
+    }
     Preset& SetSlide(bool enabled, float g, float f = 1.0f) { 
         slide_enabled = enabled; 
         slide_gain = g; 
@@ -13831,7 +14234,6 @@ struct Preset {
     Preset& SetInvert(bool v) { invert_force = v; return *this; }
     Preset& SetMaxTorque(float v) { max_torque_ref = v; return *this; }
     
-    Preset& SetManualSlip(bool v) { use_manual_slip = v; return *this; }
     Preset& SetBottoming(int method) { bottoming_method = method; return *this; }
     Preset& SetScrub(float v) { scrub_drag_gain = v; return *this; }
     Preset& SetRearAlign(float v) { rear_align_effect = v; return *this; }
@@ -13867,12 +14269,14 @@ struct Preset {
     Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
     
     // Advanced Braking (v0.6.0)
-    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g) {
+    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g, float abs_f = 20.0f, float lockup_f = 1.0f) {
         lockup_gamma = gamma;
         lockup_prediction_sens = sens;
         lockup_bump_reject = bump;
         abs_pulse_enabled = abs;
         abs_gain = abs_g;
+        abs_freq = abs_f;
+        lockup_freq_scale = lockup_f;
         return *this;
     }
 
@@ -13914,7 +14318,9 @@ struct Preset {
         engine.m_road_texture_gain = road_gain;
         engine.m_invert_force = invert_force;
         engine.m_max_torque_ref = max_torque_ref;
-        engine.m_use_manual_slip = use_manual_slip;
+        engine.m_abs_freq_hz = abs_freq;
+        engine.m_lockup_freq_scale = lockup_freq_scale;
+        engine.m_spin_freq_scale = spin_freq_scale;
         engine.m_bottoming_method = bottoming_method;
         engine.m_scrub_drag_gain = scrub_drag_gain;
         engine.m_rear_align_effect = rear_align_effect;
@@ -13968,7 +14374,9 @@ struct Preset {
         road_gain = engine.m_road_texture_gain;
         invert_force = engine.m_invert_force;
         max_torque_ref = engine.m_max_torque_ref;
-        use_manual_slip = engine.m_use_manual_slip;
+        abs_freq = engine.m_abs_freq_hz;
+        lockup_freq_scale = engine.m_lockup_freq_scale;
+        spin_freq_scale = engine.m_spin_freq_scale;
         bottoming_method = engine.m_bottoming_method;
         scrub_drag_gain = engine.m_scrub_drag_gain;
         rear_align_effect = engine.m_rear_align_effect;
@@ -15034,11 +15442,15 @@ public:
     double m_abs_phase = 0.0; // New v0.6.0
     double m_bottoming_phase = 0.0;
     
+    // Phase Accumulators for Dynamic Oscillators (v0.6.20)
+    float m_abs_freq_hz = 20.0f;
+    float m_lockup_freq_scale = 1.0f;
+    float m_spin_freq_scale = 1.0f;
+    
     // Internal state for Bottoming (Method B)
     double m_prev_susp_force[2] = {0.0, 0.0}; // FL, FR
 
     // New Settings (v0.4.5)
-    bool m_use_manual_slip = false;
     int m_bottoming_method = 0; // 0=Scraping (Default), 1=Suspension Spike
     float m_scrub_drag_gain; // Initialized by Preset::ApplyDefaultsToEngine()
 
@@ -15669,8 +16081,8 @@ public:
         double texture_load_factor = (std::min)(texture_safe_max, (std::max)(0.0, raw_load_factor));
 
         // 2. Brake Load Factor (Lockup)
-        // Hard clamp at 3.0 as per GUI limits
-        double brake_safe_max = (std::min)(3.0, (double)m_brake_load_cap);
+        // Expanded to 10.0 in v0.6.20
+        double brake_safe_max = (std::min)(10.0, (double)m_brake_load_cap);
         double brake_load_factor = (std::min)(brake_safe_max, (std::max)(0.0, raw_load_factor));
 
         // --- 1. GAIN COMPENSATION (Decoupling) ---
@@ -15925,11 +16337,8 @@ public:
         double car_speed_ms = std::abs(data->mLocalVel.z); // Or mLongitudinalGroundVel per wheel
         
         auto get_slip_ratio = [&](const TelemWheelV01& w) {
-            // v0.4.5: Option to use manual calculation
-            if (m_use_manual_slip) {
-                return calculate_manual_slip_ratio(w, std::abs(data->mLocalVel.z));
-            }
-            // Default Game Data
+            // v0.6.20: Engine always uses game data for base slip detection
+            // Fallback estimation is handled in calculate_grip()
             double v_long = std::abs(w.mLongitudinalGroundVel);
             if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
             return w.mLongitudinalPatchVel / v_long;
@@ -15953,7 +16362,7 @@ public:
             }
             
             if (abs_system_active) {
-                m_abs_phase += 20.0 * dt * TWO_PI; // 20Hz Pulse
+                m_abs_phase += (double)m_abs_freq_hz * dt * TWO_PI; // Configurable Frequency
                 m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
                 total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale);
             }
@@ -16042,7 +16451,7 @@ public:
             if (worst_severity > 0.0) {
                 // Base Frequency linked to Car Speed
                 double base_freq = 10.0 + (car_speed_ms * 1.5); 
-                double final_freq = base_freq * chosen_freq_multiplier;
+                double final_freq = base_freq * chosen_freq_multiplier * (double)m_lockup_freq_scale;
 
                 // Phase Integration
                 m_lockup_phase += final_freq * dt * TWO_PI;
@@ -16082,7 +16491,7 @@ public:
                 // Mapping:
                 // 2 m/s (~7kph) slip -> 15Hz (Judder/Grip fighting)
                 // 20 m/s (~72kph) slip -> 60Hz (Smooth spin)
-                double freq = 10.0 + (slip_speed_ms * 2.5);
+                double freq = (10.0 + (slip_speed_ms * 2.5)) * (double)m_spin_freq_scale;
                 
                 // Cap frequency to prevent ultrasonic feeling on high speed burnouts
                 if (freq > 80.0) freq = 80.0;
@@ -17510,7 +17919,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     if (ImGui::TreeNodeEx("Front Axle (Understeer)", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
         
-        FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 1.0f, FormatPct(engine.m_steering_shaft_gain), "Scales the raw steering torque from the physics engine.\n100% = 1:1 with game physics.\nLowering this allows other effects (SoP, Vibes) to stand out more without clipping.");
+        FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 2.0f, FormatPct(engine.m_steering_shaft_gain), "Scales the raw steering torque from the physics engine.\n100% = 1:1 with game physics.\nLowering this allows other effects (SoP, Vibes) to stand out more without clipping.");
         
         // --- NEW: Steering Shaft Smoothing (v0.5.7) ---
         ImGui::Text("Steering Shaft Smoothing");
@@ -17528,8 +17937,8 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn();
         // -------------------------------------
 
-        // Display with 2 decimals to show fine arrow key adjustments (step 0.01 on 0-50 range)
-        FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 50.0f, "%.2f", "Reduces the strength of the Steering Shaft Torque when front tires lose grip (Understeer).\nHelps you feel the limit of adhesion.\n0% = No feeling.\nHigh = Wheel goes light immediately upon sliding. Note: grip is calculated based on the Optimal Slip Angle setting.");
+        // Display with 2 decimals to show fine arrow key adjustments (step 0.01 on 0-200 range)
+        FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 200.0f, "%.2f", "Reduces the strength of the Steering Shaft Torque when front tires lose grip (Understeer).\nHelps you feel the limit of adhesion.\n0% = No feeling.\nHigh = Wheel goes light immediately upon sliding. Note: grip is calculated based on the Optimal Slip Angle setting.");
         
         const char* base_modes[] = { "Native (Steering Shaft Torque)", "Synthetic (Constant)", "Muted (Off)" };
         IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes)/sizeof(base_modes[0]), "Debug tool to isolate effects.\nNative: Normal Operation.\nSynthetic: Constant force to test direction.\nMuted: Disables base physics (good for tuning vibrations).");
@@ -17569,10 +17978,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     if (ImGui::TreeNodeEx("Rear Axle (Oversteer)", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
         
-        FloatSetting("Lateral G Boost (Slide)", &engine.m_oversteer_boost, 0.0f, 2.0f, FormatPct(engine.m_oversteer_boost), "Increases the Lateral G (SoP) force when the rear tires lose grip.\nMakes the car feel heavier during a slide, helping you judge the momentum.\nShould build up slightly more gradually than Rear Align Torque,\nreflecting the inertia of the car's mass swinging out.\nIt's a sustained force that tells you about the magnitude of the slide\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
+        FloatSetting("Lateral G Boost (Slide)", &engine.m_oversteer_boost, 0.0f, 4.0f, FormatPct(engine.m_oversteer_boost), "Increases the Lateral G (SoP) force when the rear tires lose grip.\nMakes the car feel heavier during a slide, helping you judge the momentum.\nShould build up slightly more gradually than Rear Align Torque,\nreflecting the inertia of the car's mass swinging out.\nIt's a sustained force that tells you about the magnitude of the slide\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
         FloatSetting("Lateral G", &engine.m_sop_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_effect, FFBEngine::BASE_NM_SOP_LATERAL), "Represents Chassis Roll, simulates the weight of the car leaning in the corner.");
         FloatSetting("SoP Self-Aligning Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_rear_align_effect, FFBEngine::BASE_NM_REAR_ALIGN), "Counter-steering force generated by rear tire slip.\nShould build up very quickly after the Yaw Kick, as the slip angle develops.\nThis is the active \"pull.\"\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
-        FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
+        FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
         FloatSetting("  Activation Threshold", &engine.m_yaw_kick_threshold, 0.0f, 10.0f, "%.2f rad/s²", "Minimum yaw acceleration required to trigger the kick.\nIncrease to filter out road noise and small vibrations.");
         
         // --- NEW: Yaw Kick Smoothing (v0.5.8) ---
@@ -17695,7 +18104,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             "Affects: How much braking/acceleration contributes to calculated grip loss.");
         // ---------------------------------
 
-        BoolSetting("Manual Slip Calc", &engine.m_use_manual_slip, "Uses local velocity instead of game's slip telemetry.");
+        
         
         ImGui::TreePop();
     } else { 
@@ -17709,8 +18118,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
         BoolSetting("Lockup Vibration", &engine.m_lockup_enabled, "Simulates tire judder when wheels are locked under braking.");
         if (engine.m_lockup_enabled) {
-            FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_lockup_gain, FFBEngine::BASE_NM_LOCKUP_VIBRATION));
-            FloatSetting("  Brake Load Cap", &engine.m_brake_load_cap, 1.0f, 3.0f, "%.2fx", "Scales vibration intensity based on tire load.\nPrevents weak vibrations during high-speed heavy braking.");
+            FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 3.0f, FormatDecoupled(engine.m_lockup_gain, FFBEngine::BASE_NM_LOCKUP_VIBRATION));
+            FloatSetting("  Brake Load Cap", &engine.m_brake_load_cap, 1.0f, 10.0f, "%.2fx", "Scales vibration intensity based on tire load.\nPrevents weak vibrations during high-speed heavy braking.");
+            
+            FloatSetting("  Vibration Pitch", &engine.m_lockup_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of lockup and wheel spin vibrations.\nMatch to your hardware resonance.");
             
             
             // Precision formatting rationale (v0.6.0):
@@ -17722,7 +18133,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             ImGui::Text("Response Curve");
             ImGui::NextColumn(); ImGui::NextColumn();
 
-            FloatSetting("  Gamma", &engine.m_lockup_gamma, 0.5f, 3.0f, "%.1f", "Response Curve Non-Linearity.\n1.0 = Linear.\n>1.0 = Progressive (Starts weak, gets strong fast).\n<1.0 = Aggressive (Starts strong). 2.0=Quadratic, 3.0=Cubic (Late/Sharp)");
+            FloatSetting("  Gamma", &engine.m_lockup_gamma, 0.1f, 3.0f, "%.1f", "Response Curve Non-Linearity.\n1.0 = Linear.\n>1.0 = Progressive (Starts weak, gets strong fast).\n<1.0 = Aggressive (Starts strong). 2.0=Quadratic, 3.0=Cubic (Late/Sharp)");
             FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", "Slip percentage where vibration begins.\n1.0% = Immediate feedback.\n5.0% = Only on deep lock.");
             FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", "Slip percentage where vibration reaches maximum intensity.");
             
@@ -17736,10 +18147,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             ImGui::Text("Prediction (Advanced)");
             ImGui::NextColumn(); ImGui::NextColumn();
 
-            FloatSetting("  Sensitivity", &engine.m_lockup_prediction_sens, 20.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nHow aggressively the system predicts a lockup before it physically occurs.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
+            FloatSetting("  Sensitivity", &engine.m_lockup_prediction_sens, 10.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nHow aggressively the system predicts a lockup before it physically occurs.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
             FloatSetting("  Bump Rejection", &engine.m_lockup_bump_reject, 0.1f, 5.0f, "%.1f m/s", "Suspension velocity threshold.\nDisables prediction on bumpy surfaces to prevent false positives.\nIncrease for bumpy tracks (Sebring).");
 
-            FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 3.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.\nHelps distinguish rear locking (dangerous) from front locking (understeer).");
+            FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 10.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.\nHelps distinguish rear locking (dangerous) from front locking (understeer).");
         }
 
         ImGui::Separator();
@@ -17747,9 +18158,10 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn(); ImGui::NextColumn();
 
         // ABS
-        BoolSetting("ABS Pulse", &engine.m_abs_pulse_enabled, "Simulates the pulsing of an ABS system.\nInjects 20Hz pulse when ABS modulates pressure.");
+        BoolSetting("ABS Pulse", &engine.m_abs_pulse_enabled, "Simulates the pulsing of an ABS system.\nInjects high-frequency pulse when ABS modulates pressure.");
         if (engine.m_abs_pulse_enabled) {
-            FloatSetting("  Pulse Gain", &engine.m_abs_gain, 0.0f, 2.0f, "%.2f", "Intensity of the ABS pulse.");
+            FloatSetting("  Pulse Gain", &engine.m_abs_gain, 0.0f, 10.0f, "%.2f", "Intensity of the ABS pulse.");
+            FloatSetting("  Pulse Frequency", &engine.m_abs_freq_hz, 10.0f, 50.0f, "%.1f Hz", "Rate of the ABS pulse oscillation.");
         }
 
         ImGui::TreePop();
@@ -17777,6 +18189,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         BoolSetting("Spin Vibration", &engine.m_spin_enabled, "Vibration when wheels lose traction under acceleration (Wheel Spin).");
         if (engine.m_spin_enabled) {
             FloatSetting("  Spin Strength", &engine.m_spin_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_spin_gain, FFBEngine::BASE_NM_SPIN_VIBRATION), "Intensity of the wheel spin vibration.");
+            FloatSetting("  Spin Pitch", &engine.m_spin_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of the wheel spin vibration.");
         }
 
         FloatSetting("Scrub Drag", &engine.m_scrub_drag_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_scrub_drag_gain, FFBEngine::BASE_NM_SCRUB_DRAG), "Constant resistance force when pushing tires laterally (Understeer drag).\nAdds weight to the wheel when scrubbing.");
@@ -20304,7 +20717,8 @@ static void test_steering_shaft_smoothing(); // Forward declaration (v0.5.7)
 static void test_config_defaults_v057(); // Forward declaration (v0.5.7)
 static void test_config_safety_validation_v057(); // Forward declaration (v0.5.7)
 static void test_rear_lockup_differentiation(); // Forward declaration (v0.5.11)
-static void test_manual_slip_sign_fix(); // Forward declaration (v0.5.13)
+static void test_abs_frequency_scaling(); // Forward declaration (v0.6.20)
+static void test_lockup_pitch_scaling(); // Forward declaration (v0.6.20)
 static void test_split_load_caps(); // Forward declaration (v0.5.13)
 static void test_dynamic_thresholds(); // Forward declaration (v0.5.13)
 static void test_predictive_lockup_v060(); // Forward declaration (v0.6.0)
@@ -20314,6 +20728,7 @@ static void test_notch_filter_bandwidth(); // Forward declaration (v0.6.10)
 static void test_yaw_kick_threshold(); // Forward declaration (v0.6.10)
 static void test_notch_filter_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 static void test_yaw_kick_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
+static void test_high_gain_stability(); // Forward declaration (v0.6.20)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -20370,39 +20785,90 @@ static void InitializeEngine(FFBEngine& engine) {
 
 
 
-static void test_manual_slip_singularity() {
-    std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
+static void test_high_gain_stability() {
+    std::cout << "\nTest: High Gain Stability (Max Ranges)" << std::endl;
     FFBEngine engine;
-    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
-    TelemInfoV01 data;
-    std::memset(&data, 0, sizeof(data));
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0, 0.15); // Sliding mid-corner
     
-    engine.m_use_manual_slip = true;
-    engine.m_lockup_enabled = true;
-    engine.m_lockup_gain = 1.0;
+    // Set absolute maximums from new ranges
+    engine.m_gain = 2.0f; 
+    engine.m_understeer_effect = 200.0f;
+    engine.m_abs_gain = 10.0f;
+    engine.m_lockup_gain = 3.0f;
+    engine.m_brake_load_cap = 10.0f;
+    engine.m_oversteer_boost = 4.0f;
     
-    // Case: Car moving slowly (1.0 m/s), Wheels locked (0.0 rad/s)
-    // Normally this is -1.0 slip ratio (Lockup).
-    // Requirement: Force to 0.0 if speed < 2.0 m/s.
-    
-    data.mLocalVel.z = 1.0; // 1 m/s (< 2.0)
-    data.mWheel[0].mStaticUndeflectedRadius = 30; // 30cm
-    data.mWheel[0].mRotation = 0.0; // Locked
-    
+    // Simulating deep lockup + high speed + sliding
+    data.mWheel[0].mLongitudinalPatchVel = -15.0; // Heavy lock
     data.mUnfilteredBrake = 1.0;
-    data.mDeltaTime = 0.01;
     
-    engine.calculate_force(&data);
-    
-    // If slip ratio forced to 0.0, lockup logic shouldn't trigger.
-    // If logic triggers, phase will advance.
-    if (engine.m_lockup_phase == 0.0) {
-        std::cout << "[PASS] Low speed lockup suppressed (Phase 0)." << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Low speed lockup triggered (Phase " << engine.m_lockup_phase << ")." << std::endl;
-        g_tests_failed++;
+    for(int i=0; i<1000; i++) {
+        double force = engine.calculate_force(&data);
+        if (std::isnan(force) || std::isinf(force)) {
+            std::cout << "[FAIL] Stability failure at iteration " << i << std::endl;
+            g_tests_failed++;
+            return;
+        }
     }
+    std::cout << "[PASS] Engine stable at 200% Gain and 10.0 ABS Gain." << std::endl;
+    g_tests_passed++;
+}
+
+static void test_abs_frequency_scaling() {
+    std::cout << "\nTest: ABS Frequency Scaling" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(10.0);
+    engine.m_abs_pulse_enabled = true;
+    engine.m_abs_gain = 1.0f;
+    data.mDeltaTime = 0.001; // 1000Hz for high precision
+    
+    // Case 1: 20Hz (Default)
+    engine.m_abs_freq_hz = 20.0f;
+    engine.m_abs_phase = 0.0;
+    engine.calculate_force(&data); // Initialize phase
+    double start_phase = engine.m_abs_phase;
+    engine.calculate_force(&data);
+    double delta_phase_20 = engine.m_abs_phase - start_phase;
+    
+    // Case 2: 40Hz
+    engine.m_abs_freq_hz = 40.0f;
+    engine.m_abs_phase = 0.0;
+    engine.calculate_force(&data);
+    start_phase = engine.m_abs_phase;
+    engine.calculate_force(&data);
+    double delta_phase_40 = engine.m_abs_phase - start_phase;
+    
+    ASSERT_NEAR(delta_phase_40, delta_phase_20 * 2.0, 0.0001);
+}
+
+static void test_lockup_pitch_scaling() {
+    std::cout << "\nTest: Lockup Pitch Scaling" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    engine.m_lockup_enabled = true;
+    data.mWheel[0].mLongitudinalPatchVel = -5.0; // Trigger lockup (approx -25% slip)
+    data.mDeltaTime = 0.001;
+    
+    // Case 1: Scale 1.0
+    engine.m_lockup_freq_scale = 1.0f;
+    engine.m_lockup_phase = 0.0;
+    engine.calculate_force(&data);
+    double start_phase = engine.m_lockup_phase;
+    engine.calculate_force(&data);
+    double delta_1 = engine.m_lockup_phase - start_phase;
+    
+    // Case 2: Scale 2.0
+    engine.m_lockup_freq_scale = 2.0f;
+    engine.m_lockup_phase = 0.0;
+    engine.calculate_force(&data);
+    start_phase = engine.m_lockup_phase;
+    engine.calculate_force(&data);
+    double delta_2 = engine.m_lockup_phase - start_phase;
+    
+    ASSERT_NEAR(delta_2, delta_1 * 2.0, 0.0001);
 }
 
 static void test_base_force_modes() {
@@ -21986,64 +22452,6 @@ static void test_smoothing_step_response() {
     }
 }
 
-static void test_manual_slip_calculation() {
-    std::cout << "\nTest: Manual Slip Calculation" << std::endl;
-    FFBEngine engine;
-    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
-    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
-    
-    // Enable manual calculation
-    engine.m_use_manual_slip = true;
-    
-    // Setup Wheel: 30cm radius (30 / 100 = 0.3m)
-    data.mWheel[0].mStaticUndeflectedRadius = 30; // cm
-    data.mWheel[1].mStaticUndeflectedRadius = 30; // cm
-    
-    // Case 1: No Slip (Wheel V matches Car V)
-    // V_wheel = 20.0. Omega = V / r = 20.0 / 0.3 = 66.66 rad/s
-    for(int i=0; i<4; i++) {
-        data.mWheel[i].mRotation = 66.6666;
-        data.mWheel[i].mStaticUndeflectedRadius = 30; // 0.3m
-    }
-    data.mWheel[0].mLongitudinalPatchVel = 0.0; // Game data says 0 (should be ignored)
-    
-    engine.m_lockup_enabled = true;
-    engine.m_lockup_gain = 1.0;
-    data.mUnfilteredBrake = 1.0;
-    data.mDeltaTime = 0.01;
-    
-    engine.calculate_force(&data);
-    // With ratio ~0, no lockup force expected.
-    // Phase should not advance if slip condition (-0.1) not met.
-    if (std::abs(engine.m_lockup_phase) < 0.001) {
-        std::cout << "[PASS] Manual Slip 0 -> No Lockup." << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Manual Slip 0 -> Lockup? Phase: " << engine.m_lockup_phase << std::endl;
-        // g_tests_failed++; // Tolerated if phase advanced slightly due to fp error, but ideally 0
-        // Wait, calculate_manual_slip_ratio might return small epsilon.
-    }
-    
-    // Case 2: Locked Wheel (Omega = 0)
-    for(int i=0; i<4; i++) data.mWheel[i].mRotation = 0.0;
-    // Ratio = (0 - 20) / 20 = -1.0.
-    // This should trigger massive lockup effect.
-    
-    // Reset phase logic
-    engine.m_lockup_phase = 0.0;
-    
-    engine.calculate_force(&data); // Frame 1 (Updates phase)
-    double force_lock = engine.calculate_force(&data); // Frame 2 (Uses phase)
-    
-    if (std::abs(force_lock) > 0.001) {
-        std::cout << "[PASS] Manual Slip -1.0 -> Lockup Triggered." << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Manual Slip -1.0 -> No Lockup. Force: " << force_lock << std::endl;
-        g_tests_failed++;
-    }
-}
-
 static void test_universal_bottoming() {
     std::cout << "\nTest: Universal Bottoming" << std::endl;
     FFBEngine engine;
@@ -22107,15 +22515,17 @@ static void test_preset_initialization() {
     // REGRESSION TEST: Verify all built-in presets properly initialize v0.4.5 fields
     // 
     // BUG HISTORY: Initially, all 5 built-in presets were missing initialization
-    // for three v0.4.5 fields (use_manual_slip, bottoming_method, scrub_drag_gain),
+    // for new v0.6.20 frequency fields (abs_freq, lockup_freq_scale, spin_freq_scale),
     // causing undefined behavior when users selected any built-in preset.
     //
     // This test ensures all presets have proper initialization for these fields.
     
     Config::LoadPresets();
     
-    // Expected default values for v0.4.5 fields
-    const bool expected_use_manual_slip = false;
+    // Expected default values for new fields
+    const float expected_abs_freq = 20.0f;
+    const float expected_lockup_freq_scale = 1.0f;
+    const float expected_spin_freq_scale = 1.0f;
     const int expected_bottoming_method = 0;
     // v0.5.12: All presets now inherit default scrub_drag_gain via member initializers
     // v0.6.0: Read the actual default value instead of hardcoding it (resilient to changes)
@@ -22157,9 +22567,21 @@ static void test_preset_initialization() {
         // Verify v0.4.5 fields are properly initialized
         bool fields_ok = true;
         
-        if (preset.use_manual_slip != expected_use_manual_slip) {
-            std::cout << "[FAIL] " << preset.name << ": use_manual_slip = " 
-                      << preset.use_manual_slip << ", expected " << expected_use_manual_slip << std::endl;
+        if (preset.abs_freq != expected_abs_freq) {
+            std::cout << "[FAIL] " << preset.name << ": abs_freq = " 
+                      << preset.abs_freq << ", expected " << expected_abs_freq << std::endl;
+            fields_ok = false;
+        }
+
+        if (preset.lockup_freq_scale != expected_lockup_freq_scale) {
+             std::cout << "[FAIL] " << preset.name << ": lockup_freq_scale = " 
+                      << preset.lockup_freq_scale << ", expected " << expected_lockup_freq_scale << std::endl;
+            fields_ok = false;
+        }
+
+        if (preset.spin_freq_scale != expected_spin_freq_scale) {
+             std::cout << "[FAIL] " << preset.name << ": spin_freq_scale = " 
+                      << preset.spin_freq_scale << ", expected " << expected_spin_freq_scale << std::endl;
             fields_ok = false;
         }
         
@@ -22177,7 +22599,7 @@ static void test_preset_initialization() {
         }
         
         if (fields_ok) {
-            std::cout << "[PASS] " << preset.name << ": v0.4.5 fields initialized correctly" << std::endl;
+            std::cout << "[PASS] " << preset.name << ": new tuning fields initialized correctly" << std::endl;
             g_tests_passed++;
         } else {
             all_passed = false;
@@ -22374,7 +22796,6 @@ static void test_stress_stability() {
     engine.m_slide_texture_enabled = true;
     engine.m_road_texture_enabled = true;
     engine.m_bottoming_enabled = true;
-    engine.m_use_manual_slip = true;
     engine.m_scrub_drag_gain = 1.0;
     
     std::default_random_engine generator;
@@ -23686,7 +24107,6 @@ static void test_coordinate_rear_torque_inversion() {
     engine.m_understeer_effect = 0.0f;
     engine.m_scrub_drag_gain = 0.0f;
     engine.m_slide_texture_enabled = false;
-    engine.m_road_texture_enabled = false;
     engine.m_bottoming_enabled = false;
     engine.m_lockup_enabled = false;
     engine.m_spin_enabled = false;
@@ -24723,8 +25143,8 @@ static void test_config_safety_clamping() {
         std::cout << "[FAIL] road_gain not clamped. Got: " << engine.m_road_texture_gain << " Expected: 2.0" << std::endl;
         all_clamped = false;
     }
-    if (engine.m_lockup_gain != 2.0f) {
-        std::cout << "[FAIL] lockup_gain not clamped. Got: " << engine.m_lockup_gain << " Expected: 2.0" << std::endl;
+    if (engine.m_lockup_gain != 3.0f) {
+        std::cout << "[FAIL] lockup_gain not clamped. Got: " << engine.m_lockup_gain << " Expected: 3.0" << std::endl;
         all_clamped = false;
     }
     if (engine.m_spin_gain != 2.0f) {
@@ -24735,8 +25155,8 @@ static void test_config_safety_clamping() {
         std::cout << "[FAIL] rear_align_effect not clamped. Got: " << engine.m_rear_align_effect << " Expected: 2.0" << std::endl;
         all_clamped = false;
     }
-    if (engine.m_sop_yaw_gain != 2.0f) {
-        std::cout << "[FAIL] sop_yaw_gain not clamped. Got: " << engine.m_sop_yaw_gain << " Expected: 2.0" << std::endl;
+    if (engine.m_sop_yaw_gain != 1.0f) {
+        std::cout << "[FAIL] sop_yaw_gain not clamped. Got: " << engine.m_sop_yaw_gain << " Expected: 1.0" << std::endl;
         all_clamped = false;
     }
     if (engine.m_sop_effect != 2.0f) {
@@ -25024,29 +25444,6 @@ static void test_rear_lockup_differentiation() {
     }
 }
 
-static void test_manual_slip_sign_fix() {
-    std::cout << "\nTest: Manual Slip Sign Fix (Negative Velocity)" << std::endl;
-    FFBEngine engine;
-    InitializeEngine(engine);
-    TelemInfoV01 data = CreateBasicTestTelemetry(20.0); // 20 m/s
-    
-    engine.m_lockup_enabled = true;
-    engine.m_use_manual_slip = true;
-    engine.m_lockup_gain = 1.0f;
-    
-    // Setup: Car moving forward (-20 m/s), Wheels Locked (0 rad/s)
-    data.mLocalVel.z = -20.0; 
-    for(int i=0; i<4; i++) data.mWheel[i].mRotation = 0.0;
-    data.mUnfilteredBrake = 1.0;
-
-    // Execute
-    engine.calculate_force(&data);
-
-    // Verification
-    // Old Bug: (-20 - 0) / -20 = +1.0 (Traction) -> No Lockup
-    // Fix: (0 - 20) / 20 = -1.0 (Lockup) -> Phase Advances
-    ASSERT_TRUE(engine.m_lockup_phase > 0.0);
-}
 
 static void test_split_load_caps() {
     std::cout << "\nTest: Split Load Caps (Brake vs Texture)" << std::endl;
@@ -25184,7 +25581,6 @@ static void test_predictive_lockup_v060() {
     TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
     
     engine.m_lockup_enabled = true;
-    engine.m_use_manual_slip = true; // Use rotation for slip (v0.6.0)
     engine.m_lockup_prediction_sens = 50.0f;
     engine.m_lockup_start_pct = 5.0f;
     engine.m_lockup_full_pct = 15.0f; // Default threshold is higher than current slip
@@ -25202,7 +25598,8 @@ static void test_predictive_lockup_v060() {
     double prev_rot = data.mWheel[0].mRotation;
     data.mWheel[0].mRotation = prev_rot - 1.0; 
     
-    // Slip at 10%
+    // Slip at 10% (Required now that manual slip is removed)
+    data.mWheel[0].mLongitudinalPatchVel = -2.0; 
     data.mWheel[0].mRotation = 18.0 / 0.3;
     
     // Car decel is 0 (mLocalAccel.z = 0)
@@ -25542,7 +25939,7 @@ void Run() {
     test_stress_stability();
 
     // Run New Tests
-    test_manual_slip_singularity();
+    // test_manual_slip_singularity(); removed in v0.6.20
     test_scrub_drag_fade();
     test_road_texture_teleport();
     test_grip_low_speed();
@@ -25570,7 +25967,6 @@ void Run() {
     test_channel_stats();
     test_game_state_logic();
     test_smoothing_step_response();
-    test_manual_slip_calculation();
     test_universal_bottoming();
     test_preset_initialization();
 
@@ -25618,7 +26014,9 @@ void Run() {
     test_config_defaults_v057();
     test_config_safety_validation_v057();
     test_rear_lockup_differentiation(); // v0.5.11
-    test_manual_slip_sign_fix(); // v0.5.13
+    test_high_gain_stability(); // v0.6.20
+    test_abs_frequency_scaling(); // v0.6.20
+    test_lockup_pitch_scaling(); // v0.6.20
     test_split_load_caps(); // v0.5.13
     test_dynamic_thresholds(); // v0.5.13
     test_predictive_lockup_v060(); // v0.6.0

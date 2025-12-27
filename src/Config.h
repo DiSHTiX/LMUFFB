@@ -35,9 +35,11 @@ struct Preset {
     
     bool abs_pulse_enabled = true;       // New v0.6.0
     float abs_gain = 2.0f;               // New v0.6.0
+    float abs_freq = 20.0f;              // New v0.6.20
     
     bool spin_enabled = false;
     float spin_gain = 0.5f;
+    float spin_freq_scale = 1.0f;        // New v0.6.20
     
     bool slide_enabled = true;
     float slide_gain = 0.39f;
@@ -49,7 +51,7 @@ struct Preset {
     bool invert_force = true;
     float max_torque_ref = 100.0f; // T300 Calibrated
     
-    bool use_manual_slip = false;
+    float lockup_freq_scale = 1.0f;      // New v0.6.20
     int bottoming_method = 0;
     float scrub_drag_gain = 0.0f;
     
@@ -103,7 +105,12 @@ struct Preset {
         return *this; 
     }
     Preset& SetBrakeCap(float v) { brake_load_cap = v; return *this; }
-    Preset& SetSpin(bool enabled, float g) { spin_enabled = enabled; spin_gain = g; return *this; }
+    Preset& SetSpin(bool enabled, float g, float scale = 1.0f) { 
+        spin_enabled = enabled; 
+        spin_gain = g; 
+        spin_freq_scale = scale;
+        return *this; 
+    }
     Preset& SetSlide(bool enabled, float g, float f = 1.0f) { 
         slide_enabled = enabled; 
         slide_gain = g; 
@@ -115,7 +122,6 @@ struct Preset {
     Preset& SetInvert(bool v) { invert_force = v; return *this; }
     Preset& SetMaxTorque(float v) { max_torque_ref = v; return *this; }
     
-    Preset& SetManualSlip(bool v) { use_manual_slip = v; return *this; }
     Preset& SetBottoming(int method) { bottoming_method = method; return *this; }
     Preset& SetScrub(float v) { scrub_drag_gain = v; return *this; }
     Preset& SetRearAlign(float v) { rear_align_effect = v; return *this; }
@@ -151,12 +157,14 @@ struct Preset {
     Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
     
     // Advanced Braking (v0.6.0)
-    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g) {
+    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g, float abs_f = 20.0f, float lockup_f = 1.0f) {
         lockup_gamma = gamma;
         lockup_prediction_sens = sens;
         lockup_bump_reject = bump;
         abs_pulse_enabled = abs;
         abs_gain = abs_g;
+        abs_freq = abs_f;
+        lockup_freq_scale = lockup_f;
         return *this;
     }
 
@@ -198,7 +206,9 @@ struct Preset {
         engine.m_road_texture_gain = road_gain;
         engine.m_invert_force = invert_force;
         engine.m_max_torque_ref = max_torque_ref;
-        engine.m_use_manual_slip = use_manual_slip;
+        engine.m_abs_freq_hz = abs_freq;
+        engine.m_lockup_freq_scale = lockup_freq_scale;
+        engine.m_spin_freq_scale = spin_freq_scale;
         engine.m_bottoming_method = bottoming_method;
         engine.m_scrub_drag_gain = scrub_drag_gain;
         engine.m_rear_align_effect = rear_align_effect;
@@ -252,7 +262,9 @@ struct Preset {
         road_gain = engine.m_road_texture_gain;
         invert_force = engine.m_invert_force;
         max_torque_ref = engine.m_max_torque_ref;
-        use_manual_slip = engine.m_use_manual_slip;
+        abs_freq = engine.m_abs_freq_hz;
+        lockup_freq_scale = engine.m_lockup_freq_scale;
+        spin_freq_scale = engine.m_spin_freq_scale;
         bottoming_method = engine.m_bottoming_method;
         scrub_drag_gain = engine.m_scrub_drag_gain;
         rear_align_effect = engine.m_rear_align_effect;

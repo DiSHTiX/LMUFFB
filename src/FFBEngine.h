@@ -324,11 +324,15 @@ public:
     double m_abs_phase = 0.0; // New v0.6.0
     double m_bottoming_phase = 0.0;
     
+    // Phase Accumulators for Dynamic Oscillators (v0.6.20)
+    float m_abs_freq_hz = 20.0f;
+    float m_lockup_freq_scale = 1.0f;
+    float m_spin_freq_scale = 1.0f;
+    
     // Internal state for Bottoming (Method B)
     double m_prev_susp_force[2] = {0.0, 0.0}; // FL, FR
 
     // New Settings (v0.4.5)
-    bool m_use_manual_slip = false;
     int m_bottoming_method = 0; // 0=Scraping (Default), 1=Suspension Spike
     float m_scrub_drag_gain; // Initialized by Preset::ApplyDefaultsToEngine()
 
@@ -959,8 +963,8 @@ public:
         double texture_load_factor = (std::min)(texture_safe_max, (std::max)(0.0, raw_load_factor));
 
         // 2. Brake Load Factor (Lockup)
-        // Hard clamp at 3.0 as per GUI limits
-        double brake_safe_max = (std::min)(3.0, (double)m_brake_load_cap);
+        // Expanded to 10.0 in v0.6.20
+        double brake_safe_max = (std::min)(10.0, (double)m_brake_load_cap);
         double brake_load_factor = (std::min)(brake_safe_max, (std::max)(0.0, raw_load_factor));
 
         // --- 1. GAIN COMPENSATION (Decoupling) ---
@@ -1215,11 +1219,8 @@ public:
         double car_speed_ms = std::abs(data->mLocalVel.z); // Or mLongitudinalGroundVel per wheel
         
         auto get_slip_ratio = [&](const TelemWheelV01& w) {
-            // v0.4.5: Option to use manual calculation
-            if (m_use_manual_slip) {
-                return calculate_manual_slip_ratio(w, std::abs(data->mLocalVel.z));
-            }
-            // Default Game Data
+            // v0.6.20: Engine always uses game data for base slip detection
+            // Fallback estimation is handled in calculate_grip()
             double v_long = std::abs(w.mLongitudinalGroundVel);
             if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
             return w.mLongitudinalPatchVel / v_long;
@@ -1243,7 +1244,7 @@ public:
             }
             
             if (abs_system_active) {
-                m_abs_phase += 20.0 * dt * TWO_PI; // 20Hz Pulse
+                m_abs_phase += (double)m_abs_freq_hz * dt * TWO_PI; // Configurable Frequency
                 m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
                 total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale);
             }
@@ -1332,7 +1333,7 @@ public:
             if (worst_severity > 0.0) {
                 // Base Frequency linked to Car Speed
                 double base_freq = 10.0 + (car_speed_ms * 1.5); 
-                double final_freq = base_freq * chosen_freq_multiplier;
+                double final_freq = base_freq * chosen_freq_multiplier * (double)m_lockup_freq_scale;
 
                 // Phase Integration
                 m_lockup_phase += final_freq * dt * TWO_PI;
@@ -1372,7 +1373,7 @@ public:
                 // Mapping:
                 // 2 m/s (~7kph) slip -> 15Hz (Judder/Grip fighting)
                 // 20 m/s (~72kph) slip -> 60Hz (Smooth spin)
-                double freq = 10.0 + (slip_speed_ms * 2.5);
+                double freq = (10.0 + (slip_speed_ms * 2.5)) * (double)m_spin_freq_scale;
                 
                 // Cap frequency to prevent ultrasonic feeling on high speed burnouts
                 if (freq > 80.0) freq = 80.0;

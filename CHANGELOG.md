@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.20] - 2025-12-27
+### Added
+- **Effect Tuning & Slider Range Expansion**:
+  - **ABS Pulse Frequency**: Added a dedicated slider (10Hz - 50Hz) to tune the vibrational pitch of the ABS pulse effect, allowing users to match the haptic feel of their specific hardware.
+  - **Vibration Pitch Tuning**: Added "Vibration Pitch" sliders for both **Lockup** and **Wheel Spin** vibrations (0.5x - 2.0x). Users can now customize the "screech" or "judder" characteristic of these effects.
+  - **Expanded Slider Ranges**: Significant range increases for professional-grade hardware and extreme feedback scenarios:
+    - **Understeer Effect**: Max increased to 200% (was 50%).
+    - **Steering Shaft Gain**: Max increased to 2.0x (was 1.0x).
+    - **ABS Pulse Gain**: Max increased to 10.0x (was 2.0x).
+    - **Lockup Strength**: Max increased to 3.0x (was 2.0x).
+    - **Brake Load Cap**: Max increased to 10.0x (was 3.0x).
+    - **Lockup Prediction Sensitivity**: Min threshold lowered to 10.0 (more sensitive).
+    - **Lockup Rear Boost**: Max increased to 10.0x (was 3.0x).
+    - **Lateral G Boost**: Max increased to 4.0x (was 2.0x).
+    - **Lockup Gamma**: Range expanded to 0.1 - 3.0 for ultra-fine onset control.
+    - **Yaw Kick Gain**: Consolidated max to 1.0 (optimized for noise immunity).
+
+### Changed
+- **Core Logic Cleanup**:
+  - **Removed "Manual Slip" Toggle**: The engine now always uses the most accurate native telemetry data for slip calculations. The manual calculation fallback remains as an automatic internal recovery mechanism for encrypted content.
+  - **Unified Frequency Math**: Synchronized all vibration oscillators to use time-corrected phase accumulation for perfect stability during frame stutters.
+- **Documentation**:
+  - Updated **FFB_formulas.md** and **telemetry_data_reference.md** to reflect the new frequency tuning math and expanded physics ranges.
+
+### Fixed
+- **Test Suite Alignment**: Resolved all regression test failures caused by the removal of the manual slip toggle and the expansion of safety clamping limits.
+
 ## [0.6.10] - 2025-12-27
 ### Added
 - **Signal Processing Improvements**:

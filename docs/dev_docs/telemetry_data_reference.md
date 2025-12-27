@@ -1,4 +1,4 @@
-# Telemetry Data Reference (LMU 1.2 API)
+# Telemetry Data Reference (LMU 1.2 API) - v0.6.20
 
 > **⚠️ API Source of Truth**  
 > The official and authoritative reference for all telemetry data structures, field names, types, and units is:  
@@ -16,7 +16,7 @@
 
 ## Overview
 
-This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.10) and explores potential future uses for enhanced Force Feedback.
+This document lists the physics data available from the **Le Mans Ultimate 1.2 Native Shared Memory Interface** (structs `TelemInfoV01` and `TelemWheelV01`). It documents which values lmuFFB currently uses (up to v0.6.20) and explores potential future uses for enhanced Force Feedback.
 
 **Changes from rFactor 2:** LMU 1.2 introduced native shared memory support with:
 - **Direct torque measurement**: `mSteeringShaftTorque` (Nm) replaced force-based `mSteeringArmForce` (N)
@@ -36,7 +36,7 @@ These values describe the state of the vehicle chassis and engine.
 | `mElapsedTime` | seconds | Session time | **Used**: Zero-crossing frequency analysis timestamps | Logging |
 | **`mSteeringShaftTorque`** | **Nm** | **Torque around steering shaft** (replaces `mSteeringArmForce`) | **Used**: Primary FFB source, Signal Analysis (Freq Estimator) | |
 | `mLocalAccel` | m/s² | Acceleration in car-local space (X=Lat, Y=Vert, Z=Long) | **Used**: `x` for SoP (Seat of Pants), `x/z` for **Kinematic Load Reconstruction** | `z` for braking dive/acceleration squat cues |
-| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (with configurable Activation Threshold: 0.0-10.0 rad/s²) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
+| `mLocalRot`, `mLocalRotAccel` | rad/s, rad/s² | Rotation rate/accel (Yaw/Pitch/Roll) | **Used**: `mLocalRotAccel.y` for **Yaw Kick** (Clamp: 1.0 rad/s², Threshold: 0.0-10.0 rad/s²) | **High Priority**: Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta |
 | `mLocalVel` | m/s | Velocity in local coordinates | **Used**: `z` for speed-based frequency scaling, Kinematic Load, & sanity checks | |
 | `mUnfilteredThrottle` | 0.0-1.0 | Raw throttle input | **Used**: Trigger for Wheel Spin effects | |
 | `mUnfilteredBrake` | 0.0-1.0 | Raw brake input | **Used**: Trigger for Lockup effects and **Predictive Logic Gating**, **ABS Trigger** | |
@@ -130,8 +130,9 @@ lmuFFB implements robust fallback logic for missing/invalid telemetry (Encryptio
 
 - **Missing Load (Adaptive Kinematic)**: If `mTireLoad` AND `mSuspForce` are invalid while moving, load is reconstructed using Chassis Physics:
     - Mass + Aero ($v^2$) + Longitudinal/Lateral Weight Transfer (`mLocalAccel`).
-- **Missing Grip (Combined Friction Circle)**: If `mGripFract < 0.0001`, grip is approximated using **Slip Angle** and **Slip Ratio**:
+- **Missing Grip (Combined Friction Circle)**: If `mGripFract < 0.0001` (e.g., encrypted mod content), grip is approximated using **Slip Angle** and **Slip Ratio**:
     - $\sqrt{(\text{SlipLat}/\text{OptLat})^2 + (\text{SlipLong}/\text{OptLong})^2}$
+    - *Note*: Manual Slip Calculation toggle was removed in v0.6.20; this reconstruction is now purely an automatic fallback.
 - **Invalid DeltaTime**: If `mDeltaTime <= 0.000001`, defaults to 0.0025s (400Hz).
 - **Slip Angle Singularity**: If `CarSpeed < 0.5 m/s`, slip angle calculation is clamped to prevent div-by-zero.
 
@@ -169,3 +170,19 @@ The SDK explicitly warns:
     *   **Right Turn**: Rear slides LEFT (+Vel).
     *   **Desired Force**: Aligning torque should pull LEFT (+).
     *   **Implementation**: The formula `double rear_torque = -calc_rear_lat_force` correctly produces a Positive output for Positive velocity inputs due to the negative coefficient in the `calc` helper. **Already Correct.**
+
+---
+
+## 7. Engine Tuning Parameters (v0.6.20)
+
+The following parameters are exposed in the GUI and `config.ini` to tune effect responses.
+
+| Parameter | UI Label | Range | Description |
+| :--- | :--- | :--- | :--- |
+| `m_abs_freq_hz` | **ABS Pulse Frequency** | 10 - 50 Hz | Vibrational pitch of the ABS pulse effect |
+| `m_lockup_freq_scale`| **Vibration Pitch** (Lockup) | 0.5x - 2.0x | Scalar multiplier for lockup vibration frequency |
+| `m_spin_freq_scale` | **Vibration Pitch** (Spin) | 0.5x - 2.0x | Scalar multiplier for wheel spin vibration frequency |
+| `m_lockup_gamma` | **Lockup Gamma** | 0.1 - 3.0 | Curvature of the lockup response (v0.6.0) |
+| `m_understeer_effect`| **Understeer Effect** | 0% - 200% | Resistance reduction when front grip is lost |
+| `m_brake_load_cap` | **Brake Load Cap** | 1.0x - 10.0x | Sensitivity of lockup vibration to tire load |
+| `m_yaw_kick_threshold`| **Yaw Kick Threshold**| 0.0 - 10.0 | Sensitivity filter for chassis rotation kicks |

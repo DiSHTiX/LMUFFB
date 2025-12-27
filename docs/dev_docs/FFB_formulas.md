@@ -1,4 +1,4 @@
-# FFB Mathematical Formulas (v0.6.10)
+# FFB Mathematical Formulas (v0.6.20)
 
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
@@ -49,7 +49,7 @@ Texture and vibration effects are scaled by normalized tire load (`Load / 4000N`
 
 2.  **Brake Load Factor (Lockup)**:
     *   $F_{\text{load-brake}} = \text{Clamp}(\text{AvgLoad} / 4000.0, 0.0, m_{\text{brake-load-cap}})$
-    *   **Max Cap**: 3.0 (Allows stronger vibration under high-downforce braking).
+    *   **Max Cap**: 10.0 (Expanded in v0.6.20 to allow extremely aggressive vibration).
 
 #### B. Base Force Components
 
@@ -75,7 +75,6 @@ If telemetry grip (`mGripFract`) is missing or invalid (< 0.0001), the engine ap
     *   **Metric Formulation**:
         *   $\text{Metric}_{\text{lat}} = |\alpha| / \text{OptAlpha}$ (Lateral Slip Angle). **Default**: 0.10 rad.
         *   $\text{Metric}_{\text{long}} = |\kappa| / \text{OptRatio}$ (Longitudinal Slip Ratio). **Default**: 0.12 (12%).
-        *   *Note on $\kappa$*: Calculated via Manual Slip Ratio ($V_{wheel} / V_{car} - 1$). If `mTireRadius` is invalid (< 0.1m), it defaults to **0.33m** (33cm).
     *   $\text{Combined} = \sqrt{\text{Metric}_{\text{lat}}^2 + \text{Metric}_{\text{long}}^2}$
     *   $\text{ApproxGrip} = (1.0 \text{ if } \text{Combined} < 1.0 \text{ else } 1.0 / (1.0 + (\text{Combined}-1.0) \times 2.0))$
 *   **Safety Clamp**: Approx Grip is usually clamped to min **0.2** to prevent total loss of force.
@@ -109,6 +108,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
             *   *Default*: 0.2 rad/s². Configurable to filter road noise.
     *   **Rationale**: Requires heavy smoothing (LPF) to separate true chassis rotation from "Slide Texture" vibration noise, preventing a feedback loop where vibration is mistaken for rotation.
     *   **Formula**: $-\text{YawAccel}_{\text{smooth}} \times K_{\text{yaw}} \times 5.0 \text{Nm} \times K_{\text{decouple}}$.
+    *   **Max Clamp**: 1.0 (Updated v0.6.20).
     *   **Note**: Negative sign provides counter-steering torque.
 
 4.  **Rear Aligning Torque ($T_{\text{rear}}$)**:
@@ -124,8 +124,8 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Predictive Logic (v0.6.0)**: Triggers early if `WheelDecel > CarDecel * 2.0` (Wheel stopping faster than car).
     *   *Note*: `CarDecel` (angular equivalent) depends on `mTireRadius`. If radius < 0.1m, defaults to **0.33m**.
 *   **Bump Rejection**: Logic disabled if `SuspVelocity > m_lockup_bump_reject` (e.g. 1.0 m/s).
-*   **Frequency**: $10\text{Hz} + (\text{CarSpeed} \times 1.5)$. (Base frequency calculation).
-*   **Severity**: $\text{Severity} = \text{pow}(\text{NormSlip}, m_{\text{lockup-gamma}})$ (Quadratic).
+*   **Frequency**: $(10\text{Hz} + (\text{CarSpeed} \times 1.5)) \times m_{\text{lockup-pitch}}$. (User tunable pitch).
+*   **Severity**: $\text{Severity} = \text{pow}(\text{NormSlip}, m_{\text{lockup-gamma}})$ (User tunable gamma).
 *   **Logic**:
     *   **Axle Diff**: Rear lockups use **0.3x Frequency** and **1.5x Amplitude**.
     *   **Pressure Scaling**: Scales with Brake Pressure (Bar). Fallback to 0.5 if engine braking (Pressure < 0.1 bar).
@@ -133,7 +133,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 
 **2. ABS Pulse ($F_{\text{abs}}$)**
 *   **Trigger**: Brake > 50% AND Pressure Modulation Rate > 2.0 bar/s.
-*   **Formula**: `sin(20Hz) * K_abs * 2.0Nm`.
+*   **Formula**: `sin(m_abs_freq_hz) * K_abs * 2.0Nm`. (Tunable frequency 10-50Hz).
 
 #### E. Dynamic Textures & Vibrations
 
@@ -162,7 +162,7 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
 *   **Torque Drop ($M_{\text{spin-drop}}$)**: The *Total Output Force* is reduced to simulate "floating" front tires.
     *   `M_spin-drop = (1.0 - (Severity * K_spin * 0.6))`
 *   **Vibration**:
-    *   **Frequency**: $10\text{Hz} + (\text{SlipSpeed} \times 2.5)$. Cap 80Hz.
+    *   **Frequency**: $(10\text{Hz} + (\text{SlipSpeed} \times 2.5)) \times m_{\text{spin-pitch}}$.
     *   **Formula**: $\sin(\phi) \times \text{Severity} \times K_{\text{spin}} \times 2.5\text{Nm} \times K_{\text{decouple}}$.
 
 **4. Suspension Bottoming**

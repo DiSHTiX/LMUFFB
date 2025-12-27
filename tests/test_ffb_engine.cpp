@@ -75,7 +75,8 @@ static void test_steering_shaft_smoothing(); // Forward declaration (v0.5.7)
 static void test_config_defaults_v057(); // Forward declaration (v0.5.7)
 static void test_config_safety_validation_v057(); // Forward declaration (v0.5.7)
 static void test_rear_lockup_differentiation(); // Forward declaration (v0.5.11)
-static void test_manual_slip_sign_fix(); // Forward declaration (v0.5.13)
+static void test_abs_frequency_scaling(); // Forward declaration (v0.6.20)
+static void test_lockup_pitch_scaling(); // Forward declaration (v0.6.20)
 static void test_split_load_caps(); // Forward declaration (v0.5.13)
 static void test_dynamic_thresholds(); // Forward declaration (v0.5.13)
 static void test_predictive_lockup_v060(); // Forward declaration (v0.6.0)
@@ -85,6 +86,7 @@ static void test_notch_filter_bandwidth(); // Forward declaration (v0.6.10)
 static void test_yaw_kick_threshold(); // Forward declaration (v0.6.10)
 static void test_notch_filter_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 static void test_yaw_kick_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
+static void test_high_gain_stability(); // Forward declaration (v0.6.20)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -141,39 +143,90 @@ static void InitializeEngine(FFBEngine& engine) {
 
 
 
-static void test_manual_slip_singularity() {
-    std::cout << "\nTest: Manual Slip Singularity (Low Speed Trap)" << std::endl;
+static void test_high_gain_stability() {
+    std::cout << "\nTest: High Gain Stability (Max Ranges)" << std::endl;
     FFBEngine engine;
-    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
-    TelemInfoV01 data;
-    std::memset(&data, 0, sizeof(data));
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0, 0.15); // Sliding mid-corner
     
-    engine.m_use_manual_slip = true;
-    engine.m_lockup_enabled = true;
-    engine.m_lockup_gain = 1.0;
+    // Set absolute maximums from new ranges
+    engine.m_gain = 2.0f; 
+    engine.m_understeer_effect = 200.0f;
+    engine.m_abs_gain = 10.0f;
+    engine.m_lockup_gain = 3.0f;
+    engine.m_brake_load_cap = 10.0f;
+    engine.m_oversteer_boost = 4.0f;
     
-    // Case: Car moving slowly (1.0 m/s), Wheels locked (0.0 rad/s)
-    // Normally this is -1.0 slip ratio (Lockup).
-    // Requirement: Force to 0.0 if speed < 2.0 m/s.
-    
-    data.mLocalVel.z = 1.0; // 1 m/s (< 2.0)
-    data.mWheel[0].mStaticUndeflectedRadius = 30; // 30cm
-    data.mWheel[0].mRotation = 0.0; // Locked
-    
+    // Simulating deep lockup + high speed + sliding
+    data.mWheel[0].mLongitudinalPatchVel = -15.0; // Heavy lock
     data.mUnfilteredBrake = 1.0;
-    data.mDeltaTime = 0.01;
     
-    engine.calculate_force(&data);
-    
-    // If slip ratio forced to 0.0, lockup logic shouldn't trigger.
-    // If logic triggers, phase will advance.
-    if (engine.m_lockup_phase == 0.0) {
-        std::cout << "[PASS] Low speed lockup suppressed (Phase 0)." << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Low speed lockup triggered (Phase " << engine.m_lockup_phase << ")." << std::endl;
-        g_tests_failed++;
+    for(int i=0; i<1000; i++) {
+        double force = engine.calculate_force(&data);
+        if (std::isnan(force) || std::isinf(force)) {
+            std::cout << "[FAIL] Stability failure at iteration " << i << std::endl;
+            g_tests_failed++;
+            return;
+        }
     }
+    std::cout << "[PASS] Engine stable at 200% Gain and 10.0 ABS Gain." << std::endl;
+    g_tests_passed++;
+}
+
+static void test_abs_frequency_scaling() {
+    std::cout << "\nTest: ABS Frequency Scaling" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(10.0);
+    engine.m_abs_pulse_enabled = true;
+    engine.m_abs_gain = 1.0f;
+    data.mDeltaTime = 0.001; // 1000Hz for high precision
+    
+    // Case 1: 20Hz (Default)
+    engine.m_abs_freq_hz = 20.0f;
+    engine.m_abs_phase = 0.0;
+    engine.calculate_force(&data); // Initialize phase
+    double start_phase = engine.m_abs_phase;
+    engine.calculate_force(&data);
+    double delta_phase_20 = engine.m_abs_phase - start_phase;
+    
+    // Case 2: 40Hz
+    engine.m_abs_freq_hz = 40.0f;
+    engine.m_abs_phase = 0.0;
+    engine.calculate_force(&data);
+    start_phase = engine.m_abs_phase;
+    engine.calculate_force(&data);
+    double delta_phase_40 = engine.m_abs_phase - start_phase;
+    
+    ASSERT_NEAR(delta_phase_40, delta_phase_20 * 2.0, 0.0001);
+}
+
+static void test_lockup_pitch_scaling() {
+    std::cout << "\nTest: Lockup Pitch Scaling" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    engine.m_lockup_enabled = true;
+    data.mWheel[0].mLongitudinalPatchVel = -5.0; // Trigger lockup (approx -25% slip)
+    data.mDeltaTime = 0.001;
+    
+    // Case 1: Scale 1.0
+    engine.m_lockup_freq_scale = 1.0f;
+    engine.m_lockup_phase = 0.0;
+    engine.calculate_force(&data);
+    double start_phase = engine.m_lockup_phase;
+    engine.calculate_force(&data);
+    double delta_1 = engine.m_lockup_phase - start_phase;
+    
+    // Case 2: Scale 2.0
+    engine.m_lockup_freq_scale = 2.0f;
+    engine.m_lockup_phase = 0.0;
+    engine.calculate_force(&data);
+    start_phase = engine.m_lockup_phase;
+    engine.calculate_force(&data);
+    double delta_2 = engine.m_lockup_phase - start_phase;
+    
+    ASSERT_NEAR(delta_2, delta_1 * 2.0, 0.0001);
 }
 
 static void test_base_force_modes() {
@@ -1757,64 +1810,6 @@ static void test_smoothing_step_response() {
     }
 }
 
-static void test_manual_slip_calculation() {
-    std::cout << "\nTest: Manual Slip Calculation" << std::endl;
-    FFBEngine engine;
-    InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
-    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
-    
-    // Enable manual calculation
-    engine.m_use_manual_slip = true;
-    
-    // Setup Wheel: 30cm radius (30 / 100 = 0.3m)
-    data.mWheel[0].mStaticUndeflectedRadius = 30; // cm
-    data.mWheel[1].mStaticUndeflectedRadius = 30; // cm
-    
-    // Case 1: No Slip (Wheel V matches Car V)
-    // V_wheel = 20.0. Omega = V / r = 20.0 / 0.3 = 66.66 rad/s
-    for(int i=0; i<4; i++) {
-        data.mWheel[i].mRotation = 66.6666;
-        data.mWheel[i].mStaticUndeflectedRadius = 30; // 0.3m
-    }
-    data.mWheel[0].mLongitudinalPatchVel = 0.0; // Game data says 0 (should be ignored)
-    
-    engine.m_lockup_enabled = true;
-    engine.m_lockup_gain = 1.0;
-    data.mUnfilteredBrake = 1.0;
-    data.mDeltaTime = 0.01;
-    
-    engine.calculate_force(&data);
-    // With ratio ~0, no lockup force expected.
-    // Phase should not advance if slip condition (-0.1) not met.
-    if (std::abs(engine.m_lockup_phase) < 0.001) {
-        std::cout << "[PASS] Manual Slip 0 -> No Lockup." << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Manual Slip 0 -> Lockup? Phase: " << engine.m_lockup_phase << std::endl;
-        // g_tests_failed++; // Tolerated if phase advanced slightly due to fp error, but ideally 0
-        // Wait, calculate_manual_slip_ratio might return small epsilon.
-    }
-    
-    // Case 2: Locked Wheel (Omega = 0)
-    for(int i=0; i<4; i++) data.mWheel[i].mRotation = 0.0;
-    // Ratio = (0 - 20) / 20 = -1.0.
-    // This should trigger massive lockup effect.
-    
-    // Reset phase logic
-    engine.m_lockup_phase = 0.0;
-    
-    engine.calculate_force(&data); // Frame 1 (Updates phase)
-    double force_lock = engine.calculate_force(&data); // Frame 2 (Uses phase)
-    
-    if (std::abs(force_lock) > 0.001) {
-        std::cout << "[PASS] Manual Slip -1.0 -> Lockup Triggered." << std::endl;
-        g_tests_passed++;
-    } else {
-        std::cout << "[FAIL] Manual Slip -1.0 -> No Lockup. Force: " << force_lock << std::endl;
-        g_tests_failed++;
-    }
-}
-
 static void test_universal_bottoming() {
     std::cout << "\nTest: Universal Bottoming" << std::endl;
     FFBEngine engine;
@@ -1878,15 +1873,17 @@ static void test_preset_initialization() {
     // REGRESSION TEST: Verify all built-in presets properly initialize v0.4.5 fields
     // 
     // BUG HISTORY: Initially, all 5 built-in presets were missing initialization
-    // for three v0.4.5 fields (use_manual_slip, bottoming_method, scrub_drag_gain),
+    // for new v0.6.20 frequency fields (abs_freq, lockup_freq_scale, spin_freq_scale),
     // causing undefined behavior when users selected any built-in preset.
     //
     // This test ensures all presets have proper initialization for these fields.
     
     Config::LoadPresets();
     
-    // Expected default values for v0.4.5 fields
-    const bool expected_use_manual_slip = false;
+    // Expected default values for new fields
+    const float expected_abs_freq = 20.0f;
+    const float expected_lockup_freq_scale = 1.0f;
+    const float expected_spin_freq_scale = 1.0f;
     const int expected_bottoming_method = 0;
     // v0.5.12: All presets now inherit default scrub_drag_gain via member initializers
     // v0.6.0: Read the actual default value instead of hardcoding it (resilient to changes)
@@ -1928,9 +1925,21 @@ static void test_preset_initialization() {
         // Verify v0.4.5 fields are properly initialized
         bool fields_ok = true;
         
-        if (preset.use_manual_slip != expected_use_manual_slip) {
-            std::cout << "[FAIL] " << preset.name << ": use_manual_slip = " 
-                      << preset.use_manual_slip << ", expected " << expected_use_manual_slip << std::endl;
+        if (preset.abs_freq != expected_abs_freq) {
+            std::cout << "[FAIL] " << preset.name << ": abs_freq = " 
+                      << preset.abs_freq << ", expected " << expected_abs_freq << std::endl;
+            fields_ok = false;
+        }
+
+        if (preset.lockup_freq_scale != expected_lockup_freq_scale) {
+             std::cout << "[FAIL] " << preset.name << ": lockup_freq_scale = " 
+                      << preset.lockup_freq_scale << ", expected " << expected_lockup_freq_scale << std::endl;
+            fields_ok = false;
+        }
+
+        if (preset.spin_freq_scale != expected_spin_freq_scale) {
+             std::cout << "[FAIL] " << preset.name << ": spin_freq_scale = " 
+                      << preset.spin_freq_scale << ", expected " << expected_spin_freq_scale << std::endl;
             fields_ok = false;
         }
         
@@ -1948,7 +1957,7 @@ static void test_preset_initialization() {
         }
         
         if (fields_ok) {
-            std::cout << "[PASS] " << preset.name << ": v0.4.5 fields initialized correctly" << std::endl;
+            std::cout << "[PASS] " << preset.name << ": new tuning fields initialized correctly" << std::endl;
             g_tests_passed++;
         } else {
             all_passed = false;
@@ -2145,7 +2154,6 @@ static void test_stress_stability() {
     engine.m_slide_texture_enabled = true;
     engine.m_road_texture_enabled = true;
     engine.m_bottoming_enabled = true;
-    engine.m_use_manual_slip = true;
     engine.m_scrub_drag_gain = 1.0;
     
     std::default_random_engine generator;
@@ -3457,7 +3465,6 @@ static void test_coordinate_rear_torque_inversion() {
     engine.m_understeer_effect = 0.0f;
     engine.m_scrub_drag_gain = 0.0f;
     engine.m_slide_texture_enabled = false;
-    engine.m_road_texture_enabled = false;
     engine.m_bottoming_enabled = false;
     engine.m_lockup_enabled = false;
     engine.m_spin_enabled = false;
@@ -4494,8 +4501,8 @@ static void test_config_safety_clamping() {
         std::cout << "[FAIL] road_gain not clamped. Got: " << engine.m_road_texture_gain << " Expected: 2.0" << std::endl;
         all_clamped = false;
     }
-    if (engine.m_lockup_gain != 2.0f) {
-        std::cout << "[FAIL] lockup_gain not clamped. Got: " << engine.m_lockup_gain << " Expected: 2.0" << std::endl;
+    if (engine.m_lockup_gain != 3.0f) {
+        std::cout << "[FAIL] lockup_gain not clamped. Got: " << engine.m_lockup_gain << " Expected: 3.0" << std::endl;
         all_clamped = false;
     }
     if (engine.m_spin_gain != 2.0f) {
@@ -4506,8 +4513,8 @@ static void test_config_safety_clamping() {
         std::cout << "[FAIL] rear_align_effect not clamped. Got: " << engine.m_rear_align_effect << " Expected: 2.0" << std::endl;
         all_clamped = false;
     }
-    if (engine.m_sop_yaw_gain != 2.0f) {
-        std::cout << "[FAIL] sop_yaw_gain not clamped. Got: " << engine.m_sop_yaw_gain << " Expected: 2.0" << std::endl;
+    if (engine.m_sop_yaw_gain != 1.0f) {
+        std::cout << "[FAIL] sop_yaw_gain not clamped. Got: " << engine.m_sop_yaw_gain << " Expected: 1.0" << std::endl;
         all_clamped = false;
     }
     if (engine.m_sop_effect != 2.0f) {
@@ -4795,29 +4802,6 @@ static void test_rear_lockup_differentiation() {
     }
 }
 
-static void test_manual_slip_sign_fix() {
-    std::cout << "\nTest: Manual Slip Sign Fix (Negative Velocity)" << std::endl;
-    FFBEngine engine;
-    InitializeEngine(engine);
-    TelemInfoV01 data = CreateBasicTestTelemetry(20.0); // 20 m/s
-    
-    engine.m_lockup_enabled = true;
-    engine.m_use_manual_slip = true;
-    engine.m_lockup_gain = 1.0f;
-    
-    // Setup: Car moving forward (-20 m/s), Wheels Locked (0 rad/s)
-    data.mLocalVel.z = -20.0; 
-    for(int i=0; i<4; i++) data.mWheel[i].mRotation = 0.0;
-    data.mUnfilteredBrake = 1.0;
-
-    // Execute
-    engine.calculate_force(&data);
-
-    // Verification
-    // Old Bug: (-20 - 0) / -20 = +1.0 (Traction) -> No Lockup
-    // Fix: (0 - 20) / 20 = -1.0 (Lockup) -> Phase Advances
-    ASSERT_TRUE(engine.m_lockup_phase > 0.0);
-}
 
 static void test_split_load_caps() {
     std::cout << "\nTest: Split Load Caps (Brake vs Texture)" << std::endl;
@@ -4955,7 +4939,6 @@ static void test_predictive_lockup_v060() {
     TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
     
     engine.m_lockup_enabled = true;
-    engine.m_use_manual_slip = true; // Use rotation for slip (v0.6.0)
     engine.m_lockup_prediction_sens = 50.0f;
     engine.m_lockup_start_pct = 5.0f;
     engine.m_lockup_full_pct = 15.0f; // Default threshold is higher than current slip
@@ -4973,7 +4956,8 @@ static void test_predictive_lockup_v060() {
     double prev_rot = data.mWheel[0].mRotation;
     data.mWheel[0].mRotation = prev_rot - 1.0; 
     
-    // Slip at 10%
+    // Slip at 10% (Required now that manual slip is removed)
+    data.mWheel[0].mLongitudinalPatchVel = -2.0; 
     data.mWheel[0].mRotation = 18.0 / 0.3;
     
     // Car decel is 0 (mLocalAccel.z = 0)
@@ -5313,7 +5297,7 @@ void Run() {
     test_stress_stability();
 
     // Run New Tests
-    test_manual_slip_singularity();
+    // test_manual_slip_singularity(); removed in v0.6.20
     test_scrub_drag_fade();
     test_road_texture_teleport();
     test_grip_low_speed();
@@ -5341,7 +5325,6 @@ void Run() {
     test_channel_stats();
     test_game_state_logic();
     test_smoothing_step_response();
-    test_manual_slip_calculation();
     test_universal_bottoming();
     test_preset_initialization();
 
@@ -5389,7 +5372,9 @@ void Run() {
     test_config_defaults_v057();
     test_config_safety_validation_v057();
     test_rear_lockup_differentiation(); // v0.5.11
-    test_manual_slip_sign_fix(); // v0.5.13
+    test_high_gain_stability(); // v0.6.20
+    test_abs_frequency_scaling(); // v0.6.20
+    test_lockup_pitch_scaling(); // v0.6.20
     test_split_load_caps(); // v0.5.13
     test_dynamic_thresholds(); // v0.5.13
     test_predictive_lockup_v060(); // v0.6.0

@@ -34,11 +34,7 @@ DONE: Add more tooltips (many sliders are missing them). update existing tooltip
 DONE: add console prints for missing telemetry data, including mLateralForce 
 Done: in the GUI, rename "SoP Lateral G" to "lateral G", and "Real Align Torque" to "SoP Self-Aligning Torque" 
 
-
-
-## Troubleshooting 25
-
-### Signal Processing
+### DONE: Signal Processing
 This is ready to implement (the latency stuff has been moved to another doc).
 * [Report: Signal Processing & Latency Optimization](report_signal_processing_latency.md)
 
@@ -48,7 +44,7 @@ This is ready to implement (the latency stuff has been moved to another doc).
 * add a slider for the yaw kick thresshold to determine at which acceleration or force the yaw kick effect starts to be applied. There is still too much noise in the signal, and it does not actually work when needed (feeling a kick for the rear starting to step out).
 
 
-### Effect Tuning & Slider Range Expansion
+### DONE: Effect Tuning & Slider Range Expansion
 This is ready to implement.
 * [Report: Effect Tuning & Slider Range Expansion](report_effect_tuning_slider_ranges.md)
 
@@ -70,8 +66,27 @@ Inlcude:
 
 * remove "Manual Slip Calc", not needed, all physics info there to get slip info.
 
+DONE: **Frequency Tuning Guide**: Created comprehensive user guide at `docs/user_guides/frequency_tuning_guide.md`:
+   - Explains resonance and hardware characteristics
+   - Provides starting points for different wheel types (Belt-Driven, Gear-Driven, Direct-Drive)
+   - Includes step-by-step tuning methodology
+   - Real-world examples and troubleshooting
 
-### Manunal testing current effects, new presets and default values
+## Troubleshooting 25
+
+### FIxes 
+
+Fix: the game exited from the session, and there were still forces
+in particular self align torque and slide vibration
+improve logic of detecting when not driving / not live, and stop ffb
+
+### Preset Updates
+
+
+
+2. **Preset Updates**: Consider updating built-in presets to showcase new frequency tuning:
+   - "High-End DD" preset could use 40Hz ABS for sharper feedback
+   - "Belt-Driven" preset could use 15Hz ABS for smoother feel
 
 overhaul the presets:
 delete the test and possibly also the guide presets
@@ -79,6 +94,10 @@ add a zero latency preset
 presets for future: t300, g29, standard DD (<20 bit encoder), high end DD (>20 bit encoder)
 
 * min force: set a value that works wheel for belt and gear driven wheels. The point it to overcome the resistance of the belt/gear for these wheels, to feel the lower forces of the FFB.
+
+### Manunal testing current effects, new presets and default values
+
+
 
 test and fix current effects (this requires manual testing of the app; only check if we need to implement anything to support such testing):
 * understeer effect: experiment to make it work.
@@ -96,6 +115,7 @@ verify and investigate: LMU 1.2 bug where mLateralForce is zero for rear wheels;
 ### New Telemetry Effects & Advanced Physics
 * [Report: New Telemetry Effects & Advanced Physics](report_new_telemetry_advanced_physics.md)
 
+TODO: separate in multiple reports, eg. one for each major new FFB effect
 
 more telemetry data to be used: 
 * High Priority: mLocalRot, mLocalRotAccel. Use Yaw Rate vs Steering Angle to detect oversteer more accurately than Grip Delta
@@ -138,12 +158,7 @@ Basic Mode: lmuFFB has now so many advance options. This might be confusing for 
 
 ### Other stuff
 
-
-Fix: the game exited from the session, and there were still forces
-in particular self align torque and slide vibration
-improve logic of detecting when not driving / not live, and stop ffb
-
-in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics.
+in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics. We need manual testing to verify this, from DD users.
 
 
 ---

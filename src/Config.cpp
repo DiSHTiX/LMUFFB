@@ -337,7 +337,9 @@ void Config::LoadPresets() {
                         else if (key == "road_gain") current_preset.road_gain = (std::min)(2.0f, std::stof(value));
                         else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
                         else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
-                        else if (key == "use_manual_slip") current_preset.use_manual_slip = std::stoi(value);
+                        else if (key == "abs_freq") current_preset.abs_freq = std::stof(value);
+                        else if (key == "lockup_freq_scale") current_preset.lockup_freq_scale = std::stof(value);
+                        else if (key == "spin_freq_scale") current_preset.spin_freq_scale = std::stof(value);
                         else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
                         else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = (std::min)(1.0f, std::stof(value));
                         else if (key == "rear_align_effect") current_preset.rear_align_effect = (std::min)(2.0f, std::stof(value));
@@ -438,7 +440,9 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "road_gain=" << engine.m_road_texture_gain << "\n";
         file << "invert_force=" << engine.m_invert_force << "\n";
         file << "max_torque_ref=" << engine.m_max_torque_ref << "\n";
-        file << "use_manual_slip=" << engine.m_use_manual_slip << "\n";
+        file << "abs_freq=" << engine.m_abs_freq_hz << "\n";
+        file << "lockup_freq_scale=" << engine.m_lockup_freq_scale << "\n";
+        file << "spin_freq_scale=" << engine.m_spin_freq_scale << "\n";
         file << "lockup_start_pct=" << engine.m_lockup_start_pct << "\n";
         file << "lockup_full_pct=" << engine.m_lockup_full_pct << "\n";
         file << "lockup_rear_boost=" << engine.m_lockup_rear_boost << "\n";
@@ -492,7 +496,9 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "road_gain=" << p.road_gain << "\n";
                 file << "invert_force=" << p.invert_force << "\n";
                 file << "max_torque_ref=" << p.max_torque_ref << "\n";
-                file << "use_manual_slip=" << p.use_manual_slip << "\n";
+                file << "abs_freq=" << p.abs_freq << "\n";
+                file << "lockup_freq_scale=" << p.lockup_freq_scale << "\n";
+                file << "spin_freq_scale=" << p.spin_freq_scale << "\n";
                 file << "lockup_start_pct=" << p.lockup_start_pct << "\n";
                 file << "lockup_full_pct=" << p.lockup_full_pct << "\n";
                 file << "lockup_rear_boost=" << p.lockup_rear_boost << "\n";
@@ -570,14 +576,14 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "brake_load_cap") engine.m_brake_load_cap = std::stof(value);
                     else if (key == "smoothing") engine.m_sop_smoothing_factor = std::stof(value); // Legacy support
                     else if (key == "understeer") engine.m_understeer_effect = std::stof(value);
-                    else if (key == "sop") engine.m_sop_effect = (std::min)(2.0f, std::stof(value));
+                    else if (key == "sop") engine.m_sop_effect = std::stof(value);
                     else if (key == "min_force") engine.m_min_force = std::stof(value);
                     else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
                     // v0.4.50: SAFETY CLAMPING for Generator Effects (Gain Compensation Migration)
                     // Legacy configs may have high gains (e.g., 5.0) to compensate for lack of auto-scaling.
                     // With new decoupling, these would cause 25x force explosions. Clamp to safe maximums.
                     else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
-                    else if (key == "lockup_gain") engine.m_lockup_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
                     else if (key == "lockup_start_pct") engine.m_lockup_start_pct = std::stof(value);
                     else if (key == "lockup_full_pct") engine.m_lockup_full_pct = std::stof(value);
                     else if (key == "lockup_rear_boost") engine.m_lockup_rear_boost = std::stof(value);
@@ -587,19 +593,21 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "abs_pulse_enabled") engine.m_abs_pulse_enabled = std::stoi(value);
                     else if (key == "abs_gain") engine.m_abs_gain = std::stof(value);
                     else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
-                    else if (key == "spin_gain") engine.m_spin_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
                     else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
-                    else if (key == "slide_gain") engine.m_slide_texture_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
                     else if (key == "slide_freq") engine.m_slide_freq_scale = std::stof(value);
                     else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);
-                    else if (key == "road_gain") engine.m_road_texture_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "road_gain") engine.m_road_texture_gain = std::stof(value);
                     else if (key == "invert_force") engine.m_invert_force = std::stoi(value);
                     else if (key == "max_torque_ref") engine.m_max_torque_ref = std::stof(value);
-                    else if (key == "use_manual_slip") engine.m_use_manual_slip = std::stoi(value);
+                    else if (key == "abs_freq") engine.m_abs_freq_hz = std::stof(value);
+                    else if (key == "lockup_freq_scale") engine.m_lockup_freq_scale = std::stof(value);
+                    else if (key == "spin_freq_scale") engine.m_spin_freq_scale = std::stof(value);
                     else if (key == "bottoming_method") engine.m_bottoming_method = std::stoi(value);
                     else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = (std::min)(1.0f, std::stof(value));
-                    else if (key == "rear_align_effect") engine.m_rear_align_effect = (std::min)(2.0f, std::stof(value));
-                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = (std::min)(2.0f, std::stof(value));
+                    else if (key == "rear_align_effect") engine.m_rear_align_effect = std::stof(value);
+                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = std::stof(value);
                     else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
                     else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
                     else if (key == "gyro_gain") engine.m_gyro_gain = (std::min)(1.0f, std::stof(value));
@@ -636,26 +644,62 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
     }
     
     
-    // v0.6.0: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges
-    if (engine.m_lockup_gamma < 0.5f || engine.m_lockup_gamma > 3.0f) {
+    // v0.6.20: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges (Expanded)
+    if (engine.m_lockup_gamma < 0.1f || engine.m_lockup_gamma > 3.0f) {
         std::cerr << "[Config] Invalid lockup_gamma (" << engine.m_lockup_gamma 
-                  << "), clamping to range [0.5, 3.0]" << std::endl;
-        engine.m_lockup_gamma = (std::max)(0.5f, (std::min)(3.0f, engine.m_lockup_gamma));
+                  << "), clamping to range [0.1, 3.0]" << std::endl;
+        engine.m_lockup_gamma = (std::max)(0.1f, (std::min)(3.0f, engine.m_lockup_gamma));
     }
-    if (engine.m_lockup_prediction_sens < 20.0f || engine.m_lockup_prediction_sens > 100.0f) {
+    if (engine.m_lockup_prediction_sens < 10.0f || engine.m_lockup_prediction_sens > 100.0f) {
         std::cerr << "[Config] Invalid lockup_prediction_sens (" << engine.m_lockup_prediction_sens 
-                  << "), clamping to range [20.0, 100.0]" << std::endl;
-        engine.m_lockup_prediction_sens = (std::max)(20.0f, (std::min)(100.0f, engine.m_lockup_prediction_sens));
+                  << "), clamping to range [10.0, 100.0]" << std::endl;
+        engine.m_lockup_prediction_sens = (std::max)(10.0f, (std::min)(100.0f, engine.m_lockup_prediction_sens));
     }
     if (engine.m_lockup_bump_reject < 0.1f || engine.m_lockup_bump_reject > 5.0f) {
         std::cerr << "[Config] Invalid lockup_bump_reject (" << engine.m_lockup_bump_reject 
                   << "), clamping to range [0.1, 5.0]" << std::endl;
         engine.m_lockup_bump_reject = (std::max)(0.1f, (std::min)(5.0f, engine.m_lockup_bump_reject));
     }
-    if (engine.m_abs_gain < 0.0f || engine.m_abs_gain > 2.0f) {
+    if (engine.m_abs_gain < 0.0f || engine.m_abs_gain > 10.0f) {
         std::cerr << "[Config] Invalid abs_gain (" << engine.m_abs_gain 
-                  << "), clamping to range [0.0, 2.0]" << std::endl;
-        engine.m_abs_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_abs_gain));
+                  << "), clamping to range [0.0, 10.0]" << std::endl;
+        engine.m_abs_gain = (std::max)(0.0f, (std::min)(10.0f, engine.m_abs_gain));
+    }
+    if (engine.m_understeer_effect < 0.0f || engine.m_understeer_effect > 200.0f) {
+        engine.m_understeer_effect = (std::max)(0.0f, (std::min)(200.0f, engine.m_understeer_effect));
+    }
+    if (engine.m_steering_shaft_gain < 0.0f || engine.m_steering_shaft_gain > 2.0f) {
+        engine.m_steering_shaft_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_steering_shaft_gain));
+    }
+    if (engine.m_lockup_gain < 0.0f || engine.m_lockup_gain > 3.0f) {
+        engine.m_lockup_gain = (std::max)(0.0f, (std::min)(3.0f, engine.m_lockup_gain));
+    }
+    if (engine.m_brake_load_cap < 1.0f || engine.m_brake_load_cap > 10.0f) {
+        engine.m_brake_load_cap = (std::max)(1.0f, (std::min)(10.0f, engine.m_brake_load_cap));
+    }
+    if (engine.m_lockup_rear_boost < 1.0f || engine.m_lockup_rear_boost > 10.0f) {
+        engine.m_lockup_rear_boost = (std::max)(1.0f, (std::min)(10.0f, engine.m_lockup_rear_boost));
+    }
+    if (engine.m_oversteer_boost < 0.0f || engine.m_oversteer_boost > 4.0f) {
+        engine.m_oversteer_boost = (std::max)(0.0f, (std::min)(4.0f, engine.m_oversteer_boost));
+    }
+    if (engine.m_sop_yaw_gain < 0.0f || engine.m_sop_yaw_gain > 1.0f) {
+         engine.m_sop_yaw_gain = (std::max)(0.0f, (std::min)(1.0f, engine.m_sop_yaw_gain));
+    }
+    if (engine.m_slide_texture_gain < 0.0f || engine.m_slide_texture_gain > 2.0f) {
+        engine.m_slide_texture_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_slide_texture_gain));
+    }
+    if (engine.m_road_texture_gain < 0.0f || engine.m_road_texture_gain > 2.0f) {
+        engine.m_road_texture_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_road_texture_gain));
+    }
+    if (engine.m_spin_gain < 0.0f || engine.m_spin_gain > 2.0f) {
+        engine.m_spin_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_spin_gain));
+    }
+    if (engine.m_rear_align_effect < 0.0f || engine.m_rear_align_effect > 2.0f) {
+        engine.m_rear_align_effect = (std::max)(0.0f, (std::min)(2.0f, engine.m_rear_align_effect));
+    }
+    if (engine.m_sop_effect < 0.0f || engine.m_sop_effect > 2.0f) {
+        engine.m_sop_effect = (std::max)(0.0f, (std::min)(2.0f, engine.m_sop_effect));
     }
     std::cout << "[Config] Loaded from " << filename << std::endl;
 }
