@@ -108,6 +108,14 @@ Please proceed with the following task:
 **Context:**
 This report identifies limitations in current FFB adjustment ranges and missing features for frequency tuning. The goal is to give users more control over effect strength (up to 200-400% in some cases) and vibration pitch/character.
 
+**References:**
+*   `docs\dev_docs\report_effect_tuning_slider_ranges.md` (This Report)
+*   `docs\dev_docs\FFB_formulas.md`
+*   `docs\dev_docs\telemetry_data_reference.md`
+*   `src/FFBEngine.h`
+*   `src/GuiLayer.cpp`
+*   `tests/test_ffb_engine.cpp`
+
 **Implementation Requirements:**
 1.  **Read and understand** the "Proposed Solution" (Section 2) and "Implementation Plan" (Section 3) of this document (`docs\dev_docs\report_effect_tuning_slider_ranges.md`).
 2.  **Modify `src/FFBEngine.h`**:

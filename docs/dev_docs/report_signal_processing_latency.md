@@ -106,6 +106,14 @@ Please proceed with the following task:
 **Context:**
 This report outlines critical optimizations for the Force Feedback signal chain, specifically improving the Static Notch Filter's flexibility and the Yaw Kick effect's noise immunity. These changes are derived from user feedback "Troubleshooting 25".
 
+**References:**
+*   `docs\dev_docs\report_signal_processing_latency.md` (This Report)
+*   `docs\dev_docs\FFB_formulas.md`
+*   `docs\dev_docs\telemetry_data_reference.md`
+*   `src/FFBEngine.h`
+*   `src/GuiLayer.cpp`
+*   `tests/test_ffb_engine.cpp`
+
 **Implementation Requirements:**
 1.  **Read and understand** the "Proposed Solution" (Section 2) and "Implementation Plan" (Section 3) of this document (`docs\dev_docs\report_signal_processing_latency.md`).
 2.  **Modify `src/FFBEngine.h`**:
