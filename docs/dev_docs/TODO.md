@@ -21,7 +21,6 @@ improvements to the formulas
 
 ---
 
-## Troubleshooting 25
 
 DONE: remove warnings about missing telemetry data
 
@@ -34,6 +33,10 @@ DONE: lockup vibration improvements
 DONE: Add more tooltips (many sliders are missing them). update existing tooltips
 DONE: add console prints for missing telemetry data, including mLateralForce 
 Done: in the GUI, rename "SoP Lateral G" to "lateral G", and "Real Align Torque" to "SoP Self-Aligning Torque" 
+
+
+
+## Troubleshooting 25
 
 * Static noise / notch filter: add a range or width slider: how many frequency to the left and right of the center frequency should we also suppress.
     * set the default blocked center frequency to 10-12 Hz, which as reported by user Neebula is the correct one to block the baseline vibration. Set the default range accordingly, to block from 10 to 12 Hz. (so center frequency is 11 Hz?) 
@@ -135,3 +138,10 @@ add timestamps to console prints
 we need a button for ..disconnect from game? reset data from dame? signal session finished?
 the telemetry persist even after quitting the game (slide texture and rear align torque)
 
+
+## Implementation Plans
+* [Report: Signal Processing & Latency Optimization](report_signal_processing_latency.md)
+* [Report: Effect Tuning & Slider Range Expansion](report_effect_tuning_slider_ranges.md)
+* [Report: Robustness & Game Integration](report_robustness_game_integration.md)
+* [Report: UI/UX Overhaul & Presets](report_ui_ux_overhaul.md)
+* [Report: New Telemetry Effects & Advanced Physics](report_new_telemetry_advanced_physics.md)
