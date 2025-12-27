@@ -124,10 +124,27 @@ This report identifies limitations in current FFB adjustment ranges and missing 
 5.  **Update Documentation**:
     *   Reflect removal of Manual Slip in `docs\dev_docs\FFB_formulas.md`.
     *   Document new sliders in `docs\dev_docs\telemetry_data_reference.md`.
+6.  **Update Version & Changelog**:
+    *   Increment the version number in `VERSION`.
+    *   Add a detailed entry in `CHANGELOG.md`.
+
+**Build & Test Instructions:**
+Use the following commands to build and test your changes. **ALL TESTS MUST PASS.**
+
+*   **Update app version, compile main app, compile all tests (including windows tests), all in one single command:**
+    ```powershell
+    & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build; cmake --build build --config Release --clean-first
+    ```
+
+*   **Run all tests that had already been compiled:**
+    ```powershell
+    .\build\tests\Release\run_combined_tests.exe
+    ```
 
 **Deliverables:**
 *   Updated source code files (`FFBEngine.h`, `GuiLayer.cpp`) implementing the range changes and new sliders.
 *   Updated test file (`tests/test_ffb_engine.cpp`) with passing tests.
+*   Updated `VERSION` and `CHANGELOG.md`.
 *   Updated markdown documentation files.
 
 

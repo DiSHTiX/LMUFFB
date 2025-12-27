@@ -121,10 +121,27 @@ This report outlines critical optimizations for the Force Feedback signal chain,
 5.  **Update Documentation**:
     *   Update logic descriptions in `docs\dev_docs\FFB_formulas.md`.
     *   Update parameter lists in `docs\dev_docs\telemetry_data_reference.md`.
+6.  **Update Version & Changelog**:
+    *   Increment the version number in `VERSION`.
+    *   Add a detailed entry in `CHANGELOG.md`.
+
+**Build & Test Instructions:**
+Use the following commands to build and test your changes. **ALL TESTS MUST PASS.**
+
+*   **Update app version, compile main app, compile all tests (including windows tests), all in one single command:**
+    ```powershell
+    & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build; cmake --build build --config Release --clean-first
+    ```
+
+*   **Run all tests that had already been compiled:**
+    ```powershell
+    .\build\tests\Release\run_combined_tests.exe
+    ```
 
 **Deliverables:**
 *   Updated source code files (`FFBEngine.h`, `GuiLayer.cpp`) that strictly follow the implementation plan.
 *   Updated test file (`tests/test_ffb_engine.cpp`) with passing tests.
+*   Updated `VERSION` and `CHANGELOG.md`.
 *   Updated markdown documentation files.
 
 
