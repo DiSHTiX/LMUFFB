@@ -13,6 +13,8 @@ The "Troubleshooting 25" list and following notes suggest a desire to expand the
 TODO: mLocalRotAccel is not used in any of the proposed solutions.
 TODO: split this report in two: have a separate report only for **Chassis Movement**, **Deceleration Cues**, **"Rubbery" Lockup** (Chassis Body Effects, Advanced Lockup - Longitudinal Force). Also include a more fleshed out description of each effect, and what feeling  from real life driving are we trying to recreate. Expand on the notes in docs\dev_docs\TODO.md
 
+TODO: more info from the ACE report: "float wheelLoad: Measures the vertical normal force ($N$) on each tyre in Newtons.Physics: Friction force $F_f \approx \mu N$. The maximum torque the tyre can generate is proportional to this load.FFB Usage: During heavy braking, load transfers to the front tyres, increasing $N$ and thus increasing the SAT. The steering becomes heavy. A custom FFB app must read wheelLoad to simulate this dynamic weight transfer, which users have reported feeling "dampened" in the native implementation.7"
+
 ## 2. Proposed Solution
 
 ### 2.1. Chassis Body Effects
