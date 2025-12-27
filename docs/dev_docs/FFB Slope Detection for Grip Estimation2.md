@@ -237,3 +237,102 @@ For the professional peer or developer, the key takeaway is that Slope Detection
 50. Vehicle sideslip angle estimation using Kalman filters: modelling and validation \- Sheffield Hallam University Research Archive, accessed December 27, 2025, [https://shura.shu.ac.uk/22810/1/IFIT2018\_042\_final\_v2.pdf](https://shura.shu.ac.uk/22810/1/IFIT2018_042_final_v2.pdf)  
 51. Tire lateral force estimation and grip potential identification using Neural Networks, Extended Kalman Filter, and Recursive Lea \- Coventry University, accessed December 27, 2025, [https://pure.coventry.ac.uk/ws/files/11039499/tire\_force\_est\_NN\_MA\_SK\_revision\_DRAFT\_cur.pdf](https://pure.coventry.ac.uk/ws/files/11039499/tire_force_est_NN_MA_SK_revision_DRAFT_cur.pdf)  
 52. Comparison of Performance of Predicting the Wear Amount of Tire Tread Depending on Sensing Information \- MDPI, accessed December 27, 2025, [https://www.mdpi.com/1424-8220/23/1/459](https://www.mdpi.com/1424-8220/23/1/459)
+
+# Followu up questions
+
+What is the difference between a Savitzky-Golay Filtering and a Low Pass Filter?
+
+## Answer
+
+**Mode 2: Simple Q&A**
+
+The fundamental difference lies in **how** they separate "signal" from "noise," which drastically changes how the Force Feedback (FFB) feels during a slide.
+
+Think of a **Low Pass Filter** as "blurring" the data to hide the rough edges, while a **Savitzky-Golay Filter** attempts to "trace" the data with a curved ruler to find the true shape.
+
+Here is the technical breakdown of why this matters for Slope Detection in sim racing:
+
+### 1. The Low Pass Filter (LPF)
+
+* **How it works:** It attenuates (reduces) all signals above a certain frequency (e.g., 10Hz). It assumes that rapid changes are "noise" and slow changes are "physics."
+* ** The Problem:** A sudden loss of grip (the "snap" of oversteer) is a **high-frequency event**. It happens instantly. An LPF sees this sharp drop in force as "noise" and smooths it out.
+* **Result in FFB:** The sharp "cliff" of grip loss is eroded into a gentle hill. You feel the slide **late** and **vaguely**, making it harder to catch the car.
+
+
+
+### 2. The Savitzky-Golay Filter (SG)
+
+* **How it works:** It does not simply cut frequencies. Instead, it takes a small window of data points (e.g., the last 10 samples) and mathematically fits a polynomial curve (like a parabola) to them. It then uses the slope of *that perfect curve* as the output.
+
+
+* **The Advantage:** It preserves the **height and width of peaks**. If the tire force drops sharply, the polynomial fit bends to match that drop rather than averaging it away.
+
+
+* **Result in FFB:** It retains the distinct "kick" in the steering wheel when the tires let go, while still ignoring the random "static" or jitter from the telemetry signal.
+
+### Summary Comparison Table
+
+| Feature | Low Pass Filter (Moving Average) | Savitzky-Golay Filter |
+| --- | --- | --- |
+| **Method** | Averages adjacent points (Blurring) | Fits a curve to points (Tracing) |
+| **Peak Handling** | Flattens peaks (Reduces FFB detail) | **Preserves peaks** (Retains FFB detail) |
+| **Grip Loss Feel** | Vague, "mushy" transition | Distinct, sharp transition |
+| **Latency** | Low to Moderate (Phase Shift) | Moderate (Requires window buffer) 
+
+ |
+| **Best For** | General noise reduction (vibration) | **Slope/Derivative Detection** |
+
+**Recommendation:** For your FFB slope detection algorithm, **Savitzky-Golay** is the superior choice. Although it is computationally heavier and introduces slight latency (due to needing a window of past data to fit the curve), preserving the *shape* of the traction loss curve is critical for providing the driver with actionable information.
+
+## Question
+
+Which latency can I expect, in ms , from the Savitzky-Golay Filter? Is the latency adjustable?
+
+## Answer
+
+**Mode 2: Simple Q&A**
+
+You can expect a latency ranging from **16ms to 100ms** in a typical SimHub environment, depending entirely on how aggressively you tune the filter.
+
+Yes, the latency is **fully adjustable**. It is directly controlled by the **Window Size** (the number of data points the filter analyzes at once) and the update frequency of your software.
+
+Here is the technical breakdown of how to calculate and adjust it:
+
+### 1. How to Calculate Expected Latency
+
+The Savitzky-Golay filter is "non-causal," meaning it technically needs future data to calculate the current "perfect" curve. In real-time applications like SimHub, you simulate this by buffering incoming data. The output is effectively delayed by half the window size.
+
+The formula for latency is:
+
+
+Assuming SimHub is running at a standard **60Hz** (approx. 16.6ms per sample):
+
+| Window Size (Samples) | Smoothing Effect | Estimated Latency | Suitability for FFB |
+| --- | --- | --- | --- |
+| **5** | Light Smoothing | **~33 ms** | **Excellent** (Imperceptible delay) |
+| **9** | Moderate Smoothing | **~66 ms** | **Good** (Standard baseline) |
+| **15** | Heavy Smoothing | **~116 ms** | **Poor** (Noticeable lag in catching slides) |
+| **25** | Very Heavy | **~200 ms** | **Unusable** (Disconnects driver from car) |
+
+### 2. How to Adjust the Latency
+
+You adjust the latency by changing the **Window Size** parameter in your algorithm.
+
+* **To Reduce Latency:** Lower the window size (e.g., reduce from 15 to 7). This makes the FFB respond faster to grip loss but allows more signal noise (vibrations/grain) to pass through.
+* **To Increase Smoothness:** Increase the window size. This eliminates "jagged" FFB spikes but delays the "drop" sensation when the tires lose grip.
+
+**Important Note for SimHub Users:**
+The "Time Between Samples" depends on your specific SimHub setup.
+
+* **SimHub (Licensed):** Typically updates at **60Hz** (16ms per sample).
+* **SimHub (Free Version):** Custom Serial devices are limited to **10Hz** (100ms per sample). If you are using the free version, a Savitzky-Golay filter will introduce massive latency (e.g., a window of 5 would result in 200ms delay), making it unsuitable for real-time FFB.
+
+## Question
+
+Assume I am not using SimHub, but reading telemetry from the game (Assetto Corsa Evo or Le Mans Ultimate) at 400 Hz. Which latency can I expect from  Savitzky-Golay filter  depending on the number of data points / samples (Window Size)?
+
+Regarding the  Kalman Filtering, I have some data from those two games telemetry that can be used for this. I think I have mass and wheelbase, but I am not sure if I have  tire stiffness (I suspect not). Can I still calculate the Kalman Filtering? Can I estimate  tire stiffness to calculate the Kalman Filtering? 
+
+## Answer
+
+
