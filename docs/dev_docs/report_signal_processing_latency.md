@@ -74,6 +74,60 @@ The following documents need to be updated to reflect the changes detailed in th
 *   `docs\dev_docs\FFB_formulas.md`
 *   `docs\dev_docs\telemetry_data_reference.md`
 
+## 6. Automated Tests
+
+We must ensure these signal processing changes are robust and do not regress.
+
+### 6.1. Notch Filter Tests (`tests/test_ffb_engine.cpp`)
+*   **Variable Width Test**:
+    *   Create a test case `test_notch_filter_bandwidth`.
+    *   Configure the engine with a specific notch frequency (e.g., 50Hz) and width (e.g., 10Hz).
+    *   Inject signal at exactly 50Hz -> Verify near-zero output (high attenuation).
+    *   Inject signal at 44Hz (within the 10Hz width) -> Verify significant attenuation.
+    *   Inject signal at 60Hz (outside the 10Hz width) -> Verify minimal attenuation (near input magnitude).
+    *   Repeat with a narrower width (e.g., 2Hz) and verify that 44Hz is now *not* attenuated significantly.
+
+### 6.2. Yaw Kick Threshold Tests (`tests/test_ffb_engine.cpp`)
+*   **Threshold Gates Noise**:
+    *   Create a test case `test_yaw_kick_threshold`.
+    *   Set `m_yaw_kick_threshold` to 5.0.
+    *   Feed `mLocalRotAccel.y` = 2.0 (below threshold).
+    *   Verify calculated Yaw Force is 0.0.
+*   **Threshold Allows Signal**:
+    *   Feed `mLocalRotAccel.y` = 6.0 (above threshold).
+    *   Verify calculated Yaw Force is non-zero (proportional to gain).
+
+## Prompt
+
+Please proceed with the following task:
+
+**Task: Implement Signal Processing Improvements**
+
+**Context:**
+This report outlines critical optimizations for the Force Feedback signal chain, specifically improving the Static Notch Filter's flexibility and the Yaw Kick effect's noise immunity. These changes are derived from user feedback "Troubleshooting 25".
+
+**Implementation Requirements:**
+1.  **Read and understand** the "Proposed Solution" (Section 2) and "Implementation Plan" (Section 3) of this document (`docs\dev_docs\report_signal_processing_latency.md`).
+2.  **Modify `src/FFBEngine.h`**:
+    *   Add `m_static_notch_width` and `m_yaw_kick_threshold` variables.
+    *   Update `calculate_force` to use the bandwidth-based Q calculation for the notch filter.
+    *   Update `calculate_force` to apply the threshold check for Yaw Kick.
+3.  **Modify `src/GuiLayer.cpp`**:
+    *   Add the "Filter Width" slider (0.1 - 10.0 Hz).
+    *   Add the "Activation Threshold" slider (0.0 - 10.0 rad/s²).
+4.  **Implement Automated Tests**:
+    *   Add new test cases to `tests/test_ffb_engine.cpp` as detailed in **Section 6** (Automated Tests).
+    *   Ensure all tests pass.
+5.  **Update Documentation**:
+    *   Update logic descriptions in `docs\dev_docs\FFB_formulas.md`.
+    *   Update parameter lists in `docs\dev_docs\telemetry_data_reference.md`.
+
+**Deliverables:**
+*   Updated source code files (`FFBEngine.h`, `GuiLayer.cpp`) that strictly follow the implementation plan.
+*   Updated test file (`tests/test_ffb_engine.cpp`) with passing tests.
+*   Updated markdown documentation files.
+
+
 
 
 

@@ -76,3 +76,58 @@ The following documents need to be updated to reflect the changes detailed in th
 *   `docs\dev_docs\FFB_formulas.md`
 *   `docs\dev_docs\telemetry_data_reference.md`
 
+## 6. Automated Tests
+
+### 6.1. Slider Limits Tests (`tests/test_ffb_engine.cpp`)
+*   **Verify Max Values**:
+    *   Although the Engine generally consumes float values without explicit clamping (clamping usually happens in GUI), we should verify that extreme values (e.g. 200% gain, 10.0 ABS gain) do not cause instabilities.
+    *   Create `test_high_gain_stability`: Set gains to new maximums, run 1000 iter, ensure no NaNs/Inf.
+
+### 6.2. Frequency Scalar Tests (`tests/test_ffb_engine.cpp`)
+*   **ABS Frequency**:
+    *   Create `test_abs_frequency_scaling`.
+    *   Set `m_abs_freq_hz` to 20Hz. Check 1 full cycle duration in output samples.
+    *   Set `m_abs_freq_hz` to 40Hz. Check that cycle duration is halved.
+*   **Variable Pitch Tests**:
+    *   Create `test_lockup_pitch_scaling`.
+    *   Set `m_lockup_freq_scale` to 1.0 vs 2.0.
+    *   Simulate a constant lockup condition.
+    *   Verify that the output sine wave frequency doubles when scale is 2.0.
+
+### 6.3. Manual Slip Removal Regression
+*   **Verify Defaults**:
+    *   Ensure `test_manual_slip_calculation` (if it exists) is removed or updated to reflect that manual slip logic is gone.
+    *   Ensure standard slip tests still pass (the engine should use the fallback or telemetry data automatically).
+
+## Prompt
+
+Please proceed with the following task:
+
+**Task: Implement Effect Tuning and Slider Range Expansion**
+
+**Context:**
+This report identifies limitations in current FFB adjustment ranges and missing features for frequency tuning. The goal is to give users more control over effect strength (up to 200-400% in some cases) and vibration pitch/character.
+
+**Implementation Requirements:**
+1.  **Read and understand** the "Proposed Solution" (Section 2) and "Implementation Plan" (Section 3) of this document (`docs\dev_docs\report_effect_tuning_slider_ranges.md`).
+2.  **Modify `src/FFBEngine.h`**:
+    *   Remove manual slip logic (`m_use_manual_slip`).
+    *   Add frequency scalar variables (`m_abs_freq_hz`, `m_lockup_freq_scale`, `m_spin_freq_scale`).
+    *   Update `calculate_force` to use these new scalars.
+3.  **Modify `src/GuiLayer.cpp`**:
+    *   Update Min/Max values for `FloatSetting` calls as specified in Section 2.1.
+    *   Add new sliders for ABS Pulse Frequency and Vibration Pitch.
+    *   Remove the Manual Slip checkbox.
+4.  **Implement Automated Tests**:
+    *   Add new test cases to `tests/test_ffb_engine.cpp` as detailed in **Section 6** (Automated Tests).
+    *   Ensure all tests pass.
+5.  **Update Documentation**:
+    *   Reflect removal of Manual Slip in `docs\dev_docs\FFB_formulas.md`.
+    *   Document new sliders in `docs\dev_docs\telemetry_data_reference.md`.
+
+**Deliverables:**
+*   Updated source code files (`FFBEngine.h`, `GuiLayer.cpp`) implementing the range changes and new sliders.
+*   Updated test file (`tests/test_ffb_engine.cpp`) with passing tests.
+*   Updated markdown documentation files.
+
+
