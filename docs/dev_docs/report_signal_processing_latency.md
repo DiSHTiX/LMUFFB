@@ -1,4 +1,4 @@
-# Report: Signal Processing & Latency Optimization
+# Report: Signal Processing ptimization
 
 ## 1. Introduction and Context
 This report addresses several related issues found in the "Troubleshooting 25" list concerning the quality, timing, and filtering of the Force Feedback signals.
@@ -66,6 +66,14 @@ This report addresses several related issues found in the "Troubleshooting 25" l
 *   **Verification**: The "Yaw Kick" graph line should remain flat (0.0), reducing "rattling".
 *   **Action**: Initiate a drift.
 *   **Verification**: The graph line should spike as soon as rotation acceleration exceeds 5.0.
+
+## 5. Documentation Updates
+
+The following documents need to be updated to reflect the changes detailed in this report:
+
+*   `docs\dev_docs\FFB_formulas.md`
+*   `docs\dev_docs\telemetry_data_reference.md`
+
 
 
 

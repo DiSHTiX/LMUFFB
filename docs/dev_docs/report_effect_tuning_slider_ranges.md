@@ -68,3 +68,11 @@ We will systematically update the Min/Max values in the GUI for the following:
 *   **Verification**: The tactile feedback should feel like a "buzz" rather than a "thump".
 *   **Setup**: Tune ABS Frequency to 10Hz (low).
 *   **Verification**: Feedback should feel like a slow "chug-chug-chug".
+
+## 5. Documentation Updates
+
+The following documents need to be updated to reflect the changes detailed in this report:
+
+*   `docs\dev_docs\FFB_formulas.md`
+*   `docs\dev_docs\telemetry_data_reference.md`
+
