@@ -144,15 +144,15 @@ Implement "Jardier" wet grip effects.
 Implement adaptive (auto) optimal slip angle (and slip rate?)
 
 
-
-
 ### Basic Mode
-
 
 add "basic mode" with only main sliders shown, and auto-adjust of settings.
 Basic Mode: lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
 
 ### Other stuff
+
+Verify this formula to calculate tyre load when not available. Is it an exact replacement, or an approximation?
+$F = K \cdot x + D \cdot v$ (Spring Rate $\times$ Travel + Damper Rate $\times$ Velocity), 
 
 in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics. We need manual testing to verify this, from DD users.
 
