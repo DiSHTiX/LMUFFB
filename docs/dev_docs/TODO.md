@@ -149,7 +149,107 @@ Implement adaptive (auto) optimal slip angle (and slip rate?)
 add "basic mode" with only main sliders shown, and auto-adjust of settings.
 Basic Mode: lmuFFB has now so many advance options. This might be confusing for users. Introduce a simplified mode, which shows in the GUI only the most important and intruidtive options, and hide the advanced options. This is similar to the VLC media player, which has a basic mode and an advanced mode for the settings.
 
-### Optimal slip angle in real time: Slope Detection logic
+
+
+
+### Other stuff
+
+Verify this formula to calculate tyre load when not available. Is it an exact replacement, or an approximation?
+$F = K \cdot x + D \cdot v$ (Spring Rate $\times$ Travel + Damper Rate $\times$ Velocity), 
+
+Do we need to update the  Self-Aligning Torque (SAT) calculation to account for caster angle? 
+"4.1. The Self-Aligning Torque (SAT) ModelThe primary force a driver feels is the SAT. In a real car, this is generated mechanically by the interaction of the tyre patch and the caster angle. In a simulator, this must be calculated.$$T_{total} = T_{pneumatic} + T_{mechanical}$$"
+Mechanical Torque ($T_{mechanical}$): Derived from the caster angle and the lateral force. It always tries to center the wheel.Data: Requires steerAngle (from Shared Memory) and lateral force (Fy, often found in wheelLoad or separate force vectors if available).Pneumatic Torque ($T_{pneumatic}$): Derived from the tyre offset.Data: Requires slipAngle (or wheelSlip proxy) and wheelLoad.
+"The "Dead" Feel Problem: ACE users have criticized the FFB for feeling disconnected.7 This usually means the $T_{pneumatic}$ component drops off too abruptly or is masked by excessive damping. A custom app can fix this by applying a non-linear curve (Gamma correction) to the $T_{pneumatic}$ value, boosting the detailed information near the center of the steering range before sending it to the wheel."
+
+"Secondary forces add immersion.
+
+Scrub: When the front tyres slide (Understeer), the steering should vibrate and go light.
+
+Algorithm: if (wheelSlip[Front] > OptimalSlip) { Vibration = (wheelSlip - OptimalSlip) * Gain * sin(t); }
+
+ACE Specifics: Since ACE exposes slipVibrations directly , the custom app can use this engine-derived value as a base and amplify it, rather than calculating it from raw slip ratios, ensuring the vibration matches the audio cues of tyre squeal.   "
+
+TODO: review our Gyroscopic Effects (possible without any added damping?)
+"4.3. Gyroscopic Effects
+As wheels spin faster, they resist turning. ACE provides wheelAngularSpeed.
+
+Algorithm: DampingForce = GyroConstant * wheelAngularSpeed * SteeringVelocity.
+
+Effect: This adds stability at high speeds (e.g., 250 km/h on the Nürburgring straight) without making the car feel heavy at low speeds (hairpins)."
+
+
+Yaw Kick update?
+"Motion platforms use the acceleration of the slip angle (jerk) to cue the driver that the rear is stepping out"
+
+Slip angle info currently missing in ACE? Possible to calculate it?
+" Currently, ACE motion profiles are generic or non-functional for traction loss because the slipAngle field in the shared memory is often returning null or zero in specific car/track combos. This forces motion software vendors to wait for Kunos to patch the export function."
+
+in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics. We need manual testing to verify this, from DD users.
+
+
+---
+
+possible notes for readme:
+the current version of the app uses a steering rack force that, in the case of GT3s, corresponds to the game FFB (LMU 1.2). In the case of the LMP2, the ingame FFB (LMU 1.2) adds significant smoothing or damping (this seems to mask a baseline tire vibration) so even the steering rack force alone is significantly more detailed in lmuFFB. In lmuFFB there are some settings to get rid of the baseline tire vibration from the steering rack (satich notch filter, steering torque smoothing). 
+
+lmuFFB is particularly useful for lower end wheels (belt/gear driven, and DDs < 12 Nm), because it enhances details that are difficult to feel or absent otherwise.
+
+---
+
+
+overhaul the graphs: add new ones for new effects.
+reorganize them, so they also take less vertical and horizontal space.
+
+auto save last configuration. Is the save config button any longer needed?
+
+add timestamps to console prints
+
+we need a button for ..disconnect from game? reset data from dame? signal session finished?
+the telemetry persist even after quitting the game (slide texture and rear align torque)
+
+
+## Implementation Plans
+* [Report: Signal Processing & Latency Optimization](report_signal_processing_latency.md)
+* [Report: Effect Tuning & Slider Range Expansion](report_effect_tuning_slider_ranges.md)
+* [Report: Robustness & Game Integration](report_robustness_game_integration.md)
+* [Report: UI/UX Overhaul & Presets](report_ui_ux_overhaul.md)
+* [Report: Latency Investigation](report_latency_investigation.md)
+
+
+## Optimal slip angle in real time: Slope Detection logic 
+
+Here is a miscellaneous of notes taken by me and texts copied and pasted from other reports.
+
+### Peak / Optimal slip angle and slip rate
+How to Find the Missing Peak
+Domain experts and telemetry tool developers utilize distinct methodologies to bypass this limitation.
+6.1 The "Viper" Calculation Method (Real-Time Estimation)
+Research snippet  details the C# source code for a SimHub plugin named "Viper.PluginCalcLngWheelSlip." This plugin exists precisely because the native data is insufficient.
+The Algorithm:The plugin manually calculates longitudinal slip because the game's wheelSlip output is often a combined vector or unitless.Inputs: WheelAngularSpeed (from Shared Memory), CarSpeed (from Shared Memory).Unknown: TyreRadius ($r$).Challenge: The shared memory does not output the dynamic rolling radius of the tire.Workaround: The plugin likely estimates radius based on the car model or requires user calibration (driving at constant speed to solve for $r = v / \omega$).
+Calculation: Once $r$ is estimated, the plugin calculates $\kappa = (\omega r - v) / v$.
+Peak Detection: The plugin still does not know the optimal peak. It simply provides the accurate slip ratio. The user must then watch the dashboard, lock the brakes to find the peak (e.g., observing that deceleration is max at 15% slip), and then manually set a "Limit" variable in the plugin settings.
+
+"The MoTeC Histogram Method (Post-Process Analysis)
+Professional engineers use data logging to derive the peak. This is the standard workflow for ACC and ACE.
+
+Data Acquisition: Use a tool (like ACC-Motec wrapper) to log SteeringAngle, Speed, G_Lat, and G_Long to a .ld file.
+
+Scatter Plotting: In analysis software (MoTeC i2), generate a scatter plot.
+
+X-Axis: Slip Angle (calculated or raw).
+
+Y-Axis: Lateral G-Force.
+
+Curve Fitting: The data points will form a curve. The top of this curve (the apex) represents the Optimal Peak for that specific setup.
+
+Result: The engineer notes, "For the Porsche 992 GT3 R at Monza, the peak slip is 3.1 degrees."
+
+Application: This value is then manually entered into dashboards or mental notes. It is not read dynamically from the game."
+
+The "Slip Effect" in Force Feedback
+FFB is often generated by the physics engine calculating the aligning torque ($M_z$). The aligning torque naturally drops off after the peak slip angle. If players feel this is "mushy" or "missing," it suggests the signal of "passing the peak" is weak.
+
 You described the "Viper" Calculation Method (Real-Time Estimation) for the optimal slip angle and slip ratio. How accurate is this method?
 
 How accurate is the " MoTeC Histogram Method (Post-Process Analysis)"?
@@ -158,8 +258,6 @@ Are the optimal values always setup specific?
 Can they be calculated in real time by the FFB app?
 If the car and setup is fixed, and we have found the optimal peaks with the MoTeC or Viper methods, do these values still change in thr course of a driving session (eg. from turn to turn, over many laps), and with varying conditions (track and air temperature, rain)?
 
-
-===
 
 Based on the detailed technical analysis of *Assetto Corsa Evo* (ACE) and standard vehicle dynamics principles, here is the evaluation of the methods and data behavior.
 
@@ -225,94 +323,6 @@ Instead of trying to know the static peak value, monitor the **rate of change** 
 **Recommendation:** For your FFB app, do not try to "hard code" a specific optimal angle (e.g., 3.5°). Instead, implement this **Slope Detection** logic. It automatically adapts to rain, setup changes, and tire wear because it is reacting to the *live* physics result, not a pre-calculated table.
 
 
-### Other stuff
-
-Verify this formula to calculate tyre load when not available. Is it an exact replacement, or an approximation?
-$F = K \cdot x + D \cdot v$ (Spring Rate $\times$ Travel + Damper Rate $\times$ Velocity), 
-
-Do we need to update the  Self-Aligning Torque (SAT) calculation to account for caster angle? 
-"4.1. The Self-Aligning Torque (SAT) ModelThe primary force a driver feels is the SAT. In a real car, this is generated mechanically by the interaction of the tyre patch and the caster angle. In a simulator, this must be calculated.$$T_{total} = T_{pneumatic} + T_{mechanical}$$"
-Mechanical Torque ($T_{mechanical}$): Derived from the caster angle and the lateral force. It always tries to center the wheel.Data: Requires steerAngle (from Shared Memory) and lateral force (Fy, often found in wheelLoad or separate force vectors if available).Pneumatic Torque ($T_{pneumatic}$): Derived from the tyre offset.Data: Requires slipAngle (or wheelSlip proxy) and wheelLoad.
-"The "Dead" Feel Problem: ACE users have criticized the FFB for feeling disconnected.7 This usually means the $T_{pneumatic}$ component drops off too abruptly or is masked by excessive damping. A custom app can fix this by applying a non-linear curve (Gamma correction) to the $T_{pneumatic}$ value, boosting the detailed information near the center of the steering range before sending it to the wheel."
-
-"Secondary forces add immersion.
-
-Scrub: When the front tyres slide (Understeer), the steering should vibrate and go light.
-
-Algorithm: if (wheelSlip[Front] > OptimalSlip) { Vibration = (wheelSlip - OptimalSlip) * Gain * sin(t); }
-
-ACE Specifics: Since ACE exposes slipVibrations directly , the custom app can use this engine-derived value as a base and amplify it, rather than calculating it from raw slip ratios, ensuring the vibration matches the audio cues of tyre squeal.   "
-
-TODO: review our Gyroscopic Effects (possible without any added damping?)
-"4.3. Gyroscopic Effects
-As wheels spin faster, they resist turning. ACE provides wheelAngularSpeed.
-
-Algorithm: DampingForce = GyroConstant * wheelAngularSpeed * SteeringVelocity.
-
-Effect: This adds stability at high speeds (e.g., 250 km/h on the Nürburgring straight) without making the car feel heavy at low speeds (hairpins)."
-
-Peak / Optimal slip angle and slip rate
-How to Find the Missing Peak
-Domain experts and telemetry tool developers utilize distinct methodologies to bypass this limitation.
-6.1 The "Viper" Calculation Method (Real-Time Estimation)
-Research snippet  details the C# source code for a SimHub plugin named "Viper.PluginCalcLngWheelSlip." This plugin exists precisely because the native data is insufficient.
-The Algorithm:The plugin manually calculates longitudinal slip because the game's wheelSlip output is often a combined vector or unitless.Inputs: WheelAngularSpeed (from Shared Memory), CarSpeed (from Shared Memory).Unknown: TyreRadius ($r$).Challenge: The shared memory does not output the dynamic rolling radius of the tire.Workaround: The plugin likely estimates radius based on the car model or requires user calibration (driving at constant speed to solve for $r = v / \omega$).
-Calculation: Once $r$ is estimated, the plugin calculates $\kappa = (\omega r - v) / v$.
-Peak Detection: The plugin still does not know the optimal peak. It simply provides the accurate slip ratio. The user must then watch the dashboard, lock the brakes to find the peak (e.g., observing that deceleration is max at 15% slip), and then manually set a "Limit" variable in the plugin settings.
-
-"The MoTeC Histogram Method (Post-Process Analysis)
-Professional engineers use data logging to derive the peak. This is the standard workflow for ACC and ACE.
-
-Data Acquisition: Use a tool (like ACC-Motec wrapper) to log SteeringAngle, Speed, G_Lat, and G_Long to a .ld file.
-
-Scatter Plotting: In analysis software (MoTeC i2), generate a scatter plot.
-
-X-Axis: Slip Angle (calculated or raw).
-
-Y-Axis: Lateral G-Force.
-
-Curve Fitting: The data points will form a curve. The top of this curve (the apex) represents the Optimal Peak for that specific setup.
-
-Result: The engineer notes, "For the Porsche 992 GT3 R at Monza, the peak slip is 3.1 degrees."
-
-Application: This value is then manually entered into dashboards or mental notes. It is not read dynamically from the game."
-
-The "Slip Effect" in Force Feedback
-FFB is often generated by the physics engine calculating the aligning torque ($M_z$). The aligning torque naturally drops off after the peak slip angle. If players feel this is "mushy" or "missing," it suggests the signal of "passing the peak" is weak.
-
-Yaw Kick update?
-"Motion platforms use the acceleration of the slip angle (jerk) to cue the driver that the rear is stepping out"
-
-Slip angle info currently missing in ACE? Possible to calculate it?
-" Currently, ACE motion profiles are generic or non-functional for traction loss because the slipAngle field in the shared memory is often returning null or zero in specific car/track combos. This forces motion software vendors to wait for Kunos to patch the export function."
-
-in GM stream (https://www.youtube.com/watch?v=z2pprGlRssw&t=18889s) the "delay" of FFB and disconnect from game physics was there even with SoP smoothing off ("raw"). Only the steering rack force was active. Investigate if there might still be a source of latency / delay / disconnect from game physics. We need manual testing to verify this, from DD users.
-
-
----
-
-possible notes for readme:
-the current version of the app uses a steering rack force that, in the case of GT3s, corresponds to the game FFB (LMU 1.2). In the case of the LMP2, the ingame FFB (LMU 1.2) adds significant smoothing or damping (this seems to mask a baseline tire vibration) so even the steering rack force alone is significantly more detailed in lmuFFB. In lmuFFB there are some settings to get rid of the baseline tire vibration from the steering rack (satich notch filter, steering torque smoothing). 
-
-lmuFFB is particularly useful for lower end wheels (belt/gear driven, and DDs < 12 Nm), because it enhances details that are difficult to feel or absent otherwise.
-
----
-
-
-overhaul the graphs: add new ones for new effects.
-reorganize them, so they also take less vertical and horizontal space.
-
-auto save last configuration. Is the save config button any longer needed?
-
-add timestamps to console prints
-
-we need a button for ..disconnect from game? reset data from dame? signal session finished?
-the telemetry persist even after quitting the game (slide texture and rear align torque)
-
-
-## Implementation Plans
-* [Report: Signal Processing & Latency Optimization](report_signal_processing_latency.md)
-* [Report: Effect Tuning & Slider Range Expansion](report_effect_tuning_slider_ranges.md)
-* [Report: Robustness & Game Integration](report_robustness_game_integration.md)
-* [Report: UI/UX Overhaul & Presets](report_ui_ux_overhaul.md)
-* [Report: Latency Investigation](report_latency_investigation.md)
+See also:
+* docs\dev_docs\FFB Slope Detection for Grip Estimation.md
+* docs\dev_docs\FFB Slope Detection for Grip Estimation2.md
