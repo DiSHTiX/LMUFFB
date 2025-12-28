@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 ## [0.6.21] - 2025-12-28
 ### Added
 - **Stationary Signal Gate**:
-  - Implemented a "Speed Gate" that automatically fades out high-frequency vibration effects (Road Texture, ABS Pulse, Lockup, and Bottoming) when the car is stationary or moving at very low speeds (< 2.0 m/s).
+  - Implemented a "Speed Gate" that automatically fades out high-frequency vibration effects (Road Texture, ABS Pulse, Lockup, and Bottoming) when the car is stationary or moving at very low speeds (< 2.0 m/s). Ramp from 0.0 vibrations (at < 0.5 m/s) to 1.0 vibrations (at > 2.0 m/s).
   - This eliminates the "Violent Shaking at Stop" issue caused by engine idle vibrations and sensor noise being amplified while the car is in the pits or parked.
 - **Road Texture Fallback (Encrypted Content Support)**:
   - Implemented a "Vertical G-Force" fallback mechanism for Road Texture specifically for DLC/Encrypted cars where suspension telemetry is blocked by the game.
