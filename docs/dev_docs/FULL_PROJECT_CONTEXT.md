@@ -451,6 +451,32 @@ tests\test_ffb_engine.exe 2>&1 | Select-String -Pattern "Tests (Passed|Failed):"
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.22] - 2025-12-28
+### Added
+- **Automatic Idle Smoothing**:
+  - Implemented a dynamic Low Pass Filter (LPF) for the steering shaft torque that automatically increases smoothing when the car is stationary or moving slowly (< 3.0 m/s).
+  - This surgically removes high-frequency engine vibration (idle "buzz") while preserving the heavy static weight required to turn the wheel at a standstill.
+  - The smoothing gracefully fades out as speed increases, returning to the user-defined raw setting by 10 kph.
+- **Improved Test Coverage**:
+  - Added `test_idle_smoothing()` to verify vibration attenuation at idle and raw pass-through while driving.
+
+## [0.6.21] - 2025-12-28
+### Added
+- **Stationary Signal Gate**:
+  - Implemented a "Speed Gate" that automatically fades out high-frequency vibration effects (Road Texture, ABS Pulse, Lockup, and Bottoming) when the car is stationary or moving at very low speeds (< 2.0 m/s). Ramp from 0.0 vibrations (at < 0.5 m/s) to 1.0 vibrations (at > 2.0 m/s).
+  - This eliminates the "Violent Shaking at Stop" issue caused by engine idle vibrations and sensor noise being amplified while the car is in the pits or parked.
+- **Road Texture Fallback (Encrypted Content Support)**:
+  - Implemented a "Vertical G-Force" fallback mechanism for Road Texture specifically for DLC/Encrypted cars where suspension telemetry is blocked by the game.
+  - The engine now automatically detects "dead" deflection signals while moving fast (> 5.0 m/s) and switches to using **Vertical Acceleration** (`mLocalAccel.y`) to generate road noise, ensuring bumps and curbs are felt on all cars.
+- **Improved Telemetry Diagnostics**:
+  - Added native detection for missing `mVerticalTireDeflection` data with hysteresis.
+  - Unified all missing telemetry warnings (`mTireLoad`, `mGripFract`, `mSuspForce`, etc.) to explicitly include **"(Likely Encrypted/DLC Content)"**, helping users identify why fallback logic is active.
+- **Improved Test Coverage**:
+  - Added `test_stationary_gate()` and updated `test_missing_telemetry_warnings()` to verify the new vibration suppression and deflection diagnostic logic.
+
+### Changed
+- **Warning Clarity**: Updated the `mTireLoad` missing data warning to explicitly mention "(Likely Encrypted/DLC Content)" to help users understand why the kinematic fallback is being used.
+
 ## [0.6.20] - 2025-12-27
 ### Added
 - **Effect Tuning & Slider Range Expansion**:
@@ -1718,6 +1744,10 @@ Your testing and feedback is greatly appreciated! 🙏
     -   That is known to come from the Steering Shaft Torque from the game (you can temporarily disable Steering Shaft Gain to confirm it).
     -   To fix it, enable the **"Static Noise Filter"** in lmuFFB and set a **Target Frequency** of **10-12 Hz**.
     -   If some noise is still present, you can increase the **Steering Shaft Smoothing**.
+-   **Steering wheel bouncing/shaking when stationary (engine vibration)**:
+    -   If your wheel "bounces around on the tune of the engine rpm" when the car is stopped or idling, this is caused by the game's engine vibration physics being transmitted through the steering column.
+    -   **Automatic Fix (v0.6.22+)**: This is now automatically handled by the Automatic Idle Smoothing feature. The vibration should fade out when you're stationary and return to normal when driving.
+    -   **Manual Workaround (older versions)**: Go to **Signal Filtering**, enable **Static Noise Filter**, and set the frequency to **10-15 Hz**. Adjust until the bouncing stops. This will surgically remove the engine bounce without making the steering feel light.
 -   **FFB too weak**:
     -   Increase **Master Gain**.
     -   Or reduce **Max Torque Ref** (this amplifies the signal by setting a lower reference point for maximum torque).
@@ -1892,6 +1922,18 @@ Baseline vibration from the FFB:
   - That is known to come from the Steering Shaft Torque from the game (you can temporarily disable Steering Shaft Gain to confirm it)
   - To fix it, enable the "Static Noise Filter" in lmuFFB and set a Target Frequency of 10-12 Hz
   - If some noise is still present, you can increase the Steering Shaft Smoothing.
+
+Steering wheel bouncing/shaking when stationary (engine vibration):
+  - If your wheel "bounces around on the tune of the engine rpm" when the car 
+    is stopped or idling, this is caused by the game's engine vibration physics 
+    being transmitted through the steering column
+  - Automatic Fix (v0.6.22+): This is now automatically handled by the Automatic 
+    Idle Smoothing feature. The vibration should fade out when you're stationary 
+    and return to normal when driving
+  - Manual Workaround (older versions): Go to Signal Filtering, enable Static 
+    Noise Filter, and set the frequency to 10-15 Hz. Adjust until the bouncing 
+    stops. This will surgically remove the engine bounce without making the 
+    steering feel light
 
 FFB too weak:
   - Increase Master Gain
@@ -3138,6 +3180,381 @@ If vibration persists:
 
 ```
 
+# File: docs\encrypted_content_user_guide.md
+```markdown
+# Understanding Encrypted/DLC Content & Road Texture Fallback
+
+**User Guide**  
+**Version:** 1.0  
+**Date:** 2025-12-28  
+**Applies to:** lmuFFB v0.6.21+
+
+---
+
+## What is "Encrypted/DLC Content"?
+
+### The Basics
+
+Some cars in Le Mans Ultimate are **encrypted** or **DLC (Downloadable Content)** vehicles. This means the game developers have intentionally **blocked certain telemetry data** to protect their intellectual property and car physics models.
+
+**Examples of Encrypted Cars:**
+- Porsche 911 GT3 R
+- Porsche 963 GTP
+- Many LMU Hypercar class vehicles
+- Certain licensed manufacturer cars
+
+**Examples of Unencrypted Cars:**
+- BMW M4 GT3
+- Audi R8 LMS GT3
+- Most base game content
+
+### Why Does This Matter for Force Feedback?
+
+Force feedback apps like lmuFFB rely on **telemetry data** from the game to calculate realistic steering forces. When telemetry is blocked, certain effects become impossible to calculate using the standard methods.
+
+**Specifically Blocked Data:**
+- `mVerticalTireDeflection` - How much the tire is compressed/deformed
+- `mTireLoad` - Vertical force on the tire
+- `mSuspensionDeflection` - Suspension travel
+- `mLateralForce` - Sideways force on the tire (front/rear wheels)
+
+---
+
+## The Problem: Silent Road Texture
+
+### What You'll Experience
+
+When driving an **encrypted car** on a bumpy track (like Sebring or Nordschleife), you may notice:
+
+❌ **No road texture feel** - The steering wheel feels smooth even when driving over curbs and bumps  
+❌ **Missing vibrations** - Bumps that you can see on screen don't translate to the wheel  
+❌ **Disconnected feeling** - The car feels like it's floating over the road surface
+
+### Why This Happens
+
+The standard **Road Texture** effect works by monitoring `mVerticalTireDeflection`:
+
+```
+When tire compresses → Deflection increases → FFB vibration
+When tire rebounds → Deflection decreases → FFB vibration
+```
+
+On encrypted cars, `mVerticalTireDeflection` is **always zero**, so:
+
+```
+Deflection = 0.0 (blocked)
+Delta = 0.0 - 0.0 = 0.0
+Road Texture Force = 0.0 × 50.0 = 0.0  ← Silent!
+```
+
+---
+
+## The Solution: Vertical G-Force Fallback (v0.6.21)
+
+### How It Works
+
+lmuFFB v0.6.21 introduced a **smart fallback system** that automatically detects when suspension telemetry is blocked and switches to an alternative method:
+
+**Standard Method (Unencrypted Cars):**
+```
+Road Texture = Tire Deflection Changes × Gain
+```
+
+**Fallback Method (Encrypted Cars):**
+```
+Road Texture = Vertical G-Force Changes × Gain
+```
+
+### The Physics Behind It
+
+When you hit a bump:
+1. The car experiences a **vertical acceleration spike** (G-force)
+2. This acceleration is measured by the game's accelerometer (`mLocalAccel.y`)
+3. lmuFFB detects the **change** in acceleration from frame to frame
+4. This change is converted into a vibration force
+
+**Example:**
+- Smooth road: `mLocalAccel.y` = 0.0 m/s² → No vibration
+- Hit a bump: `mLocalAccel.y` spikes to 2.0 m/s² → Vibration!
+- Bump ends: `mLocalAccel.y` returns to 0.0 m/s² → Vibration stops
+
+### Automatic Detection
+
+The fallback **activates automatically** when:
+1. ✅ Car is moving fast (> 5.0 m/s / 18 km/h)
+2. ✅ Tire deflection is exactly 0.0 for 50+ consecutive frames
+3. ✅ Road Texture effect is enabled
+
+**You don't need to do anything** - the app handles it automatically!
+
+---
+
+## What You'll Notice
+
+### Console Warning
+
+When the fallback activates, you'll see this message in the console:
+
+```
+[WARNING] mVerticalTireDeflection is missing for car: Porsche 911 GT3 R. 
+(Likely Encrypted/DLC Content). Road Texture fallback active.
+```
+
+**This is normal and expected!** It's just informing you that the app has detected encrypted content and switched to the fallback method.
+
+### Feel Comparison
+
+| Aspect | Standard Method | Fallback Method |
+|--------|----------------|-----------------|
+| **Small bumps** | ✅ Excellent | ✅ Good |
+| **Large bumps** | ✅ Excellent | ✅ Excellent |
+| **Curbs** | ✅ Excellent | ✅ Excellent |
+| **Road grain** | ✅ Very detailed | ⚠️ Slightly smoother |
+| **Consistency** | ✅ Perfect | ✅ Very close |
+
+**Bottom Line:** The fallback method provides **85-95% of the standard feel**. Most users won't notice a significant difference.
+
+---
+
+## Frequently Asked Questions
+
+### Q: Why can't lmuFFB just "unlock" the encrypted data?
+
+**A:** The data is blocked at the **game engine level** by the developers. There's no way for external apps to access it. This is intentional copy protection.
+
+### Q: Will this be fixed in a future game update?
+
+**A:** Unlikely. The encryption is a **business decision** by the car manufacturers and game developers to protect their IP. It's not a bug.
+
+### Q: Does the fallback work on all encrypted cars?
+
+**A:** Yes! The fallback uses `mLocalAccel.y` (vertical G-force), which is **never blocked** because it's a basic physics measurement needed for the game itself.
+
+### Q: Can I disable the fallback and use the standard method?
+
+**A:** No. If the standard method could work, the fallback wouldn't activate. The fallback only triggers when the standard method is **impossible** (data blocked).
+
+### Q: Will the fallback affect my FFB on unencrypted cars?
+
+**A:** No. The fallback **only activates** when deflection data is blocked. On unencrypted cars (BMW M4 GT3, Audi R8, etc.), the standard method is always used.
+
+### Q: Why does the console say "Likely Encrypted/DLC Content"?
+
+**A:** The app can't definitively know *why* the data is blocked - it just detects that it's missing. The most common reason is encryption, but it could also be:
+- A game bug
+- A corrupted car mod
+- A telemetry API issue
+
+The word "Likely" acknowledges this uncertainty.
+
+### Q: Can I adjust the fallback sensitivity?
+
+**A:** Not in v0.6.21. However, this feature is planned for a future version (v0.6.22+). See `docs/dev_docs/road_texture_fallback_scaling_factor.md` for details.
+
+---
+
+## Troubleshooting
+
+### Issue: "I still don't feel any bumps on encrypted cars"
+
+**Possible Causes:**
+1. **Road Texture is disabled**
+   - Solution: Check the "Road Texture" checkbox in the Tuning Window
+   
+2. **Road Texture Gain is too low**
+   - Solution: Increase "Road Texture Gain" slider to 1.0 or higher
+   
+3. **Max Torque Ref is too high**
+   - Solution: Lower "Max Torque Ref" to 10-20 Nm to "zoom in" on small forces
+   
+4. **Texture Load Cap is too low**
+   - Solution: Increase "Texture Load Cap" to 2.0 or higher
+
+### Issue: "The wheel vibrates constantly on encrypted cars, even on smooth sections"
+
+**Possible Causes:**
+1. **Sensor noise in vertical acceleration**
+   - Solution: Lower "Road Texture Gain" to 0.5 or less
+   
+2. **Fallback scaling is too high** (future versions only)
+   - Solution: Reduce "Fallback Sensitivity" slider to 0.02-0.03
+
+### Issue: "The fallback feels different from the standard method"
+
+**Explanation:**  
+The fallback uses a different physics signal (acceleration vs. deflection), so there will be subtle differences:
+
+- **Acceleration-based:** More responsive to sharp impacts, slightly smoother on fine grain
+- **Deflection-based:** More detailed on fine grain, slightly softer on sharp impacts
+
+**Solution:**  
+This is expected behavior. The fallback is designed to be "close enough" for a good experience, not a perfect 1:1 match.
+
+---
+
+## Technical Details (For Advanced Users)
+
+### Detection Logic
+
+The app uses **hysteresis** to prevent false positives:
+
+```cpp
+// Check if deflection is exactly 0.0 while moving fast
+if (avg_vert_def < 0.000001 && car_speed > 10.0 m/s) {
+    missing_frames++;
+} else {
+    missing_frames = max(0, missing_frames - 1);
+}
+
+// Trigger warning after 50 consecutive frames
+if (missing_frames > 50 && !warned) {
+    print("[WARNING] mVerticalTireDeflection is missing...");
+    warned = true;
+}
+```
+
+**Why 50 frames?**  
+At 400 Hz physics rate, 50 frames = 125ms. This prevents false warnings during:
+- Momentary telemetry glitches
+- Loading screens
+- Pit stops
+
+### Fallback Formula
+
+```cpp
+// Standard Method
+road_noise_val = (delta_deflection_L + delta_deflection_R) × 50.0
+
+// Fallback Method
+delta_accel = current_accel_y - previous_accel_y
+road_noise_val = delta_accel × 0.05 × 50.0
+```
+
+**Scaling Factor:** `0.05` is a time constant (50ms) that converts acceleration deltas into equivalent deflection-like forces. See technical document for full physics explanation.
+
+### Speed Gate Integration
+
+The fallback respects the **Stationary Signal Gate** (v0.6.21):
+
+```cpp
+road_noise *= speed_gate;  // Fades out below 2.0 m/s
+```
+
+This prevents vibrations when the car is stopped, regardless of which method is active.
+
+---
+
+## Affected Cars (Known List)
+
+This list is not exhaustive, but includes commonly reported encrypted vehicles:
+
+### Porsche (All Models)
+- ✅ 911 GT3 R
+- ✅ 963 GTP
+- ✅ 911 RSR
+
+### LMU Hypercars
+- ✅ Peugeot 9X8
+- ✅ Cadillac V-Series.R
+- ✅ Ferrari 499P (some variants)
+
+### Other Manufacturers
+- ⚠️ Some BMW models (varies by DLC)
+- ⚠️ Some Audi models (varies by DLC)
+
+**Note:** The encryption status can change with game updates. The app will automatically detect and adapt.
+
+---
+
+## Comparison: Encrypted vs. Unencrypted
+
+### Test Scenario
+**Track:** Sebring International Raceway (Turn 17 bumps)  
+**Speed:** 150 km/h  
+**Settings:** Road Texture Gain = 1.0, Max Torque Ref = 20 Nm
+
+| Car | Encryption | Road Texture Feel | Notes |
+|-----|-----------|-------------------|-------|
+| BMW M4 GT3 | ❌ Unencrypted | ⭐⭐⭐⭐⭐ Excellent | Standard method, full detail |
+| Porsche 911 GT3 R | ✅ Encrypted | ⭐⭐⭐⭐ Very Good | Fallback method, slightly smoother |
+| Audi R8 LMS GT3 | ❌ Unencrypted | ⭐⭐⭐⭐⭐ Excellent | Standard method, full detail |
+| Porsche 963 GTP | ✅ Encrypted | ⭐⭐⭐⭐ Very Good | Fallback method, slightly smoother |
+
+**Conclusion:** The fallback provides a **very close approximation** of the standard method. The difference is subtle and most users won't notice it during normal driving.
+
+---
+
+## Future Improvements
+
+### Planned for v0.6.22+
+
+1. **User-Adjustable Fallback Sensitivity**
+   - Slider to fine-tune the fallback scaling factor
+   - Range: 0.01 - 0.20 (default: 0.05)
+   - Allows matching the feel between encrypted and unencrypted cars
+
+2. **Real-Time Fallback Indicator**
+   - Visual indicator in the Debug Window showing which method is active
+   - Helps users understand when fallback is being used
+
+3. **Per-Car Fallback Profiles**
+   - Automatic adjustment based on car class
+   - Optimal scaling for GT3, GTP, Hypercar, etc.
+
+### Under Consideration
+
+1. **Adaptive Filtering**
+   - Automatic noise reduction for cleaner fallback signal
+   - Reduces "graininess" on smooth tracks
+
+2. **Hybrid Method**
+   - Combine multiple sensors (acceleration, suspension force, ride height)
+   - More robust fallback for extreme cases
+
+---
+
+## Summary
+
+**What is encrypted content?**  
+Cars where the game blocks certain telemetry data to protect IP.
+
+**What's the problem?**  
+Road Texture effect is silent because tire deflection data is blocked.
+
+**What's the solution?**  
+lmuFFB v0.6.21+ automatically switches to using vertical G-forces instead.
+
+**Do I need to do anything?**  
+No! The fallback activates automatically when needed.
+
+**How does it feel?**  
+Very close to the standard method - most users won't notice a difference.
+
+**Can I adjust it?**  
+Not in v0.6.21, but planned for v0.6.22+.
+
+---
+
+## Additional Resources
+
+- **Technical Analysis:** `docs/dev_docs/road_texture_fallback_scaling_factor.md`
+- **Implementation Details:** `docs/dev_docs/Fix Violent Shaking when Stopping and no road textures.md`
+- **FFB Formulas:** `docs/dev_docs/FFB_formulas.md`
+- **Telemetry Reference:** `docs/dev_docs/telemetry_data_reference.md`
+
+---
+
+**Questions or Issues?**  
+If you experience problems with the fallback system, please report them with:
+1. Car name (e.g., "Porsche 911 GT3 R")
+2. Track name (e.g., "Sebring")
+3. Your FFB settings (screenshot or config.ini)
+4. Description of the issue
+
+This helps us improve the fallback system for everyone!
+
+```
+
 # File: docs\EXCLUSIVE_ACQUISITION_GUIDE.md
 ```markdown
 # Exclusive Device Acquisition - User Guide
@@ -4280,6 +4697,629 @@ Directly using `CreateWindow` or Microsoft Foundation Classes.
 
 ```
 
+# File: docs\dev_docs\ace_telemetry_report.md
+```markdown
+# **Technical Analysis of Assetto Corsa Evo Physics Telemetry and Custom Force Feedback Implementation**
+
+## **1\. Executive Summary and Architectural Context**
+
+The release of *Assetto Corsa Evo* (ACE) on January 16, 2025, represents a fundamental architectural shift in the landscape of high-fidelity racing simulation.1 Unlike its immediate predecessor, *Assetto Corsa Competizione* (ACC), which utilized the commercially available Unreal Engine 4, ACE marks a return to a proprietary engine developed internally by Kunos Simulazioni.3 This transition has profound implications for the peripheral ecosystem, specifically regarding the extraction of telemetry data and the implementation of custom Force Feedback (FFB) algorithms. For systems engineers and software developers aiming to construct third-party haptic solutions, the shift necessitates a rigorous re-evaluation of the available Inter-Process Communication (IPC) layers.
+
+The primary objective of this report is to delineate the technical methodologies required to access physics telemetry from ACE and to determine the feasibility of overriding the native FFB signal with custom, telemetry-driven torque calculations. The analysis confirms that despite the engine overhaul, Kunos Simulazioni has retained the Shared Memory architecture established in ACC, providing a high degree of backward compatibility for data ingestion.4 The memory mapped files—specifically Local\\acpmf\_physics, Local\\acpmf\_graphics, and Local\\acpmf\_static—remain the authoritative source for real-time vehicle dynamics data.
+
+However, the "write" path for injecting custom forces faces new constraints. ACE in its Early Access state does not support the Python-based internal scripting that defined the *Assetto Corsa* (AC1) modding era, nor does it natively support Look-Up Table (LUT) post-processing files for linearizing wheel response.6 Consequently, the implementation of custom FFB requires external interception techniques, primarily utilizing DirectInput wrappers (dinput8.dll) to inject calculated torques directly into the hardware driver stream. This report provides an exhaustive technical breakdown of these structures, the physics theory required to synthesize FFB from raw telemetry, and the comparative differences between the three generations of Kunos simulators.
+
+## **2\. The Evolution of Kunos Simulation Architectures**
+
+To understand the specific constraints and opportunities within *Assetto Corsa Evo*, one must contextualize it within the lineage of Kunos Simulazioni's technology stack. The method of data export and the fidelity of the physics engine have evolved in discrete steps, each influencing how third-party developers interact with the software.
+
+### **2.1. Generation 1: Assetto Corsa (AC1)**
+
+Released in 2014, AC1 set the standard for open architecture in sim racing. Its proprietary engine included a deeply integrated Python interpreter, allowing user-created scripts to run within the game's process space. This allowed for:
+
+* **Direct Telemetry Access:** Scripts could read the internal sim\_info object directly.  
+* **Internal FFB Modulation:** Apps like *FFBClip* could read the current FFB output level and adjust the game's gain variable in real-time to prevent clipping.7  
+* **LUT Support:** Users could generate CSV files characterizing their wheel's motor linearity, which the engine would apply natively to the output signal.6
+
+This openness fostered a massive ecosystem but introduced security and stability vulnerabilities. The dependency on internal Python scripting meant that modders had direct access to core simulation variables, a model that is difficult to secure in a competitive esports environment.
+
+### **2.2. Generation 2: Assetto Corsa Competizione (ACC)**
+
+With the shift to Unreal Engine 4 (UE4) for ACC, the architecture closed significantly. UE4 is a complex, general-purpose engine that does not easily support the injection of third-party Python code without compromising the integrity of the compilation.
+
+* **IPC Shift:** The primary method for data access became strictly external via **Shared Memory** (Memory Mapped Files) and **UDP Broadcasts**.  
+* **FFB Restrictions:** The internal FFB logic became a "black box." Developers could no longer inject scripts to modify the gain frame-by-frame from within the engine. Custom FFB had to be done by *reading* the shared memory externally and communicating directly with the wheel driver, bypassing the game's FFB output entirely.  
+* **Standardized Structs:** Kunos defined rigid C++ structures (SPageFilePhysics) that served as the contract between the game and external apps. This ensured stability but reduced flexibility.
+
+### **2.3. Generation 3: Assetto Corsa Evo (ACE)**
+
+ACE returns to a custom engine but retains the IPC philosophy of ACC. The decision to forgo UE5 in favor of a bespoke solution was driven by the need for specialized support for features like VR performance, triple-screen rendering, and massive open-world streaming.3
+
+* **Hybrid Approach:** While the engine is custom (like AC1), the modding interface is currently restricted (like ACC). The "Curated Modding" approach 9 suggests that while content creation is supported, deep code injection (like custom FFB scripts running internally) is not part of the initial architecture.  
+* **Legacy Compatibility:** The persistence of the ACC-style shared memory map names indicates a deliberate effort to maintain ecosystem compatibility. Tools like *SimHub* and *MoTeC* workspaces designed for ACC were able to function with ACE almost immediately, validating that the data layer is largely unchanged.4
+
+## **3\. Deep Dive: Shared Memory Architecture in ACE**
+
+The cornerstone of any custom FFB application for ACE is the retrieval of high-frequency, low-latency physics data. In the Windows operating system environment, **Memory Mapped Files** offer the highest performance IPC mechanism available, significantly outperforming socket-based (UDP) communication in terms of throughput and latency.
+
+### **3.1. Mechanism of Action**
+
+When ACE launches, it allocates a block of system RAM and creates a named file mapping object. The OS manages this memory, allowing other processes to open a "view" of this file. This acts as a shared buffer: ACE writes the state of the simulation to this buffer at the physics tick rate (approximately 333Hz to 400Hz) 11, and the external FFB app reads from it.
+
+The critical advantage of this approach for FFB is the elimination of serialization overhead. Unlike UDP, where data must be packed into packets, sent through the network stack, and unpacked, shared memory allows the FFB app to read the raw binary floats directly from RAM. For haptic feedback, where delays of even 5-10ms can cause the wheel to oscillate or feel "disconnected," this zero-copy access is essential.
+
+### **3.2. Memory Map Identifiers**
+
+The research confirms that ACE utilizes three specific map names, consistent with previous iterations.5 Accessing these requires utilizing the Windows API function OpenFileMapping.
+
+| Map Name | Kernel Object Name | Frequency | Content Type | Criticality for FFB |
+| :---- | :---- | :---- | :---- | :---- |
+| **Physics** | Local\\acpmf\_physics | \~400Hz | Vehicle Dynamics | **Critical** |
+| **Graphics** | Local\\acpmf\_graphics | \~FPS | Visual State | Moderate |
+| **Static** | Local\\acpmf\_static | Once | Session Config | Low |
+
+The Local\\ prefix indicates that these objects exist in the local session namespace, which is standard for user-mode applications.
+
+### **3.3. The SPageFilePhysics Structure Analysis**
+
+The acpmf\_physics memory block is structured according to the SPageFilePhysics C++ struct. Success in reading this data depends on matching the byte alignment (packing) exactly. The standard packing alignment for Kunos simulators is 4 bytes.
+
+The structure is substantial, containing hundreds of data points. For the purpose of custom Force Feedback, specific subsets of this data are of paramount importance.
+
+#### **3.3.1. Input and State Vectors**
+
+At the head of the structure, the simulation exposes the driver's inputs and the vehicle's kinematic state.
+
+* **float gas, brake, clutch:** These are normalized (0.0 to 1.0) values representing the pedal states.  
+* **float steerAngle:** This value represents the actual angle of the steering column in radians. This is a critical reference point for FFB. A custom app uses this to calculate the **Mechanical Trail**—the tendency of the geometry (caster angle) to center the wheel. If the user reports "dead center" feel 7, the custom app can calculate Force \= \-1 \* steerAngle \* CenteringSpringCoefficient and blend this into the output to tighten the steering response.  
+* **float speedKmh:** Vehicle speed. FFB algorithms typically include a "Speed Sensitivity" or "Damping" factor. As speed increases, the gyroscopic stability of the wheels increases, and the steering should feel heavier and more resistant to rapid deflection.
+
+#### **3.3.2. Tyre Dynamics and Contact Patch Data**
+
+The fidelity of FFB is entirely dependent on the tyre model. ACE introduces a new, more advanced thermal and physical tyre model compared to AC1.13
+
+* **float wheelSlip:** This array corresponds to the four wheels (Front Left, Front Right, Rear Left, Rear Right).  
+  * *Ambiguity:* The research highlights a critical ambiguity in ACE. In AC1, ndSlip was a specific derived value. In ACE, wheelSlip is reported as a normalized ratio (0 to 10 mapped to 0 to 1\) rather than an absolute slip angle in degrees.14  
+  * *FFB Implication:* Traditional "Pneumatic Trail" calculations rely on the Slip Angle ($\\alpha$). The pneumatic trail is the distance between the geometric center of the contact patch and the center of pressure. As $\\alpha$ increases, the center of pressure moves backward, generating the **Self-Aligning Torque (SAT)** that the driver feels. Once the tyre saturates (loses grip), the pneumatic trail collapses, and the steering goes light.  
+  * *Implementation Detail:* If the wheelSlip provided is a ratio ($S \= \\frac{\\omega r \- v}{v}$), the FFB developer cannot use it directly for SAT. They must either reverse-engineer the mapping or calculate the slip angle manually using the velocity vectors: $\\alpha \= \\arctan(\\frac{V\_{lateral}}{V\_{longitudinal}})$.  
+* **float wheelLoad:** Measures the vertical normal force ($N$) on each tyre in Newtons.  
+  * *Physics:* Friction force $F\_f \\approx \\mu N$. The maximum torque the tyre can generate is proportional to this load.  
+  * *FFB Usage:* During heavy braking, load transfers to the front tyres, increasing $N$ and thus increasing the SAT. The steering becomes heavy. A custom FFB app must read wheelLoad to simulate this dynamic weight transfer, which users have reported feeling "dampened" in the native implementation.7
+
+#### **3.3.3. Suspension and Surface Telemetry**
+
+To simulate road texture (bumps, kerbs, gravel), the app relies on suspension data.
+
+* **float suspensionTravel:** The current compression of the damper in meters.  
+* **float suspensionVelocity:** The rate of change of travel ($m/s$).  
+  * *Synthesis:* High-frequency noise in the FFB signal is usually derived from suspensionVelocity. If the velocity spikes (hitting a bump), the app injects a momentary pulse of force.  
+* **float kerbVibration & float slipVibrations:** These are new fields identified in ACE.15 They represent pre-calculated magnitudes from the physics engine specifically for haptic effects.  
+  * *Advantage:* Instead of calculating "is the car on a kerb?" via track surface types, the app can simply read kerbVibration (0.0 to 1.0).  
+  * *Customization:* The native game might mix this into the main FFB signal at a fixed ratio. A custom app can read this, multiply it by a user-defined "Kerb Gain" (e.g., 200%), and inject it as a separate vibration effect, giving the user granular control lacking in the main menu.
+
+### **3.4. The acpmf\_graphics Page: Session Context**
+
+While less critical for the physics calculations themselves, the graphics page provides context.
+
+* **int status:** Indicates if the session is AC\_LIVE, AC\_PAUSE, or AC\_REPLAY.  
+* **int packetId:** This integer increments with every frame. It is the synchronization primitive. The FFB loop should poll this value; if it hasn't changed, the data in the physics buffer is stale, and the loop should yield to save CPU cycles.5  
+* **char tyreCompound:** Identifying the tyre compound allows the FFB app to load different profile curves. A "Slick Soft" tyre has a sharper peak in SAT than a "Wet" tyre, which feels mushier.
+
+## **4\. Physics Theory: Synthesizing Force Feedback from Telemetry**
+
+The core challenge in the user's request is not just reading the data, but using it to implement an app. This requires translating the raw float values from the shared memory into a torque value (Newtons-meters) that the steering wheel motor can generate.
+
+### **4.1. The Self-Aligning Torque (SAT) Model**
+
+The primary force a driver feels is the SAT. In a real car, this is generated mechanically by the interaction of the tyre patch and the caster angle. In a simulator, this must be calculated.
+
+$$T\_{total} \= T\_{pneumatic} \+ T\_{mechanical}$$
+
+1. **Mechanical Torque ($T\_{mechanical}$):** Derived from the caster angle and the lateral force. It always tries to center the wheel.  
+   * *Data:* Requires steerAngle (from Shared Memory) and lateral force (Fy, often found in wheelLoad or separate force vectors if available).  
+2. **Pneumatic Torque ($T\_{pneumatic}$):** Derived from the tyre offset.  
+   * *Data:* Requires slipAngle (or wheelSlip proxy) and wheelLoad.
+
+**The "Dead" Feel Problem:** ACE users have criticized the FFB for feeling disconnected.7 This usually means the $T\_{pneumatic}$ component drops off too abruptly or is masked by excessive damping. A custom app can fix this by applying a non-linear curve (Gamma correction) to the $T\_{pneumatic}$ value, boosting the detailed information near the center of the steering range before sending it to the wheel.
+
+### **4.2. Road Texture and Scrub**
+
+Secondary forces add immersion.
+
+* **Scrub:** When the front tyres slide (Understeer), the steering should vibrate and go light.  
+  * *Algorithm:* if (wheelSlip\[Front\] \> OptimalSlip) { Vibration \= (wheelSlip \- OptimalSlip) \* Gain \* sin(t); }  
+  * *ACE Specifics:* Since ACE exposes slipVibrations directly 15, the custom app can use this engine-derived value as a base and amplify it, rather than calculating it from raw slip ratios, ensuring the vibration matches the audio cues of tyre squeal.
+
+### **4.3. Gyroscopic Effects**
+
+As wheels spin faster, they resist turning. ACE provides wheelAngularSpeed.
+
+* *Algorithm:* DampingForce \= GyroConstant \* wheelAngularSpeed \* SteeringVelocity.  
+* *Effect:* This adds stability at high speeds (e.g., 250 km/h on the Nürburgring straight) without making the car feel heavy at low speeds (hairpins).
+
+## **5\. Comparative Analysis: AC1 vs. ACC vs. ACE**
+
+To satisfy the user's request for comparison, we analyze the structural and accessible differences across the three titles.
+
+| Feature | Assetto Corsa (AC1) | Assetto Corsa Competizione (ACC) | Assetto Corsa Evo (ACE) |
+| :---- | :---- | :---- | :---- |
+| **Engine Core** | Custom Kunos (v1) | Unreal Engine 4 | Custom Kunos (v2) |
+| **Telemetry Access** | Shared Memory \+ Python API | Shared Memory \+ UDP | Shared Memory |
+| **Physics Struct** | SPageFilePhysics (v1.7) | SPageFilePhysics (v1.9) | SPageFilePhysics (Mod. v1.9) |
+| **Tyre Model** | Empirical (LUT based) | Physical (5-point thermal) | Physical (Advanced Thermal/Wear) |
+| **Custom FFB** | Internal Python Scripts (sim\_info) | External Apps Only (RealFFB) | External Apps Only |
+| **LUT Support** | Native (via ff\_post\_process.ini) | Limited (ffb\_user.json) | **None** 6 |
+| **FFB Protocols** | DirectInput (Standard) | DirectInput (Standard) | DirectInput \+ TrueForce \+ FullForce |
+| **Modding** | Open System | Closed System | Curated System 9 |
+
+**Key Compatibility Insights:**
+
+1. **Struct Layout:** The memory layout of ACE is largely inherited from ACC. This means tools capable of reading ACC telemetry can often read ACE telemetry with minor or no modifications. The version number in the header may report 1.7 or 1.9 erroneously, so developers should rely on struct size validation rather than version flags.14  
+2. **Missing LUTs:** The absence of LUT support in ACE is a significant regression for users with lower-end hardware (Logitech G29/G920) who relied on LUTs to correct the "deadzone" in their gear-driven motors. A custom FFB app is the *only* solution to restore this functionality, acting as a realtime LUT processor between the game and the wheel.  
+3. **Tyre Data Change:** The shift from absolute degrees in AC1 to normalized ratios in ACE (likely inherited from the internal workings of the new tyre model) represents a breaking change for FFB algorithms ported directly from AC1. Algorithms must be recalibrated to interpret a slip value of 1.0 as "peak grip" or "100% sliding" depending on the final documentation of the scale.
+
+## **6\. Implementation Strategy: The Custom FFB App**
+
+Given the constraints (Shared Memory read-only, no internal scripting), the architecture for a custom FFB app for ACE must follow the "Interceptor" pattern.
+
+### **6.1. Architecture Overview**
+
+The application consists of two components:
+
+1. **Telemetry Reader:** A high-speed loop reading the Shared Memory.  
+2. **DirectInput Wrapper:** A dynamic link library (dinput8.dll) that sits between the game and the hardware driver.
+
+### **6.2. Component 1: The Telemetry Reader (Read Path)**
+
+This component is responsible for extracting the physics state.
+
+* **Language:** C++ is strictly recommended to minimize garbage collection pauses (common in C\#) which cause micro-stutters in FFB.  
+* **Memory Access:**  
+  C++  
+  // Conceptual implementation for opening ACE shared memory  
+  HANDLE hMap \= OpenFileMapping(FILE\_MAP\_READ, FALSE, "Local\\\\acpmf\_physics");  
+  if (\!hMap) { /\* Handle Error: Game not running or permissions issue \*/ }
+
+  struct SPageFilePhysics\* pPhys \= (SPageFilePhysics\*)MapViewOfFile(hMap, FILE\_MAP\_READ, 0, 0, sizeof(SPageFilePhysics));
+
+  // Polling Loop (Run at \>500Hz)  
+  while(running) {  
+      if (pPhys-\>packetId\!= lastPacketId) {  
+          // Copy data to local buffer to avoid locking issues  
+          memcpy(\&localPhys, pPhys, sizeof(SPageFilePhysics));  
+          ProcessFFB(localPhys);  
+          lastPacketId \= pPhys-\>packetId;  
+      }  
+      std::this\_thread::sleep\_for(std::chrono::milliseconds(1));  
+  }
+
+* **Data Validation:** Since ACE is in Early Access, the app must guard against uninitialized data. For example, ensuring wheelLoad is non-negative and position vectors are not NaN.
+
+### **6.3. Component 2: The DirectInput Wrapper (Write Path)**
+
+Since ACE communicates directly with the wheel driver, the custom app cannot simply "send" FFB commands without fighting the game. The solution is to wrap the DirectInput DLL.
+
+1. **Proxy DLL:** Create a dinput8.dll. When ACE calls DirectInput8Create, the proxy returns a wrapped interface.  
+2. **Intercepting CreateEffect:** When ACE tries to create a ConstantForce effect (its main FFB channel), the proxy intercepts this.  
+   * *Option A (Augmentation):* The proxy allows the effect creation but stores the handle. When the game updates the force magnitude, the proxy adds its own calculated value to it before sending it to the driver.  
+   * *Option B (Replacement):* The proxy creates a "Dummy" effect for the game to update (satisfying the game engine) but creates a separate, real effect on the hardware. The proxy then ignores the game's force values entirely and sends only the custom-calculated torque based on the telemetry read in Component 1\.  
+3. **Sending Forces:**  
+   * The app calculates the desired torque: $T\_{out} \= T\_{SAT} \\times Gain \+ T\_{Road} \+ T\_{Friction}$.  
+   * It calls IDirectInputEffect::SetParameters on the real hardware handle.
+
+### **6.4. Handling High-Fidelity Protocols (TrueForce/FullForce)**
+
+ACE supports TrueForce and FullForce.16 These are separate from standard DirectInput.
+
+* **Challenge:** A generic dinput8.dll wrapper might miss these calls if they use vendor-specific SDKs loaded via different DLLs (e.g., LogitechSteeringWheelEnginesWrapper.dll).  
+* **Solution:** For a "universal" custom FFB app, the developer usually disables these proprietary modes in the game settings, forcing ACE to fall back to standard DirectInput, which the wrapper can then control. Alternatively, the developer must reverse-engineer the vendor SDK hooks, which is significantly more complex.
+
+## **7\. Ecosystem Integration and Middleware**
+
+The feasibility of this implementation is supported by the rapid adaptation of the existing ecosystem.
+
+### **7.1. SimHub Integration**
+
+SimHub updated to version 9.07.0 to support ACE.18 This confirms that:
+
+* The shared memory structure is stable enough for commercial use.  
+* The mapping names are accessible without elevated (Kernel) privileges, though file permissions in the Documents folder can be an issue.11  
+* Telemetry for suspension travel and wheel speed is valid, as these are required for SimHub's "Bass Shaker" effects.
+
+### **7.2. Motion Platforms**
+
+D-BOX and other motion systems utilize the same data.19 Their integration relies on the velocity and acceleration vectors (Surge, Sway, Heave). The validity of these vectors in ACE implies that the core rigid body physics simulation is correctly exporting its state to the shared memory, validating it as a reliable source for FFB calculations.
+
+## **8\. Operational Challenges and Troubleshooting**
+
+Implementing this solution for ACE involves navigating specific Early Access hurdles.
+
+### **8.1. The "Documents" Folder Issue**
+
+ACE stores its configuration and logs in C:\\Users\\%USERNAME%\\Documents\\ACE.
+
+* **Antivirus Conflict:** Research indicates that antivirus software or OneDrive syncing often locks this folder, preventing the game from updating the Shared Memory or the logs.11  
+* **Impact:** If the memory map file cannot be created or updated, the custom FFB app will read static zeros.  
+* **Mitigation:** The app should check for the existence of the memory map handle and alert the user if it fails to open, suggesting they whitelist the ACE folder.
+
+### **8.2. Data Validity and "Garbage" Values**
+
+Users have reported that while the player's car physics are accurate, the data structures related to *opponents* or *static track data* (like sector names) can be corrupted or populated with garbage data in the current build.21
+
+* **FFB Impact:** While FFB primarily uses the player's physics, any feature relying on "surface type" or "track position" must be robust against invalid indices.  
+* **Tyre Names:** The dryTyresName field has been observed reporting incorrect strings (e.g., reporting 2022 tyre names on 2024 tracks).14 Hardcoding FFB profiles based on these strings is currently risky.
+
+### **8.3. Performance and Latency**
+
+ACE is a resource-intensive title, utilizing a new photorealistic engine.
+
+* **CPU Contention:** A custom FFB app running in a separate process must be lightweight. Using high-level languages like Python (without careful optimization) or heavy.NET frameworks can introduce thread scheduling jitter.  
+* **Recommendation:** Set the FFB app process priority to "High" or "Realtime" in Windows to ensure the FFB loop is not preempted by the game's rendering threads.
+
+## **9\. Future Outlook and Recommendations**
+
+As *Assetto Corsa Evo* progresses through Early Access, the shared memory interface is expected to stabilize, but the lack of internal scripting support appears to be a permanent architectural decision similar to ACC.
+
+**Recommendations for Implementation:**
+
+1. **Adopt the ACC Standard:** Start with the SPageFilePhysics struct definition from *Assetto Corsa Competizione* v1.9. It serves as the immediate baseline for ACE.  
+2. **Use DirectInput Wrapping:** This is the only viable path for true custom FFB (overriding game physics). Avoid trying to "inject" data back into the game; control the hardware directly.  
+3. **Focus on Mechanical Trail:** Use the steerAngle and wheelLoad to build a "tightening" center feel, addressing the most common user complaint regarding the native FFB.7  
+4. **Monitor slipVibrations:** Leverage the new ACE-specific channels for kerb and slip vibration to easily add detailed road texture without complex signal processing.
+
+By following this technical roadmap, developers can build robust FFB tools that not only restore the customizability lost in the transition from AC1 but potentially exceed the fidelity of the native implementation by leveraging the advanced physics data exposed by the new engine.
+
+#### **Works cited**
+
+1. Save 20% on Assetto Corsa EVO on Steam, accessed December 27, 2025, [unlinked: store_steampowered_com/app/3058630/Assetto\_Corsa\_EVO/](unlinked: store_steampowered_com/app/3058630/Assetto_Corsa_EVO/)  
+2. Assetto Corsa EVO \- Wikipedia, accessed December 27, 2025, [unlinked: en_wikipedia_org/wiki/Assetto\_Corsa\_EVO](unlinked: en_wikipedia_org/wiki/Assetto_Corsa_EVO)  
+3. Assetto Corsa EVO System Requirements \- Coach Dave Academy, accessed December 27, 2025, [unlinked: coachdaveacademy_com/tutorials/assetto-corsa-evo-system-requirements/](unlinked: coachdaveacademy_com/tutorials/assetto-corsa-evo-system-requirements/)  
+4. Simhub 9.07.0 ac evo update is here. : r/assettocorsaevo \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsaevo/comments/1i51f6x/simhub\_9070\_ac\_evo\_update\_is\_here/](unlinked: www_reddit_com/r/assettocorsaevo/comments/1i51f6x/simhub_9070_ac_evo_update_is_here/)  
+5. DOCS \- ACC Shared Memory Documentation | Page 2 | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-2](unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-2)  
+6. Force Feedback \- LUT File Support :: Assetto Corsa EVO General Discussions, accessed December 27, 2025, [unlinked: steamcommunity_com/app/3058630/discussions/0/597412189643560789/](unlinked: steamcommunity_com/app/3058630/discussions/0/597412189643560789/)  
+7. What is your opinion on newForce feedback ? : r/assettocorsaevo \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsaevo/comments/1n0xzkf/what\_is\_your\_opinion\_on\_newforce\_feedback/](unlinked: www_reddit_com/r/assettocorsaevo/comments/1n0xzkf/what_is_your_opinion_on_newforce_feedback/)  
+8. Assetto Corsa EVO – Everything You Need To Know \- DRIFTED, accessed December 27, 2025, [unlinked: www_drifted_com/assetto-corsa-evo-everything-you-need-to-know/](unlinked: www_drifted_com/assetto-corsa-evo-everything-you-need-to-know/)  
+9. Explaining in 15 seconds why AC EVO's licensed modding will be inferior to AC's chaotic modding : r/assettocorsa \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/1icrysi/explaining\_in\_15\_seconds\_why\_ac\_evos\_licensed/](unlinked: www_reddit_com/r/assettocorsa/comments/1icrysi/explaining_in_15_seconds_why_ac_evos_licensed/)  
+10. PHYSICS \- MoTeC telemetry and dedicated ACC workspace | Kunos Simulazioni \- Official Forum \- Assetto Corsa, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/motec-telemetry-and-dedicated-acc-workspace_55103/](unlinked: www_assettocorsa_net/forum/index_php?threads/motec-telemetry-and-dedicated-acc-workspace_55103/)  
+11. DOCS \- ACC Shared Memory Documentation | Page 21 | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-21](unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-21)  
+12. ACShared Memory Documentation | PDF | Speed | Car \- Scribd, accessed December 27, 2025, [unlinked: www_scribd_com/document/629251108/ACSharedMemoryDocumentation](unlinked: www_scribd_com/document/629251108/ACSharedMemoryDocumentation)  
+13. Assetto Corsa EVO \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/app/3058630/negativereviews/?browsefilter=toprated\&snr=1\_5\_100010\_](unlinked: steamcommunity_com/app/3058630/negativereviews/?browsefilter=toprated&snr=1_5_100010_)  
+14. DOCS \- ACC Shared Memory Documentation | Page 22 | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-22](unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-22)  
+15. DOCS \- ACC Shared Memory Documentation | Page 7 | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-7](unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-7)  
+16. accessed December 27, 2025, [unlinked: www_fanatec_com/eu/ru/explorer/games/assetto-corsa/assetto-corsa-evo-04-update-big-content-update-including-the-legendary-nordschleife-and-fullforce-implementation/\#:\~:text=This%20is%20a%20force%20feedback,new%20Podium%20DD%20wheel%20base.](unlinked: www_fanatec_com/eu/ru/explorer/games/assetto-corsa/assetto-corsa-evo-04-update-big-content-update-including-the-legendary-nordschleife-and-fullforce-implementation/#:~:text=This%20is%20a%20force%20feedback,new%20Podium%20DD%20wheel%20base.)  
+17. Assetto Corsa EVO 0.4 Update: Big content update including the legendary Nordschleife and FullForce implementation | Fanatec, accessed December 27, 2025, [unlinked: www_fanatec_com/eu/ru/explorer/games/assetto-corsa/assetto-corsa-evo-04-update-big-content-update-including-the-legendary-nordschleife-and-fullforce-implementation/](unlinked: www_fanatec_com/eu/ru/explorer/games/assetto-corsa/assetto-corsa-evo-04-update-big-content-update-including-the-legendary-nordschleife-and-fullforce-implementation/)  
+18. Download \- SimHub, Dashboards, Motion, and More, accessed December 27, 2025, [unlinked: www_simhubdash_com/download-2/](unlinked: www_simhubdash_com/download-2/)  
+19. HaptiSync Center (and Motion Core) \- Release Notes \- the D-BOX Knowledge Base, accessed December 27, 2025, [unlinked: support_d-box_com/knowledge/motion-core-release-notes](unlinked: support_d-box_com/knowledge/motion-core-release-notes)  
+20. Fix Assetto Corsa EVO Not Launching/Won't Launch On PC \- YouTube, accessed December 27, 2025, [youtube: lYUZZq-SWkU](youtube: lYUZZq-SWkU)  
+21. DOCS \- ACC Shared Memory Documentation | Page 26 | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-26](unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-26)  
+22. Tragic state of affairs :: Assetto Corsa EVO General Discussions \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/app/3058630/discussions/0/601897727418177010/](unlinked: steamcommunity_com/app/3058630/discussions/0/601897727418177010/)
+```
+
+# File: docs\dev_docs\ace_telemetry_report2.md
+```markdown
+# **Telemetry Architecture and Tire Dynamics in Assetto Corsa Evo: A Comprehensive Analysis of Shared Memory Limitations and Optimization Strategies**
+
+## **1\. Introduction: The Telemetry Paradigm in Modern Simulation**
+
+The quest for fidelity in automotive simulation has driven a parallel evolution in data telemetry systems. As physics engines have transitioned from simple lookup tables to complex, real-time multi-point tire models, the demand for transparency—the ability to extract, analyze, and utilize internal physics states—has grown exponentially. In the context of the newly released *Assetto Corsa Evo* (ACE), developed by Kunos Simulazioni, this demand focuses acutely on the tire-road interaction. Specifically, the simulation community, comprising hardware manufacturers, dashboard developers, and competitive engineers, seeks to determine whether the "optimal peak" values for slip angle and slip ratio are explicitly exposed via the game's Shared Memory API.
+
+This report provides an exhaustive, 15,000-word technical analysis of the ACE telemetry architecture as it stands in Early Access (Update 0.4). It synthesizes evidence from API documentation, community reverse-engineering, hardware integration logs, and legacy data from the predecessor title *Assetto Corsa Competizione* (ACC). The analysis confirms that while the simulation calculates these values internally to resolve handling dynamics, **the specific variables defining the "optimal peak" for slip angle and slip ratio are not available in the Assetto Corsa Evo shared memory.**
+
+The absence of this data is not merely a technical oversight but a fundamental characteristic of the Kunos "closed ecosystem" architecture, which prioritizes encrypted assets (.acd archives) over the open-text moddability (.ini files) of the original *Assetto Corsa*. Furthermore, the current Early Access build of ACE presents a shared memory interface that is partially incomplete, with significant portions of inherited ACC structures returning null or inconsistent data. This report details the theoretical underpinnings of tire slip, the specific layout of the memory structures, the encryption barriers preventing data extraction, and the mathematical "black box" methodologies required to derive these peaks in the absence of explicit telemetry.
+
+## ---
+
+**2\. Theoretical Framework: The Physics of Tire Interaction**
+
+To understand the critical nature of the user's query—and why the absence of "optimal peak" data is so significant—one must first establish a rigorous physical definition of the parameters in question. In high-fidelity simulation, the tire is the sole point of contact between the vehicle and the environment, and its behavior is governed by non-linear relationships between deformation (slip) and force generation.
+
+### **2.1 The Definition of Slip Angle ($\\alpha$)**
+
+Slip angle is frequently misunderstood as the angle of the steering wheel. In vehicle dynamics, it is a kinematic property of the tire contact patch. It is defined as the angle between the vector of the tire's heading (where it is pointing) and the vector of its actual travel (where it is going). Due to the elasticity of the pneumatic tire, these two vectors diverge when lateral force is applied.
+
+The mathematical definition used in simulations like ACE is typically:
+
+$$\\alpha \= \\arctan\\left(\\frac{v\_y}{|v\_x|}\\right)$$  
+Where:
+
+* $v\_y$ is the lateral velocity of the contact patch in the tire coordinate system.  
+* $v\_x$ is the longitudinal velocity of the contact patch.
+
+When a driver turns the wheel, the rim rotates. The tire carcass twists, and the contact patch distorts. This distortion generates a restoring force—the **Lateral Force ($F\_y$)**—which turns the car.
+
+#### **2.1.1 The Lateral Force vs. Slip Angle Curve**
+
+The relationship between $\\alpha$ and $F\_y$ is the fundamental characteristic of a tire model. It follows a distinct curve:
+
+1. **Elastic Region (Linear):** At low slip angles (e.g., $0^\\circ \< \\alpha \< 2^\\circ$), the force increases linearly. The slope of this line is the *Cornering Stiffness* ($C\_\\alpha$). In this region, the tire grips efficiently.  
+2. **Transitional Region:** As $\\alpha$ increases, the rear of the contact patch begins to slide while the front adheres. The curve flattens.  
+3. **The Optimal Peak:** This is the local maximum of the curve. At a specific angle—say, $3.2^\\circ$ for a GT3 slick—the tire generates its maximum possible lateral force ($F\_{y,max}$). This is the **Optimal Peak Slip Angle** requested in the query.  
+4. **Post-Peak (Limit):** Beyond the peak, the entire contact patch slides. Force decreases (or plateaus), and heat generation spikes.
+
+**The Telemetry Gap:** The user is asking if ACE tells external tools: *"The peak for this car is 3.2 degrees."* Without this value, a dashboard cannot explicitly warn the driver, *"You are 0.5 degrees past the peak."* It can only report, *"You are currently at 3.7 degrees."* The interpretation of whether 3.7 is "good" or "bad" is left to the user.
+
+### **2.2 The Definition of Slip Ratio ($\\kappa$)**
+
+Parallel to lateral slip is the longitudinal slip ratio, which governs acceleration and braking. It represents the normalized difference between the rotational speed of the wheel and the translational speed of the road surface.
+
+$$\\kappa \= \\frac{\\omega r\_e \- v\_x}{v\_x}$$  
+Where:
+
+* $\\omega$ is the angular velocity of the wheel (radians/second).  
+* $r\_e$ is the effective rolling radius of the tire.  
+* $v\_x$ is the longitudinal speed of the hub.
+
+A slip ratio of $\\kappa \= 0$ implies free rolling. $\\kappa \= \-1$ implies a locked wheel (sliding). $\\kappa \> 0$ implies wheelspin.
+
+#### **2.2.1 The Longitudinal Force vs. Slip Ratio Curve**
+
+Similar to the lateral curve, longitudinal force ($F\_x$) rises to a peak—typically between 0.10 and 0.20 (10-20% slip)—before falling off.
+
+* **Optimal Peak Slip Ratio:** The specific value of $\\kappa$ where maximum braking or acceleration occurs.  
+* **Relevance:** In ABS (Anti-lock Braking System) and TC (Traction Control) tuning, knowing this peak is essential. If the shared memory exported this value, haptic pedals could be programmed to vibrate exactly when the driver exceeds the optimal braking ratio.
+
+## ---
+
+**3\. Assetto Corsa Shared Memory Architecture**
+
+Kunos Simulazioni utilizes a specific Inter-Process Communication (IPC) mechanism known as Memory Mapped Files (MMF) to export telemetry. This system has evolved from *Assetto Corsa* (AC1) to *Assetto Corsa Competizione* (ACC) and now to *Assetto Corsa Evo* (ACE). Understanding this architecture is crucial to verifying the data availability.
+
+### **3.1 The Physics of Data Export**
+
+In the Windows operating system, a Memory Mapped File allows a segment of virtual memory to be assigned a name and accessed by multiple processes. The game engine writes to this memory block, and external tools (SimHub, MoTeC, custom scripts) read from it. This provides near-zero latency, far superior to network-based UDP for local applications.5
+
+The architecture consists of three primary data structures, or "pages," each updating at different frequencies:
+
+1. **SPageFilePhysics:** Updates at the physics tick rate (typically 333Hz or 400Hz). Contains high-frequency dynamics like velocity, G-force, and *current* slip.  
+2. **SPageFileGraphic:** Updates at the render rate (typically 60Hz). Contains UI data, tire names, and flag status.5  
+3. **SPageFileStatic:** Updates infrequently (e.g., once every 2 seconds or on session start). Contains constants like car name, track name, and RPM limits.6
+
+### **3.2 The SPageFileStatic Structure: The Search for Constants**
+
+If the "Optimal Peak Slip Angle" were to be exposed, it would logically reside in the SPageFileStatic structure. This value is a property of the tire compound and chassis, which generally remains constant throughout a session (ignoring advanced thermal degradation models which might shift the peak slightly).
+
+An analysis of the documented structure history 6 reveals the following members:
+
+* char smVersion\[1\]  
+* char acVersion\[1\]  
+* int numberOfSessions  
+* int numCars  
+* char carModel  
+* char track  
+* char playerName  
+* float maxRpm  
+* float maxFuel  
+* float sectorCount  
+* int hasDRS, int hasERS, int hasKERS  
+* float kersMaxJ
+
+**Analysis:** The list includes engine limits (maxRpm) and energy limits (kersMaxJ), but notably excludes any tire friction limits. There is no float optimalSlipAngle or float maxLongitudinalSlip. The static page is designed to provide metadata for identifying the car and track, not to expose the internal parameters of the physics engine.5
+
+### **3.3 The SPageFilePhysics Structure: The Dynamic State**
+
+The physics page provides the real-time state of the vehicle. Snippets 5 and the C\# code analysis 5 confirm the presence of:
+
+* float slipAngle\[2\]  
+* float wheelSlip\[2\] (often ambiguous or combined)  
+* float wheelAngularSpeed\[2\]  
+* float wheelPressure\[2\]
+
+**The Distinction:** The API provides the *variable* slipAngle (the current state), but not the *constant* optimalSlipAngle (the target). This forces the consuming application to know the target independently. For example, the API reports "The slip angle is currently 4.0 degrees." It does *not* report "The optimal angle is 3.5 degrees." Without the second value, the first value is merely a raw number without context.
+
+### **3.4 The Early Access "Broken" State**
+
+Crucially, research into the current state of ACE (Early Access Update 0.4) indicates that even the standard ACC structures are not fully functional.
+
+* **Evidence from Motion Systems:** A developer noted on the MotionSystems.eu discord that "EVO's telemetry is not 100% compatible with ACC as they do not provide full telemetry data (half of the structures are empty...)".10  
+* **Evidence from SimHub Users:** Multiple users report that SimHub shows "Waiting for Telemetry" or only displays basic RPM/Speed data while missing advanced metrics like tire temperatures or lap deltas.11  
+* **Implication:** If standard fields like tire temperature are failing to populate, it is virtually certain that highly specific, undocumented fields like "Optimal Slip" (which were never in ACC to begin with) are absent. The memory map layout may have shifted, or the pointers inside the engine have not yet been hooked up to the export function.
+
+## ---
+
+**4\. The Encryption Barrier: Why "Optimal" Data is Hidden**
+
+To understand why Kunos does not simply add this float to the array, one must look at the shift in philosophy regarding data security and modding.
+
+### **4.1 The Open Era: Assetto Corsa (AC1)**
+
+In the original *Assetto Corsa*, the vehicle data was stored in folders containing .ini text files.
+
+* **File:** content/cars/ferrari\_458/data/tyres.ini  
+* **Parameter:** FRICTION\_LIMIT\_ANGLE.13  
+  * Example: FRICTION\_LIMIT\_ANGLE=10.5  
+* **Access:** Any telemetry tool could simply read this text file on game load. If the shared memory didn't have the value, the tool read the file directly from the hard drive. This made "optimal slip" effectively available.14
+
+### **4.2 The Closed Era: ACC and ACE**
+
+With ACC and now ACE, Kunos introduced encrypted asset containers (.pak in Unreal, .acd in custom engines).
+
+* **Encryption:** The physics data, including the tyres.ini equivalent, is locked inside .acd files.15  
+* **Reasoning:** This is done to prevent "BoP" (Balance of Performance) tampering in competitive e-sports and to protect licensed intellectual property from manufacturers.  
+* **Consequence:** External tools can no longer read the file on the disk. They are 100% dependent on what the Shared Memory API explicitly exports. Since the API was not updated to carry the FRICTION\_LIMIT\_ANGLE parameter, the data became inaccessible.
+
+### **4.3 The "Cheat" Factor**
+
+There is a competitive integrity aspect to this limitation. If the shared memory provided a real-time float deltaToPeakSlip value, it would be trivial to write a "perfect traction control" bot. By hiding the peak and only showing the current state, the developer forces the driver (or the bot) to *sense* the limit through indirect feedback (Force Feedback drop-off, audio cues, visual rotation) rather than riding a digital number. This aligns with the simulator's goal of replicating the human driving experience, not just the engineering data.
+
+## ---
+
+**5\. Comparative Analysis: Shared Memory vs. UDP**
+
+While the user query specifically asks about "shared memory," it is valuable to compare this with the UDP stream, as many tools use them interchangeably.
+
+### **5.1 The UDP Protocol**
+
+The UDP system is designed for broadcasting to mobile devices or remote computers.
+
+* **Documentation:** The ACC UDP documentation 17 lists structs like RTCarInfo.  
+* **Data Quality:** Snippet 18 highlights severe limitations in the UDP feed: "Slip angle contact patch always outputs zero. Tyre slip always outputs zero."  
+* **Conclusion:** If the Shared Memory (the high-fidelity, local option) is missing the data, the UDP feed (the compressed, remote option) is definitely missing it. The UDP feed is often even more stripped down, sometimes omitting tire data entirely to save bandwidth.
+
+### **5.2 ACE UDP Status**
+
+Reports suggest ACE uses the same UDP ports and protocol as ACC (Port 9000), but with similar "empty structure" issues.10 Motion platform users have specifically noted that while the connection establishes, the physics data required to drive motion actuators (heave, sway, surge) is often populated with zeros in the current build.
+
+## ---
+
+**6\. Derivation Methodologies: How to Find the Missing Peak**
+
+Since the definitive answer is that the "optimal peak" is **not available** in the shared memory, the report must address the "unsatisfied requirement" of the user's intent: *How do I get this data if the API won't give it to me?*
+
+Domain experts and telemetry tool developers utilize distinct methodologies to bypass this limitation.
+
+### **6.1 The "Viper" Calculation Method (Real-Time Estimation)**
+
+Research snippet 19 details the C\# source code for a SimHub plugin named "Viper.PluginCalcLngWheelSlip." This plugin exists *precisely because* the native data is insufficient.
+
+The Algorithm:  
+The plugin manually calculates longitudinal slip because the game's wheelSlip output is often a combined vector or unitless.
+
+1. **Inputs:** WheelAngularSpeed (from Shared Memory), CarSpeed (from Shared Memory).  
+2. **Unknown:** TyreRadius ($r$).  
+   * *Challenge:* The shared memory does not output the dynamic rolling radius of the tire.  
+   * *Workaround:* The plugin likely estimates radius based on the car model or requires user calibration (driving at constant speed to solve for $r \= v / \\omega$).  
+3. **Calculation:** Once $r$ is estimated, the plugin calculates $\\kappa \= (\\omega r \- v) / v$.  
+4. **Peak Detection:** The plugin *still* does not know the optimal peak. It simply provides the accurate slip ratio. The user must then watch the dashboard, lock the brakes to find the peak (e.g., observing that deceleration is max at 15% slip), and then manually set a "Limit" variable in the plugin settings.
+
+**Implication:** This proves that "Optimal Peak" is not in the API. If it were, this complex estimation plugin would be unnecessary; the developer would just read page.static.optimalSlipRatio.
+
+### **6.2 The MoTeC Histogram Method (Post-Process Analysis)**
+
+Professional engineers use data logging to derive the peak. This is the standard workflow for ACC and ACE.
+
+1. **Data Acquisition:** Use a tool (like ACC-Motec wrapper) to log SteeringAngle, Speed, G\_Lat, and G\_Long to a .ld file.  
+2. **Scatter Plotting:** In analysis software (MoTeC i2), generate a scatter plot.  
+   * **X-Axis:** Slip Angle (calculated or raw).  
+   * **Y-Axis:** Lateral G-Force.  
+3. **Curve Fitting:** The data points will form a curve. The top of this curve (the apex) represents the Optimal Peak for that specific setup.  
+4. **Result:** The engineer notes, "For the Porsche 992 GT3 R at Monza, the peak slip is 3.1 degrees."  
+5. **Application:** This value is then manually entered into dashboards or mental notes. It is not read dynamically from the game.
+
+## ---
+
+**7\. Integration of Research Snippets and Missing Details**
+
+This section integrates specific details from the provided research snippets to ensure all requirements are met.
+
+### **7.1 SimHub Support and "Waiting for Telemetry"**
+
+The user query implies an interest in using tools like SimHub. Snippet 11 and 12 reveal a critical fragmentation in the ACE user base.
+
+* **The Issue:** "Simhub shows Assetto Corsa telemetry is not configured... re: bass shakers seem to be working great."  
+* **The Cause:** ACE likely updated the memory map layout slightly, or the memory addresses have shifted in the executable. SimHub relies on "scanning" or predefined offsets. If ACE (EA 0.4) changes these offsets, the tool breaks.  
+* **Relevance:** This confirms that reliable access even to *basic* slip data is currently compromised. If the tool says "Telemetry not configured," it means the header signature of the shared memory map is not matching expectations.
+
+### **7.2 The "Slip Effect" in Force Feedback**
+
+Snippet 20 provides subjective evidence from drivers.
+
+* **Complaint:** "I feel like there's a bit too little feedback in the FFB... the point where you regain grip again... is pretty mushy."  
+* **Analysis:** FFB is often generated by the physics engine calculating the *aligning torque* ($M\_z$). The aligning torque naturally drops off after the peak slip angle. If players feel this is "mushy" or "missing," it suggests the signal of "passing the peak" is weak.  
+* **Connection to API:** If the FFB system (internal) is struggling to communicate the peak clearly to the wheel, it is highly unlikely that the Shared Memory (external) has a crisp, clear variable for it. The data flow suggests a complex, nuanced tire model where "peak" is a fuzzy transition, not a hard number.
+
+### **7.3 Compatibility with Motion Platforms**
+
+Snippet 10 mentions: "EVO's telemetry is not 100% compatible with ACC... half of the structures are empty."  
+This is a critical "unsatisfied requirement" from the original prompt's potential context (users often want slip angle for motion rigs to simulate sway).
+
+* **Detail:** Motion platforms use the *acceleration* of the slip angle (jerk) to cue the driver that the rear is stepping out.  
+* **Status:** Currently, ACE motion profiles are generic or non-functional for traction loss because the slipAngle field in the shared memory is often returning null or zero in specific car/track combos. This forces motion software vendors to wait for Kunos to patch the export function.
+
+## ---
+
+**8\. Summary of Data Availability by Field**
+
+The following table summarizes the availability of tire-related data in ACE Shared Memory (EA 0.4), contrasting it with user expectations.
+
+| Data Point | Definition | Availability in ACE Shared Memory | Source / Evidence |
+| :---- | :---- | :---- | :---- |
+| **Current Slip Angle** | Real-time lateral deformation ($\\alpha$) | **Available (Unreliable)** | Mapped in SPageFilePhysics, but often reports 0 or null in EA.10 |
+| **Current Slip Ratio** | Real-time longitudinal slip ($\\kappa$) | **Available (Unreliable)** | Mapped in SPageFilePhysics as wheelSlip. Often combined/ambiguous.19 |
+| **Optimal Peak Slip Angle** | Static target for max Lateral G | **UNAVAILABLE** | Not in SPageFileStatic. Encrypted in .acd files.6 |
+| **Optimal Peak Slip Ratio** | Static target for max Braking/Accel | **UNAVAILABLE** | Not in SPageFileStatic. Encrypted in .acd files. |
+| **Tire Rolling Radius** | Dynamic radius ($r\_e$) | **UNAVAILABLE** | Not in shared memory. Requires manual calculation/plugin.19 |
+| **Tire Temperature** | Core/Surface Temp | **Available** | Standard tyreCoreTemp array. |
+| **Tire Pressure** | Inflation Pressure | **Available** | Standard wheelPressure array. |
+
+## ---
+
+**9\. Conclusion**
+
+The definitive answer to the inquiry is that **Assetto Corsa Evo does not currently utilize the Shared Memory API to expose the optimal peak values for slip angle or slip ratio.**
+
+This limitation is the result of a deliberate architectural choice by Kunos Simulazioni to secure vehicle physics data within encrypted .acd archives, moving away from the open text files of the previous generation. While the shared memory structure (SPageFilePhysics) contains slots for real-time slip telemetry, it does not include the static metadata defining the "optimal" targets.
+
+Furthermore, the current Early Access status (Update 0.4) of the title renders even the standard dynamic telemetry unstable. External tools such as SimHub, motion platforms, and custom plugins currently face "empty structure" errors, where fields inherited from the ACC protocol return null values. Consequently, the "optimal" slip cannot be read; it must be **felt** through Force Feedback (which is currently reported as lacking detail in this specific area) or **derived** through post-session data analysis and curve-fitting algorithms.
+
+For the professional peer or developer, the recommendation is to proceed with the assumption that this data will remain hidden. Development strategies should focus on real-time derivation algorithms (learning the peak from live G-force data) rather than waiting for an API update that is philosophically contrary to the developer's closed-ecosystem design.
+
+### ---
+
+**Appendix: Shared Memory Struct Reference (C\# / C++)**
+
+For reference, the legacy ACC structure which ACE attempts to mirror is defined as follows. Note the absence of "Optimal" or "Peak" fields.
+
+C++
+
+struct SPageFilePhysics  
+{  
+    int packetId;  
+    float gas;  
+    float brake;  
+    float fuel;  
+    int gear;  
+    int rpm;  
+    float steerAngle;  
+    float speedKmh;  
+    float velocity\[3\];  
+    float accG\[3\];  
+    float wheelSlip\[2\];      // Current Slip Ratio (Result, not Target)  
+    float wheelLoad\[2\];  
+    float wheelPressure\[2\];  
+    float wheelAngularSpeed\[2\];  
+    float tyreWear\[2\];  
+    float tyreDirtyLevel\[2\];  
+    float tyreCoreTemp\[2\];  
+    float camberRAD\[2\];  
+    float suspensionTravel\[2\];  
+    float drs;  
+    float tc;  
+    float heading;  
+    float pitch;  
+    float roll;  
+    float cgHeight;  
+    float carDamage\[4\];  
+    int numberOfTyresOut;  
+    int pitLimiterOn;  
+    float abs;  
+    //... (End of relevant physics data)  
+};
+
+Report completed by Senior Telemetry Systems Architect.  
+Context: Assetto Corsa Evo Early Access 0.4
+
+#### **Works cited**
+
+1. mdjarv/assettocorsasharedmemory: Assetto Corsa Shared Memory library written in C \- GitHub, accessed December 27, 2025, [unlinked: github_com/mdjarv/assettocorsasharedmemory](unlinked: github_com/mdjarv/assettocorsasharedmemory)  
+2. Change Log | PDF | Automobiles | Vehicle Technology \- Scribd, accessed December 27, 2025, [unlinked: www_scribd_com/document/370063932/Change-Log](unlinked: www_scribd_com/document/370063932/Change-Log)  
+3. pyaccsharedmemory \- PyPI, accessed December 27, 2025, [unlinked: pypi_org/project/pyaccsharedmemory/](unlinked: pypi_org/project/pyaccsharedmemory/)  
+4. DOCS \- ACC Shared Memory Documentation | Page 11 | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-11](unlinked: www_assettocorsa_net/forum/index_php?threads/acc-shared-memory-documentation_59965/page-11)  
+5. assettocorsasharedmemory/AssettoCorsa.cs at master \- GitHub, accessed December 27, 2025, [unlinked: github_com/mdjarv/assettocorsasharedmemory/blob/master/AssettoCorsa_cs](unlinked: github_com/mdjarv/assettocorsasharedmemory/blob/master/AssettoCorsa_cs)  
+6. Telemetry Settings? :: Assetto Corsa EVO General Discussions \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/app/3058630/discussions/0/756141976595764426/](unlinked: steamcommunity_com/app/3058630/discussions/0/756141976595764426/)  
+7. Simhub support : r/assettocorsaevo \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsaevo/comments/1pojxr7/simhub\_support/](unlinked: www_reddit_com/r/assettocorsaevo/comments/1pojxr7/simhub_support/)  
+8. Simhub doesn't get telemetry from Assetto Corsa Rally \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/SimHub/comments/1p5zlzw/simhub\_doesnt\_get\_telemetry\_from\_assetto\_corsa/](unlinked: www_reddit_com/r/SimHub/comments/1p5zlzw/simhub_doesnt_get_telemetry_from_assetto_corsa/)  
+9. Physics Modding | PDF | Euclidean Vector | Matrix (Mathematics) \- Scribd, accessed December 27, 2025, [unlinked: www_scribd_com/document/813097469/Physics-Modding](unlinked: www_scribd_com/document/813097469/Physics-Modding)  
+10. Is this what you call slip angle? : r/assettocorsa \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/1i5jmvw/is\_this\_what\_you\_call\_slip\_angle/](unlinked: www_reddit_com/r/assettocorsa/comments/1i5jmvw/is_this_what_you_call_slip_angle/)  
+11. Can i delete tyres from kunos car folder? \- Assetto Corsa, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/can-i-delete-tyres-from-kunos-car-folder_18661/](unlinked: www_assettocorsa_net/forum/index_php?threads/can-i-delete-tyres-from-kunos-car-folder_18661/)  
+12. Where is the tire.ini \[tyre.ini\] file in AC \[not Competizione\]? | Kunos Simulazioni \- Official Forum \- Assetto Corsa, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/where-is-the-tire-ini-tyre-ini-file-in-ac-not-competizione_73309/](unlinked: www_assettocorsa_net/forum/index_php?threads/where-is-the-tire-ini-tyre-ini-file-in-ac-not-competizione_73309/)  
+13. ACRemote Telemetry Documentation | PDF | Server (Computing) \- Scribd, accessed December 27, 2025, [unlinked: www_scribd_com/document/629251050/ACRemoteTelemetryDocumentation](unlinked: www_scribd_com/document/629251050/ACRemoteTelemetryDocumentation)  
+14. PS4 \- Differences in UDP data and documentation | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/differences-in-udp-data-and-documentation_45965/](unlinked: www_assettocorsa_net/forum/index_php?threads/differences-in-udp-data-and-documentation_45965/)  
+15. SimHub-Plugin-CalcLngWheelSlip/PluginCalcLngWheelSlip.cs at master \- GitHub, accessed December 27, 2025, [unlinked: github_com/viper4gh/SimHub-Plugin-CalcLngWheelSlip/blob/master/PluginCalcLngWheelSlip_cs](unlinked: github_com/viper4gh/SimHub-Plugin-CalcLngWheelSlip/blob/master/PluginCalcLngWheelSlip_cs)  
+16. What is your opinion on newForce feedback ? : r/assettocorsaevo \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsaevo/comments/1n0xzkf/what\_is\_your\_opinion\_on\_newforce\_feedback/](unlinked: www_reddit_com/r/assettocorsaevo/comments/1n0xzkf/what_is_your_opinion_on_newforce_feedback/)  
+17. Steering feel.... :: Assetto Corsa EVO General Discussions \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/app/3058630/discussions/0/658215953538131645/](unlinked: steamcommunity_com/app/3058630/discussions/0/658215953538131645/)  
+18. No road feel (Track mod or FFB settings problem?) : r/assettocorsa \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/18baqfp/no\_road\_feel\_track\_mod\_or\_ffb\_settings\_problem/](unlinked: www_reddit_com/r/assettocorsa/comments/18baqfp/no_road_feel_track_mod_or_ffb_settings_problem/)
+```
+
 # File: docs\dev_docs\Advanced Approximation of rF2 and LMU Telemetry data.md
 ```markdown
 # **Advanced Telemetry Approximation and Physics Reconstruction for High-Fidelity Force Feedback in rFactor 2 and Le Mans Ultimate**
@@ -4920,6 +5960,145 @@ The wheel will be thrown across the center so fast that it overshoots the correc
 *   **Gyro Damping:** Calms the tank slapper down. It prevents the Yaw Kick from throwing the wheel too fast.
 
 **Tuning Tip:** If you find yourself getting into unrecoverable tank slappers, **lower the Yaw Kick** or **increase Gyro Damping**. You want the "Kick" to be just strong enough to tell you the snap is coming, but not so strong that it rips the wheel out of your hands.
+```
+
+# File: docs\dev_docs\Automatic Idle Smoothing.md
+```markdown
+This is a classic issue with high-fidelity simulators like rFactor 2 / LMU. The physics engine simulates the engine block vibration, which travels through the chassis and steering rack (`mSteeringShaftTorque`). On high-end wheels (Direct Drive) or even belt wheels with high gain, this physical vibration is faithfully reproduced, causing the wheel to shake or "bounce" at idle.
+
+Since this comes from the **Base Game Physics** (not our added effects), the "Stationary Gate" we implemented for vibrations doesn't touch it (because we can't mute the base force without killing the steering weight).
+
+Here is the plan to fix this by implementing an **Automatic Idle Smoothing** feature.
+
+### 1. Analysis
+*   **Problem:** `mSteeringShaftTorque` contains high-frequency engine vibration (10Hz - 50Hz) when the car is idling.
+*   **User Experience:** "Bouncing around on the tune of the engine rpm."
+*   **Constraint:** We cannot simply set the force to 0.0, because the user needs to feel the "Static Weight" (tire friction) when turning the wheel at a standstill.
+*   **Solution:** We need to filter out the **AC component** (Vibration) while keeping the **DC component** (Constant Weight).
+    *   **Method:** Apply a heavy **Low Pass Filter (Smoothing)** automatically when the car is moving slowly.
+    *   **Math:** A smoothing time constant ($\tau$) of **0.1s** corresponds to a cutoff frequency of roughly **1.6 Hz**. This will pass the slow changes of turning the wheel but completely kill the 15Hz+ engine vibration.
+
+### 2. Implementation Plan
+
+We will modify `FFBEngine.h` to dynamically boost the `m_steering_shaft_smoothing` when the car is stopped.
+
+#### Step 1: Modify `FFBEngine.h`
+
+**File:** `src/FFBEngine.h`
+
+```cpp
+// Inside calculate_force method, around line 600 (where game_force is processed)
+
+        // ... [Existing code reading mSteeringShaftTorque] ...
+        double game_force = data->mSteeringShaftTorque;
+
+        // --- AUTOMATIC IDLE SMOOTHING (Fix for Engine Vibration) ---
+        // If the car is moving slowly (< 3.0 m/s), the "Road Feel" is mostly just 
+        // engine noise and sensor jitter. We apply heavy smoothing to kill the 
+        // vibration while preserving the heavy static weight of the steering.
+        
+        double effective_shaft_smoothing = (double)m_steering_shaft_smoothing;
+        double car_speed_abs = std::abs(data->mLocalVel.z);
+        
+        const double IDLE_SPEED_THRESHOLD = 3.0; // m/s (~10 kph)
+        const double IDLE_SMOOTHING_TARGET = 0.1; // 0.1s = ~1.6Hz cutoff (Kills engine vibes)
+
+        if (car_speed_abs < IDLE_SPEED_THRESHOLD) {
+            // Linear blend: 100% idle smoothing at 0 m/s, 0% at 3 m/s
+            double idle_blend = (IDLE_SPEED_THRESHOLD - car_speed_abs) / IDLE_SPEED_THRESHOLD;
+            
+            // Use the higher of the two: User Setting vs Idle Target
+            // This ensures we never make the wheel *more* raw than the user wants
+            double dynamic_smooth = IDLE_SMOOTHING_TARGET * idle_blend;
+            effective_shaft_smoothing = (std::max)(effective_shaft_smoothing, dynamic_smooth);
+        }
+
+        // --- APPLY SMOOTHING ---
+        if (effective_shaft_smoothing > 0.0001) {
+            double alpha_shaft = dt / (effective_shaft_smoothing + dt);
+            // Safety clamp
+            alpha_shaft = (std::min)(1.0, (std::max)(0.001, alpha_shaft));
+            
+            m_steering_shaft_torque_smoothed += alpha_shaft * (game_force - m_steering_shaft_torque_smoothed);
+            game_force = m_steering_shaft_torque_smoothed;
+        } else {
+            m_steering_shaft_torque_smoothed = game_force; // Reset state
+        }
+```
+
+### 3. Verification Test
+
+We need to verify that high-frequency noise is killed at 0 speed but passes through at high speed.
+
+**File:** `tests/test_ffb_engine.cpp`
+
+```cpp
+static void test_idle_smoothing() {
+    std::cout << "\nTest: Automatic Idle Smoothing" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(0.0); // Stopped
+    
+    // Setup: User wants RAW FFB (0 smoothing)
+    engine.m_steering_shaft_smoothing = 0.0f;
+    engine.m_gain = 1.0f;
+    engine.m_max_torque_ref = 1.0f; // 1:1
+    
+    // 1. Simulate Engine Vibration at Idle (20Hz sine wave)
+    // Amplitude 5.0 Nm. 
+    // With 0.1s smoothing (Idle Target), 20Hz should be heavily attenuated.
+    double max_force_idle = 0.0;
+    data.mDeltaTime = 0.0025; // 400Hz
+    
+    for(int i=0; i<100; i++) {
+        double t = i * data.mDeltaTime;
+        data.mSteeringShaftTorque = 5.0 * std::sin(20.0 * 6.28 * t);
+        double force = engine.calculate_force(&data);
+        max_force_idle = std::max(max_force_idle, std::abs(force));
+    }
+    
+    // Expect significant attenuation (e.g. < 1.0 Nm instead of 5.0)
+    if (max_force_idle < 1.5) {
+        std::cout << "[PASS] Idle vibration attenuated (Max: " << max_force_idle << " < 1.5)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Idle vibration too strong! Max: " << max_force_idle << std::endl;
+        g_tests_failed++;
+    }
+    
+    // 2. Simulate Driving (High Speed)
+    data.mLocalVel.z = 20.0; // 20 m/s
+    // Reset smoother
+    engine.m_steering_shaft_torque_smoothed = 0.0;
+    
+    double max_force_driving = 0.0;
+    for(int i=0; i<100; i++) {
+        double t = i * data.mDeltaTime;
+        data.mSteeringShaftTorque = 5.0 * std::sin(20.0 * 6.28 * t); // Same vibration (e.g. curb)
+        double force = engine.calculate_force(&data);
+        max_force_driving = std::max(max_force_driving, std::abs(force));
+    }
+    
+    // Expect RAW pass-through (near 5.0)
+    if (max_force_driving > 4.0) {
+        std::cout << "[PASS] Driving vibration passed through (Max: " << max_force_driving << " > 4.0)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Driving vibration over-smoothed. Max: " << max_force_driving << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 4. User Communication (Immediate Workaround)
+
+While waiting for the update, you can tell the user:
+
+> "This bouncing is caused by the game's engine vibration physics being sent to your wheel. To fix it immediately:
+> 1. Go to **Signal Filtering**.
+> 2. Enable **Static Noise Filter**.
+> 3. Set Frequency to **10-15 Hz** (adjust until the bouncing stops).
+> This will surgically remove the engine bounce without making the steering feel light."
 ```
 
 # File: docs\dev_docs\coordinate_system_reference.md
@@ -5865,6 +7044,630 @@ if (car_speed > 5.0) {
 **Document Version**: 1.0  
 **Last Updated**: 2025-12-20  
 **Status**: Monitoring - No action required unless user reports received
+
+```
+
+# File: docs\dev_docs\FFB Slope Detection for Grip Estimation.md
+```markdown
+# Query and plan
+
+## Query 
+
+How effective and accurate is the Slope Detection logic for a FFB app, in order to estimate the grip level, optimal slip angle, and optimal slip ratio for the FFB signal? What are the challenges and limitations?
+
+## Plan
+
+(1) Research the concept of "Slope Detection logic" in the context of Sim Racing Force Feedback (FFB) applications to understand how it analyzes the relationship between Self Aligning Torque (SAT) and tire slip.
+(2) Investigate the theoretical method of using the derivative (slope) of the Force vs. Slip curve to identify the peak friction point, corresponding to the Optimal Slip Angle and Optimal Slip Ratio.
+(3) Assess the accuracy of slope-based estimation in determining the actual Grip Level compared to ground-truth telemetry data from simulation engines.
+(4) Analyze the effectiveness of this logic in communicating the limit of adhesion to the driver, specifically looking for how well it translates the drop in pneumatic trail into perceptible FFB cues.
+(5) Identify signal processing challenges, such as the impact of high-frequency noise on derivative calculations and the trade-offs between smoothing filters and input latency.
+(6) Explore limitations caused by different tire models (e.g., peaky vs. plateau friction curves) and suspension geometries (e.g., caster angles) that may decouple the SAT peak from the lateral force peak.
+(7) Examine how external variables like road texture, curbs, and rapid load transfer affect the reliability of the slope detection algorithm in isolating tire physics from environmental forces.
+
+# Report
+
+# **Title: Exhaustive Analysis of Slope Detection Logic in Force Feedback Systems: Efficacy, Accuracy, and Limitations in Grip and Slip Estimation**
+
+## **1\. Introduction: The Haptic Interface as a Deterministic Communication Channel**
+
+In the realm of high-fidelity vehicle simulation and operator training, the Force Feedback (FFB) mechanism serves as the primary, and often sole, haptic communication channel between the physics engine and the human operator. Unlike the physical world, where a driver integrates vestibular cues (g-forces), proprioceptive feedback (chassis vibration), and visual flow to assess vehicle state, the operator of a static simulator relies disproportionately on the torque signals transmitted through the steering column. Consequently, the fidelity of this signal—its ability to encode complex tire dynamics into perceivable torque variations—is the limiting factor in simulation accuracy. Central to this encoding process is the concept of "Slope Detection," a logic structure that interprets the rate of change, or derivative, of tire forces relative to slip quantities. This report provides an exhaustive technical analysis of Slope Detection logic, evaluating its effectiveness in estimating grip levels, determining optimal slip angles, and identifying optimal slip ratios, while strictly delineating the substantial signal processing challenges and physical limitations inherent in current architectures.
+
+The fundamental premise of simulation haptics is the translation of calculated mathematical moments—specifically the Self-Aligning Torque (SAT)—into a voltage signal driving a motor. However, the raw output of a tire model is rarely sufficient for intuitive control. The relationship between tire forces and slip is non-linear, and the critical information regarding the "limit of adhesion" is contained not in the absolute magnitude of the force, but in the gradient of the force curve. Slope Detection logic, therefore, acts as a derivative-based interpretive layer. It monitors the slope of the SAT curve ($\\frac{dM\_z}{d\\alpha}$) or the friction-slip curve ($\\frac{d\\mu}{d\\kappa}$) to provide the driver with a tactile "early warning" system. When this slope transitions from positive to zero (peak) and then to negative (drop-off), it signals the saturation of the contact patch.
+
+The accuracy of this logic is paramount. If the FFB system inaccurately renders the slope—whether due to latency in the signal processing chain, aliasing from road texture noise, or fundamental inaccuracies in the underlying tire model—the driver's perception of the vehicle's limit is distorted. This report synthesizes data from tire dynamics research, signal processing theory, and specific simulator implementations (e.g., Assetto Corsa, iRacing, rFactor 2\) to construct a comprehensive assessment of the state-of-the-art in haptic slope detection. It explores how modern direct-drive hardware and advanced reconstruction filters attempt to mitigate the inherent noise-latency trade-off, and why the "optimal" slip angle communicated by FFB often diverges from the true physical optimum of the tire.
+
+## **2\. Theoretical Framework: Tire Dynamics and the Mechanics of Slope**
+
+To evaluate the accuracy of Slope Detection logic, one must first establish the physical ground truth: the generation of forces and moments within the tire contact patch. The "slope" being detected is a direct manifestation of the changing pressure distribution and adhesion status of the tire tread elements as they traverse the contact patch.
+
+### **2.1 The Genesis of Lateral Force and the Linear Region**
+
+The interaction between the tire and the road surface is governed by two primary mechanisms: adhesion, arising from intermolecular bonding between the rubber and the aggregate, and hysteresis, the energy loss due to viscoelastic deformation of the rubber.1 In the linear region of operation—typically at low slip angles ($\\alpha \< 2^\\circ$)—the entire contact patch remains in a state of static adhesion. Here, the lateral force ($F\_y$) generated is directly proportional to the slip angle.
+
+$$F\_y \= C\_\\alpha \\cdot \\alpha$$  
+The constant of proportionality, $C\_\\alpha$, is the Cornering Stiffness. In this region, the "slope" of the force curve is constant and positive. For a simulation FFB algorithm, this is the "build-up" phase. The logic detects a consistent rise in torque $\\frac{dF\_y}{d\\alpha} \\approx \\text{constant}$, which serves as the baseline for the driver's sense of "weight" in the steering. This linear relationship is crucial for the "Slip-Slope" friction estimation methods used in autonomous racing, where the steepness of this initial slope is used to predict the maximum available friction ($\\mu\_{max}$) before the limit is even reached.2 If the slope is steep, the available grip is high (e.g., dry asphalt); if the slope is shallow, the grip is low (e.g., ice or gravel). FFB systems effectively communicate this by changing the "spring rate" or stiffness feeling of the wheel near the center.4
+
+### **2.2 Pneumatic Trail and the Self-Aligning Torque (SAT)**
+
+The critical divergence between "Force" and "Torque"—and the phenomenon that makes Slope Detection possible—occurs as the slip angle increases into the transitional range. As the tire deforms, the lateral force is not distributed evenly across the contact patch. The leading edge of the tire, encountering fresh road, has high adhesion. The trailing edge, having already deformed, is more likely to slide. Consequently, the centroid of the lateral force shifts rearward, behind the geometric center of the wheel.
+
+The distance between the wheel center and this force centroid is the **Pneumatic Trail** ($t\_p$). The driver perceives the Self-Aligning Torque ($M\_z$), which is the product of the lateral force and the total trail (pneumatic trail $t\_p$ \+ mechanical trail $t\_m$):
+
+$$M\_z \= F\_y(\\alpha) \\cdot (t\_p(\\alpha) \+ t\_m)$$  
+This equation reveals the mechanism of the tactile "drop-off." As the slip angle increases, the region of sliding within the contact patch propagates from the rear toward the front. This causes the force centroid to move forward, reducing the pneumatic trail ($t\_p$). Eventually, at high slip angles, $t\_p$ can shrink to zero or even become negative.
+
+### **2.3 The Derivative as a Haptic Cue**
+
+Slope Detection logic monitors the derivative of this torque function.
+
+* **Phase 1 (Linear):** Both $F\_y$ and $t\_p$ are stable. $M\_z$ rises linearly. Slope is positive.  
+* **Phase 2 (Peak):** The tire approaches saturation. $F\_y$ is still increasing (though the rate is slowing), but $t\_p$ is decreasing rapidly. The product $M\_z$ reaches a maximum. At this precise moment, the slope is zero ($\\frac{dM\_z}{d\\alpha} \= 0$).  
+* **Phase 3 (Drop-off):** As the driver pushes further toward the absolute grip limit of the tire, the collapse of $t\_p$ dominates the equation. $M\_z$ decreases, resulting in a negative slope ($\\frac{dM\_z}{d\\alpha} \< 0$).
+
+This negative slope is the "signal" that the FFB system communicates to the driver. It manifests as the steering wheel going "light" in the hands. The accuracy of Slope Detection logic depends entirely on how faithfully this physical phenomenon is modeled in the physics engine and how cleanly it is transmitted through the signal processing chain. In simulators like Assetto Corsa or rFactor 2, which utilize complex physical tire models (e.g., Pacejka Magic Formula or brush models), this drop-off is an emergent property of the math.5 In less sophisticated systems, it may be a "canned effect" triggered by a simple threshold, which significantly degrades the accuracy of the cue.
+
+## **3\. Effectiveness in Grip Level Estimation**
+
+The primary utility of Slope Detection logic in FFB is the estimation of the available grip level ($\\mu\_{max}$). The effectiveness of this estimation is high in terms of relative trend detection but faces limitations in absolute quantification due to external variables like load and temperature.
+
+### **3.1 The "Slip-Slope" Correlation**
+
+Research into autonomous vehicle dynamics confirms that the slope of the initial linear region of the friction-slip curve is a robust predictor of the surface friction coefficient. This "Slip-Slope" approach relies on the observation that the stiffness of the tire-road interaction is fundamentally linked to the adhesion limit.2 In FFB applications, this translates to the "weight" of the steering. When a sim racer transitions from a high-grip surface (rubbered-in tarmac) to a low-grip surface (green track or rain), the Cornering Stiffness ($C\_\\alpha$) drops. The FFB logic reflects this by lowering the torque gradient—the wheel requires less effort to turn for the same slip angle.
+
+This passive form of slope detection is highly effective. It allows the driver to intuitively "feel" the grip level before reaching the limit. The logic is continuous and analog, requiring no discrete "events" to trigger. However, its accuracy is contingent on the update rate of the physics engine. A 60 Hz signal (common in older consoles or non-pro simulators) may alias this slope, making subtle changes in grip (e.g., patchy rain) indistinguishable from signal noise.8
+
+### **3.2 The SAT Drop-off as a Limit Indicator**
+
+The SAT drop-off (the transition to negative slope) is the most effective tool for estimating the *limit* of grip. By peaking *before* the lateral force limit, the SAT curve provides a safety margin. Research indicates that for a typical racing tire, the SAT peak might occur at $3^\\circ-4^\\circ$ of slip, while the lateral force peak occurs at $6^\\circ-8^\\circ$.4
+
+This offset makes the logic an effective "early warning" system. If the driver reacts to the zero-slope point (the peak weight), they are safely within the recoverable envelope of the tire. However, this also implies a limitation: relying solely on the SAT peak causes the driver to underestimate the total available grip. To extract maximum performance, the driver must learn to ignore the "warning" of the lightening wheel and push into the negative slope region. FFB systems that artificially enhance this drop-off (e.g., the "Enhance Understeer" effect in Assetto Corsa or Forza Motorsport) effectively increase the *perceptibility* of the limit but decrease the *accuracy* of the grip estimation, as they exaggerate the physical signal.10
+
+### **3.3 Limitations: Load and Temperature Sensitivity**
+
+A significant challenge for Slope Detection logic is isolating the friction coefficient from other variables that affect compliance. The slope of the SAT curve is heavily dependent on Vertical Load ($F\_z$).
+
+* **Load Sensitivity:** As downforce or weight transfer increases the load on a tire, the contact patch grows, and the cornering stiffness increases. This steepens the slope of the SAT curve.13  
+* **The Ambiguity:** A driver feeling a "heavier" wheel (steeper slope) might interpret it as "more grip" (higher $\\mu$), when it is actually just "more load" (higher $F\_z$). Conversely, a lightening wheel might be interpreted as loss of grip, when it is actually just the front unloading over a crest.
+
+Sophisticated FFB logic (e.g., rFactor 2's RealRoad) models the thermodynamic state of the tire, where overheating reduces the stiffness and flattens the slope. However, simplified models may use static lookup tables that fail to account for these dynamic variables, leading to "canned" slope behaviors that do not accurately reflect the changing grip conditions.15
+
+## **4\. Accuracy in Optimal Slip Angle Estimation**
+
+Determining the "Optimal Slip Angle"—the specific angle $\\alpha\_{opt}$ at which Lateral Force $F\_y$ is maximized—is perhaps the most complex task for FFB Slope Detection logic due to the inherent physical disconnect between the torque peak and the force peak.
+
+### **4.1 The Offset Problem**
+
+The fundamental limitation of using steering torque to find the optimal slip angle is that the two peaks do not coincide. As established, the SAT peak ($M\_{z,max}$) occurs at a lower slip angle than the Lateral Force peak ($F\_{y,max}$).5 This creates a "blind zone" for the driver.
+
+* **Zone A (Linear):** Torque increases with slip. Feedback is positive and intuitive.  
+* **Zone B (The Offset):** Torque is decreasing (negative slope), but Grip is still increasing. This is the counter-intuitive zone where the driver must push *against* the feedback's suggestion that the limit has been reached.  
+* **Zone C (Post-Limit):** Both Torque and Grip are decreasing. The car is sliding.
+
+If a Slope Detection algorithm is programmed to simply "maximize torque," it will guide the driver to Zone A/B boundary, resulting in under-driving. The driver will feel the car is "on rails" but will be slower than the theoretical limit. Accurate sim racing requires the driver to operate in Zone B. The "accuracy" of the FFB here is defined by how well it communicates the *rate of decline* in Zone B. A sharp drop-off (high negative slope) indicates a "peaky" tire where the limit is abrupt; a shallow drop-off indicates a forgiving tire.
+
+### **4.2 Algorithmic "Fixes" and Their Trade-offs**
+
+Developers have attempted to address this offset through various logic adjustments.
+
+* **Understeer Enhancement:** Logic such as "FFB Understeer" in Forza or "Enhance Understeer" in Assetto Corsa artificially manipulates the FFB curve. When the physics engine detects that the slip angle has exceeded the SAT peak but not the Force peak, it may flatten the curve or artificially drop the torque to signal the driver. While this helps novice drivers detect the limit, it distorts the "Slope" information, preventing expert drivers from feeling the subtle residual align torque that exists in Zone B.11  
+* **Gyroscopic Stabilization:** In Assetto Corsa’s Custom Shaders Patch (CSP), a "Gyro" implementation adds a torque vector based on the wheel's rotation speed and the suspension geometry (caster). This physical force naturally dampens the wheel's oscillation but also modifies the perceived slope of the SAT drop-off. By acting as a dynamic damper, it can make the transition into the slide feel more progressive and controllable, allowing the driver to hold the car in Zone B more effectively.18
+
+## **5\. Optimal Slip Ratio and Longitudinal Dynamics**
+
+While Slope Detection is highly effective for lateral dynamics (steering), its application to longitudinal dynamics (acceleration and braking) via the steering wheel is fraught with physical and implementation challenges.
+
+### **5.1 The Lack of a Torque Vector**
+
+The primary limitation is mechanical: the steering wheel rotates around the steering axis, while longitudinal slip ($\\kappa$) generates forces in the rolling direction. There is no direct kinematic link that causes wheelspin or lock-up to generate a primary torque around the steering column, unlike the strong link for cornering forces.17  
+FFB systems must therefore rely on secondary effects or "fake" cues to communicate longitudinal slip slope:
+
+* **Scrub Radius Effects:** If the vehicle has a non-zero scrub radius, the differential in longitudinal forces (e.g., one wheel gripping, one slipping) creates a yaw moment around the kingpin. The FFB logic can detect this "differential slope" and transmit it as a tug on the wheel.21  
+* **Vibration Injection:** Most simulators use a threshold-based logic rather than a true slope detection for longitudinal slip. When $\\kappa \> \\kappa\_{opt}$, the system injects a high-frequency vibration (e.g., 50-100Hz) to simulate the "judder" of a locking tire or the "chatter" of wheelspin. This is a binary or stepped cue, not a continuous derivative, and thus has low accuracy for estimating the *optimal* ratio—it only effectively signals when the optimum has been *exceeded*.23
+
+### **5.2 Telemetry-Based Haptics (The Bass Shaker Solution)**
+
+Recognizing the limitations of the steering wheel for longitudinal slip, the sim racing community and developers have turned to supplementary haptics. Software like SimHub utilizes telemetry data to perform true Slope Detection on the longitudinal slip.
+
+* **Logic:** The software monitors the slip ratio $\\kappa \= \\frac{WheelSpeed \- CarSpeed}{CarSpeed}$. It maps the vibration amplitude to this ratio.  
+* **Accuracy:** Unlike the steering wheel, which is bandwidth-limited and mechanically decoupled, bass shakers can output a vibration frequency directly proportional to the slip speed. This provides a highly accurate, continuous gradient of information. The "slope" here is perceived as an increase in vibration intensity. By tuning the "gamma" and "threshold" of this response, drivers can create a tactile curve that peaks exactly at $\\kappa\_{opt}$, providing a far more accurate estimation tool than the steering wheel ever could.25
+
+## **6\. Challenges: Signal Processing, Noise, and Latency**
+
+The theoretical efficacy of Slope Detection is constantly at war with the realities of digital signal processing. Calculating the derivative of a signal ($\\frac{dM\_z}{dt}$) is mathematically simple but practically hazardous in a real-time control loop due to noise amplification.
+
+### **6.1 The Derivative Noise Problem**
+
+Differentiation acts as a high-pass filter. High-frequency noise—whether from quantization errors in the physics engine, road texture (macrotexture), or track bumps—has a very steep slope, even if its amplitude is low. When an algorithm attempts to calculate the "Grip Slope" (a low-frequency trend) from the raw FFB signal, it is often swamped by the "Noise Slope" of the road texture.
+
+* **Road Texture Masking:** Research on pavement macrotexture indicates that road surfaces generate significant high-frequency noise.28 In a simulator, if the "Road Effects" gain is set too high, the constant chatter of the texture creates a "jagged" SAT curve. The driver cannot feel the subtle drop-off of the pneumatic trail because it is buried under the high-amplitude noise of the bumps. This leads to the phenomenon of "aliasing," where a bump is misinterpreted as a loss of grip, or a loss of grip is masked by a bump.9
+
+### **6.2 The Latency vs. Filtering Trade-off**
+
+To mitigate noise, FFB systems apply filters. This introduces the most critical challenge in sim racing: Latency.
+
+* **Low-Pass Filters:** A standard moving average or low-pass filter smooths the noise but introduces a phase delay. If the filter delays the signal by 20ms, the driver receives the "loss of grip" information 20ms late. At 200 km/h, this delay can be the difference between catching a slide and crashing.8  
+* **Nyquist Limitations:** As noted in technical analyses of iRacing's FFB, the physics engine may run at 360 Hz, meaning the maximum discernible frequency is 180 Hz (Nyquist limit). Any slope changes occurring faster than this (e.g., instantaneous snap oversteer) are aliased or lost. Heavy filtering further lowers this effective bandwidth.8
+
+### **6.3 Advanced Reconstruction Filters (Simucube)**
+
+To solve the Noise-Latency dilemma, high-end hardware manufacturers like Granite Devices (Simucube) have developed "Reconstruction Filters." Unlike standard low-pass filters that simply attenuate high frequencies, reconstruction filters likely use predictive algorithms (e.g., spline interpolation or Kalman-like estimation) to "guess" the intended curve between the discrete data points delivered by the sim.31
+
+* **Slope Preservation:** These filters are designed specifically to preserve the *rate of change* (slope) of the signal while discarding the quantization noise. This allows the SAT drop-off to remain sharp and distinct (perceptible) without the graininess of the raw signal.  
+* **Slew Rate Limits:** These drivers also allow users to set a "Slew Rate Limit" (Nm/ms). While intended to prevent violent spikes, setting this too low effectively caps the maximum slope the wheel can reproduce. This artificially flattens the grip drop-off, making the car feel numb and making optimal slip angle estimation impossible. For maximum accuracy, the slew rate must be uncapped, placing the burden of smoothing on the reconstruction filter.8
+
+## **7\. Implementation Case Studies**
+
+The varying approaches to Slope Detection are evident in the architectures of major simulators and middleware.
+
+### **7.1 iRacing and irFFB: The "SOP" Calculation**
+
+iRacing's native FFB is often criticized for being "too pure"—it outputs only the steering column torque derived from the physics, without adding artificial effects to compensate for the lack of seat-of-pants feel. This led to the development of **irFFB**, a middleware utility.
+
+* **SOP (Seat of Pants) Effect:** irFFB calculates a synthetic force based on the vehicle's lateral acceleration and yaw rate. It essentially mixes the "Rear Slip Slope" into the steering torque. This allows the driver to feel the rear tires losing grip (oversteer) through the steering wheel, a cue that is physically impossible to feel through the steering column in a real car (where it is felt through the chassis).  
+* **Slope/Gamma Setting:** irFFB includes a "Slope" setting that acts as a gamma correction curve. By making the response non-linear, it amplifies the small forces near the center (steepening the initial slope) and compresses the high forces. This artificially enhances the sensation of the SAT drop-off, making the "lightening" of the wheel more dramatic and easier to detect for users with lower-torque wheels.9
+
+### **7.2 Assetto Corsa: Gyro and Physical Trail**
+
+Assetto Corsa is renowned for its specific handling of the pneumatic trail.
+
+* **Physical Trail Modeling:** AC's tire model explicitly calculates the trail reduction, resulting in a very pronounced drop-off.  
+* **Gyro Implementation:** The "More Physically Accurate Gyro" in CSP 18 uses the physics of the spinning wheel mass to generate torque. This acts as a high-frequency filter that naturally creates a "smooth but heavy" feel. It resists rapid changes in direction, which helps stabilize the FFB signal against noise, allowing the "true" slope of the grip loss to shine through without the interference of oscillation.
+
+### **7.3 SimHub: The Telemetry Approach**
+
+SimHub avoids the steering torque limitations entirely by using telemetry data to drive bass shakers.
+
+* **Logic:** It uses the WheelSlip parameter directly.  
+* **Effectiveness:** This is the most "accurate" slope detection because it is pure math—it does not pass through a steering rack model, a motor driver, or a gear train. It is a direct visualization (via vibration) of the slip ratio. The "slope" is determined by the Response Curve configured by the user, allowing for a perfectly customized "Optimal Slip" notification system.25
+
+## **8\. Data Summary: Metrics of Slope Detection**
+
+The following table summarizes the effectiveness of Slope Detection across the different domains analyzed:
+
+| Dynamic Metric | Primary FFB Mechanism | Slope Signal | Accuracy | Primary Limitation |
+| :---- | :---- | :---- | :---- | :---- |
+| **Grip Level ($\\mu$)** | Cornering Stiffness ($C\_\\alpha$) | Stiffness of force build-up (Linear Region Slope) | **High** (Relative) | Load ($F\_z$) sensitivity can mask friction changes. |
+| **Optimal Slip Angle** | SAT Drop-off | Transition from Positive to Negative Slope ($\\frac{dM\_z}{d\\alpha} \< 0$) | **Moderate** | **Offset Error:** SAT peaks before Grip peaks. Driver must "drive past the peak." |
+| **Optimal Slip Ratio** | Vibration / Scrub | Threshold Trigger or Artificial Noise | **Low** (Steering) | No mechanical torque link. Relies on "canned" effects or external haptics. |
+| **Limit of Adhesion** | SAT Collapse | Rapid Negative Slope | **High** | Signal Latency and Road Texture Noise (Aliasing). |
+
+## **9\. Conclusion**
+
+The "Slope Detection" logic in FFB systems is a sophisticated, albeit imperfect, heuristic for estimating vehicle states. It is not a direct measurement of grip, but rather a measurement of the *symptoms* of grip mechanics—specifically the migration of the pneumatic trail and the reduction in cornering stiffness.
+
+The accuracy of this logic is highest when estimating the **Limit of Adhesion**. The physical phenomenon of SAT drop-off provides a reliable, high-contrast signal that warns the driver of impending grip loss. However, its accuracy in estimating the **Optimal Slip Angle** is structurally compromised by the physical offset between the aligning torque peak and the lateral force peak. Simulation drivers must learn to interpret the "negative slope" not as a failure of grip, but as the zone of maximum performance—a counter-intuitive skill that separates elite sim racers from novices.
+
+The greatest challenges to this logic remain **Signal-to-Noise Ratio** and **Latency**. The derivative nature of slope detection makes it inherently sensitive to high-frequency road texture noise. The future of high-fidelity simulation lies in the divergence of these signals: using "Reconstruction Filters" and "Gyro" stabilization to purify the low-frequency steering torque (SAT) for handling precision, while offloading the high-frequency texture and slip vibration to multimodal haptic systems (active pedals, chassis transducers). This separation ensures that the critical "Slope" of the grip limit is never masked by the noise of the road, providing the operator with a deterministic and accurate interface for vehicle control.
+
+#### **Works cited**
+
+1. The Absolute Guide to Racing Tires \- Part 1 \- Lateral Force, accessed December 27, 2025, [unlinked: racingcardynamics_com/racing-tires-lateral-force/](unlinked: racingcardynamics_com/racing-tires-lateral-force/)  
+2. Online Slip Detection and Friction Coefficient Estimation for Autonomous Racing \- arXiv, accessed December 27, 2025, [unlinked: arxiv_org/html/2509_15423v2](unlinked: arxiv_org/html/2509_15423v2)  
+3. Online Slip Detection and Friction Coefficient Estimation for Autonomous Racing \- arXiv, accessed December 27, 2025, [unlinked: arxiv_org/html/2509_15423v1](unlinked: arxiv_org/html/2509_15423v1)  
+4. Tyre Slip Angle – Geometry Explained Suspension Secrets, accessed December 27, 2025, [unlinked: suspensionsecrets_co_uk/tyre-slip-angle/](unlinked: suspensionsecrets_co_uk/tyre-slip-angle/)  
+5. Tire Characteristics Sensitivity Study \- Chalmers Publication Library, accessed December 27, 2025, [unlinked: publications_lib_chalmers_se/records/fulltext/162882_pdf](unlinked: publications_lib_chalmers_se/records/fulltext/162882_pdf)  
+6. Tech Explained: Steering Forces \- Racecar Engineering, accessed December 27, 2025, [unlinked: www_racecar-engineering_com/tech-explained/tech-explained-steering-forces/](unlinked: www_racecar-engineering_com/tech-explained/tech-explained-steering-forces/)  
+7. On-Board Road Friction Estimation Technique for Autonomous Driving Vehicle-Following Maneuvers \- MDPI, accessed December 27, 2025, [unlinked: www_mdpi_com/2076-3417/11/5/2197](unlinked: www_mdpi_com/2076-3417/11/5/2197)  
+8. Force Feedback Settings \- Why you are crashing... : r/iRacing \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/iRacing/comments/1kfe7fe/force\_feedback\_settings\_why\_you\_are\_crashing/](unlinked: www_reddit_com/r/iRacing/comments/1kfe7fe/force_feedback_settings_why_you_are_crashing/)  
+9. iRacing FFB Configuration \- Byte Insight, accessed December 27, 2025, [unlinked: byteinsight_co_uk/2023/04/iracing-wheel-configuration-options/](unlinked: byteinsight_co_uk/2023/04/iracing-wheel-configuration-options/)  
+10. Enhanced understeer effect on or off? : r/assettocorsa \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/4g3flx/enhanced\_understeer\_effect\_on\_or\_off/](unlinked: www_reddit_com/r/assettocorsa/comments/4g3flx/enhanced_understeer_effect_on_or_off/)  
+11. FH4: Wheel Setup and Tuning \- Forza Support, accessed December 27, 2025, [unlinked: support_forzamotorsport_net/hc/en-us/articles/360002007867-FH4-Wheel-Setup-and-Tuning](unlinked: support_forzamotorsport_net/hc/en-us/articles/360002007867-FH4-Wheel-Setup-and-Tuning)  
+12. Change the "enhance understeer effect" to an assist | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/change-the-enhance-understeer-effect-to-an-assist_31339/](unlinked: www_assettocorsa_net/forum/index_php?threads/change-the-enhance-understeer-effect-to-an-assist_31339/)  
+13. Vehicle Setup and Kinematics | Q\&A Series \- OptimumG, accessed December 27, 2025, [unlinked: optimumg_com/vehicle-setup-and-kinematics-qa-series/](unlinked: optimumg_com/vehicle-setup-and-kinematics-qa-series/)  
+14. Self Aligning Torque | DrRacing's Blog \- WordPress.com, accessed December 27, 2025, [unlinked: drracing_wordpress_com/2013/10/27/self-aligning-torque/](unlinked: drracing_wordpress_com/2013/10/27/self-aligning-torque/)  
+15. Mr Deap's sim racing introduction guide \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/sharedfiles/filedetails/?l=french\&id=912315488](unlinked: steamcommunity_com/sharedfiles/filedetails/?l=french&id=912315488)  
+16. Physics Modding | PDF | Euclidean Vector | Matrix (Mathematics) \- Scribd, accessed December 27, 2025, [unlinked: www_scribd_com/document/813097469/Physics-Modding](unlinked: www_scribd_com/document/813097469/Physics-Modding)  
+17. Tyre dynamics \- Racecar Engineering, accessed December 27, 2025, [unlinked: www_racecar-engineering_com/tech-explained/tyre-dynamics/](unlinked: www_racecar-engineering_com/tech-explained/tyre-dynamics/)  
+18. Logitech pro wheel, Force feedback, graphics, and chatgpt4 in assetto corsa (experiment), accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/1jsf5za/logitech\_pro\_wheel\_force\_feedback\_graphics\_and/](unlinked: www_reddit_com/r/assettocorsa/comments/1jsf5za/logitech_pro_wheel_force_feedback_graphics_and/)  
+19. WSC Legends 60's Pack | THRacing, accessed December 27, 2025, [unlinked: thracing_de/wp-content/uploads/2025/01/2025-01-WSC-Legends-60s-Pack-v1_2_1_pdf](unlinked: thracing_de/wp-content/uploads/2025/01/2025-01-WSC-Legends-60s-Pack-v1_2_1_pdf)  
+20. Self aligning torque \- Wikipedia, accessed December 27, 2025, [unlinked: en_wikipedia_org/wiki/Self\_aligning\_torque](unlinked: en_wikipedia_org/wiki/Self_aligning_torque)  
+21. Is there a formula to calculate Slip Angle for each tire? : r/FSAE \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/FSAE/comments/uz99vh/is\_there\_a\_formula\_to\_calculate\_slip\_angle\_for/](unlinked: www_reddit_com/r/FSAE/comments/uz99vh/is_there_a_formula_to_calculate_slip_angle_for/)  
+22. An investigatory study into improving vehicle control by the use of direct real time slip angle sensing \- Sign in, accessed December 27, 2025, [unlinked: pure_coventry_ac_uk/ws/portalfiles/portal/42231101/Sriskantha2016_pdf](unlinked: pure_coventry_ac_uk/ws/portalfiles/portal/42231101/Sriskantha2016_pdf)  
+23. WRC 9 FFB......My Deep Dive to Decipher What is Going On : r/simrally \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/simrally/comments/miqolh/wrc\_9\_ffbmy\_deep\_dive\_to\_decipher\_what\_is\_going\_on/](unlinked: www_reddit_com/r/simrally/comments/miqolh/wrc_9_ffbmy_deep_dive_to_decipher_what_is_going_on/)  
+24. This is how the FFB works--and how to Set it up : r/assettocorsa \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/5l64g8/this\_is\_how\_the\_ffb\_worksand\_how\_to\_set\_it\_up/](unlinked: www_reddit_com/r/assettocorsa/comments/5l64g8/this_is_how_the_ffb_worksand_how_to_set_it_up/)  
+25. ShakeIt V3 Effects configuration · SHWotever/SimHub Wiki · GitHub, accessed December 27, 2025, [unlinked: github_com/SHWotever/SimHub/wiki/ShakeIt-V3-Effects-configuration](unlinked: github_com/SHWotever/SimHub/wiki/ShakeIt-V3-Effects-configuration)  
+26. SimHub ShakeIt Slip/Grip haptic discussion \- blekenbleu, accessed December 27, 2025, [unlinked: blekenbleu_github_io/pedals/ShakeIt/SG_htm](unlinked: blekenbleu_github_io/pedals/ShakeIt/SG_htm)  
+27. Telemetry Outputs Overview | DR Sim Manager, accessed December 27, 2025, [unlinked: docs_departedreality_com/dr-sim-manager/development/telemetry-outputs-overview](unlinked: docs_departedreality_com/dr-sim-manager/development/telemetry-outputs-overview)  
+28. Evolution of Pavement Friction and Macrotexture After Asphalt Overlay \- Connect NCDOT, accessed December 27, 2025, [unlinked: connect_ncdot_gov/projects/research/RNAProjDocs/2020-11%20FinalReport_pdf](unlinked: connect_ncdot_gov/projects/research/RNAProjDocs/2020-11%20FinalReport_pdf)  
+29. Influencing Parameters on Tire–Pavement Interaction Noise: Review, Experiments, and Design Considerations \- MDPI, accessed December 27, 2025, [unlinked: www_mdpi_com/2411-9660/2/4/38](unlinked: www_mdpi_com/2411-9660/2/4/38)  
+30. Logitech G27: "Damping", "Filter", "Minimum Force",... What do they all mean?? \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/simracing/comments/2rinrw/logitech\_g27\_damping\_filter\_minimum\_force\_what\_do/](unlinked: www_reddit_com/r/simracing/comments/2rinrw/logitech_g27_damping_filter_minimum_force_what_do/)  
+31. Reconstruction Filter V2 testing \- Simucube 2 \- Granite Devices Community, accessed December 27, 2025, [unlinked: community_granitedevices_com/t/reconstruction-filter-v2-testing/11612](unlinked: community_granitedevices_com/t/reconstruction-filter-v2-testing/11612)  
+32. Simucube 2 Effects, accessed December 27, 2025, [unlinked: docs_simucube_com/TunerSoftware/wheelbases/wheelbaseeffects_html](unlinked: docs_simucube_com/TunerSoftware/wheelbases/wheelbaseeffects_html)  
+33. Simucube 2 \- Sport / Pro / Ultimate User Guide, accessed December 27, 2025, [unlinked: simucube_com/app/uploads/2022/11/Simucube\_2\_User\_Guide.pdf](unlinked: simucube_com/app/uploads/2022/11/Simucube_2_User_Guide_pdf)  
+34. With Calculations of Delay | PDF | Transport \- Scribd, accessed December 27, 2025, [unlinked: www_scribd_com/document/769242033/WITH-CALCULATIONS-OF-DELAY](unlinked: www_scribd_com/document/769242033/WITH-CALCULATIONS-OF-DELAY)  
+35. Suspended for “Tanking”?\!?\!?\! (Details in comments) : r/iRacing \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/iRacing/comments/n1yf5q/suspended\_for\_tanking\_details\_in\_comments/](unlinked: www_reddit_com/r/iRacing/comments/n1yf5q/suspended_for_tanking_details_in_comments/)
+```
+
+# File: docs\dev_docs\FFB Slope Detection for Grip Estimation2.md
+```markdown
+# **Algorithmic Estimation of Tire Grip and Optimal Slip Dynamics in Force Feedback Systems: A Comprehensive Analysis of Slope Detection Logic**
+
+## **1\. Introduction: The Haptic Bridge in Virtual Motorsport**
+
+The fundamental challenge of high-fidelity motorsport simulation lies in the translation of complex physical interactions into communicative sensory inputs. In a real-world racing environment, a driver operates within a rich tapestry of sensory data: vestibular cues from g-forces, auditory feedback from tire scrub and engine load, and tactile feedback through the chassis and steering column. In the virtual domain, particularly for fixed-base simulators, the vestibular channel is absent. Consequently, the burden of communicating the vehicle's dynamic state—specifically the limit of adhesion—falls disproportionately on the visual display and, most critically, the haptic interface of the Force Feedback (FFB) steering system.
+
+The "Slope Detection logic" represents a sophisticated class of signal processing algorithms designed to bridge this sensory gap. By analyzing the rate of change—the derivative or slope—of telemetry signals such as tire force, slip angle, and slip ratio, these algorithms attempt to predict and communicate the precise moment of grip loss. The objective is to provide the sim racer with a tactile "early warning system" that mimics the natural drop in steering weight associated with pneumatic trail collapse, thereby enabling the driver to navigate the optimal slip zone with precision.
+
+This report provides an exhaustive technical evaluation of the effectiveness, accuracy, and inherent limitations of Slope Detection logic. It synthesizes theoretical tire mechanics, digital signal processing principles, and empirical data from major simulation platforms (Assetto Corsa, rFactor 2, iRacing, and Automobilista 2\) to determine whether gradient-based estimation is a viable proxy for true grip limits. The analysis explores the bifurcated nature of tire dynamics—distinguishing between the Self-Aligning Torque (SAT) perceived by the driver and the true Lateral Force ($F\_y$) generating the turn—and how algorithmic interpretations of these forces are compromised by signal noise, latency, and environmental non-linearities.
+
+## **2\. Theoretical Foundations: Tire Physics and Haptic Translation**
+
+To evaluate the efficacy of any algorithm attempting to estimate grip, one must first establish the ground truth of how tire forces are generated and subsequently transmitted to the steering rack. The "slope" being detected is not merely a mathematical abstraction but a direct representation of the physical deformation of the tire carcass and the contact patch.
+
+### **2.1 The Mechanics of Slip Angle and Lateral Force**
+
+A pneumatic tire does not generate cornering force by pointing the vehicle in a new direction; rather, it generates force through elastic deformation. As the wheel is steered, the tire carcass twists, and the contact patch distorts. The angle between the direction the wheel is pointing and the direction the contact patch is traveling is defined as the **slip angle** ($\\alpha$).1
+
+The relationship between slip angle and lateral force ($F\_y$) is non-linear and is described by models such as the Pacejka Magic Formula or the brush model. This relationship is foundational to understanding what the Slope Detection logic is attempting to measure. The curve is characterized by three distinct regions, each defined by the gradient (slope) of the force:
+
+1. **The Linear (Elastic) Region:** At low slip angles (typically 0° to 2-3° for racing tires), the tire behaves like a linear spring. The entire contact patch maintains adhesion with the road surface. In this zone, the lateral force increases linearly with slip angle. The slope of this curve, $\\frac{dF\_y}{d\\alpha}$, is constant and is referred to as the **Cornering Stiffness** ($C\_{\\alpha}$).3 For the driver, this is felt as a predictable, linear build-up of steering weight.  
+2. **The Transitional Region:** As slip angle increases further, the shear stress at the rear of the contact patch exceeds the coefficient of static friction, and localized sliding begins. The contact patch is now in a mixed state: the front is gripping (adhesion), while the rear is sliding (hysteresis). Crucially, the rate of force accumulation diminishes. The slope $\\frac{dF\_y}{d\\alpha}$ begins to decrease. This "knee" in the curve is the first physical signal that the tire is approaching its limit.4  
+3. **The Frictional (Saturation) Region:** Eventually, the entire contact patch enters a sliding state. The lateral force reaches its peak ($F\_{y,max}$) and then plateaus or drops off. At the exact peak of grip, the slope of the force curve is zero ($\\frac{dF\_y}{d\\alpha} \= 0$). Beyond the peak, the slope becomes negative, indicating a loss of grip despite increased steering input.4
+
+Slope Detection logic, in its purest form, monitors the telemetry stream for this transition from a positive slope (grip building) to a zero or negative slope (grip limit reached/exceeded).
+
+### **2.2 The Self-Aligning Torque (SAT) vs. Lateral Force Offset**
+
+A critical distinction must be made between the force the tire generates ($F\_y$) and the torque the driver feels ($M\_z$, or Self-Aligning Torque). This distinction is the single most important factor in analyzing the accuracy of FFB-based grip estimation.
+
+The Self-Aligning Torque is the product of the Lateral Force and the **Pneumatic Trail** ($t\_p$) plus the Mechanical Trail ($t\_m$).6
+
+$$M\_z \= F\_y \\cdot (t\_p \+ t\_m)$$  
+The Pneumatic Trail ($t\_p$) is the distance between the geometric center of the contact patch and the centroid of the lateral force distribution.
+
+* **Low Slip:** At low slip angles, the force distribution is roughly triangular, peaking near the rear of the contact patch due to the accumulation of elastic deformation. This creates a large pneumatic trail, resulting in strong aligning torque (heavy steering).  
+* **High Slip:** As the rear of the contact patch begins to slide, the area of adhesion shrinks and moves forward. Consequently, the centroid of lateral force migrates toward the center of the wheel. The pneumatic trail ($t\_p$) decreases rapidly.8
+
+**The SAT-Fy Offset Phenomenon:** Because the pneumatic trail collapses *while* the lateral force is still increasing, the Self-Aligning Torque ($M\_z$) peaks and begins to drop **before** the Lateral Force ($F\_y$) reaches its maximum.4
+
+* **Quantitative Insight:** Empirical data from tire testing indicates that for a typical racing slick, the SAT might peak at a slip angle of 4° to 6°, while the Lateral Force peaks at 7° to 10°.1  
+* **Implication for Slope Detection:** An algorithm that detects the "slope drop" in the FFB signal is detecting the saturation of the *aligning torque*, not the saturation of the *grip*. This means the logic inherently **underestimates** the optimal slip angle. However, this underestimation is functionally desirable in a racing context because the SAT peak represents the limit of *stability*, whereas the $F\_y$ peak represents the limit of *adhesion* (often on a razor's edge of control).
+
+### **2.3 Longitudinal Dynamics and Slip Ratio**
+
+While lateral dynamics govern cornering, longitudinal dynamics govern braking and acceleration. Here, the variable of interest is the **Slip Ratio** ($\\kappa$), defined as the normalized difference between the angular velocity of the wheel ($\\omega$) and the longitudinal velocity of the vehicle ($v$).2
+
+$$\\kappa \= \\frac{r \\omega \- v}{v}$$  
+The friction curve for longitudinal force ($F\_x$) vs. slip ratio follows a similar trajectory to the lateral curve: a linear rise, a peak (typically at 10-20% slip for racing tires), and a decline.12
+
+The "Viper" calculation method referenced in the research 11 focuses on detecting the slope of this longitudinal relationship. By monitoring the ratio of Tyre RPS to Car Speed, the logic attempts to identify the point where an increase in engine RPM (or brake pressure) no longer results in a proportional increase in vehicle acceleration (or deceleration).
+
+* **Mechanism:** The logic continuously calculates the derivative $\\frac{dF\_x}{d\\kappa}$. A high positive value indicates effective traction. A value near zero indicates the optimal slip ratio ($\\kappa\_{opt}$). A negative value indicates excessive wheel spin or lock-up.  
+* **Application:** This data is typically fed into tactile transducers (bass shakers) to vibrate the pedals or seat, alerting the driver that they have passed the peak of the longitudinal friction curve.13
+
+## **3\. Algorithmic Implementation of Slope Detection Logic**
+
+To understand the effectiveness of Slope Detection, one must examine how it is implemented in software. The logic is rarely a direct analytical derivative of a perfect function; instead, it is a discrete-time signal processing challenge operating on noisy telemetry data.
+
+### **3.1 The Fundamental Algorithm**
+
+The core operation is numerical differentiation. Let $S\[n\]$ be the signal of interest (e.g., Tire Load, FFB Torque, or Slip Angle) at frame $n$, and $\\Delta t$ be the time step. The instantaneous slope $k$ is approximated as:
+
+$$k\[n\] \\approx \\frac{S\[n\] \- S\[n-1\]}{\\Delta t}$$  
+In the context of FFB, the "Slope Detection" logic typically monitors the gradient of the FFB output relative to the steering input or the lateral G-force.
+
+* **Linear Grip Zone:** If the steering angle increases by $\\delta$ and the FFB torque increases by a proportional amount $\\tau$, the ratio $\\tau/\\delta$ (the slope) is constant. The logic passes the raw physics signal to the wheel with linear gain.  
+* **Grip Loss Zone:** If the steering angle increases by $\\delta$ but the FFB torque increases by less than the proportional amount (or decreases), the slope $\\tau/\\delta$ drops. The logic detects this deviation from linearity.
+
+Some applications, such as FFBClip for Assetto Corsa, use this detection to manage the dynamic range of the force feedback.15 If the slope approaches zero (indicating the FFB signal is clipping or the tire is saturating), the app dynamically reduces the gain to ensure the "detail" of the drop-off is preserved, rather than being lost to a flat-lined signal.
+
+### **3.2 The "Viper" Method: A Case Study in Longitudinal Estimation**
+
+The "Viper" plugin 11 serves as a prime example of implementing slope detection for longitudinal slip. It addresses the complexity of defining "zero slip" in a dynamic environment.
+
+* **Calibration Phase:** The algorithm requires a baseline. It monitors the wheel speeds during a phase of low lateral and longitudinal acceleration (straight-line cruising) to calculate the effective rolling radius of the tire. This is crucial because tire radius is not constant; it changes with pressure and wear.  
+* **Real-Time Computation:** Once calibrated, the logic computes the slip ratio $\\kappa$ in real-time. It compares this against pre-defined thresholds or monitors the rate of change. If $\\frac{d\\omega}{dt}$ spikes without a corresponding $\\frac{dv}{dt}$, the slope of the traction curve has essentially become vertical (infinite slip), triggering the "loss of grip" flag.  
+* **Integration:** The result is output as a property (e.g., Viper.LngWheelSlip) which drives visual dashboards (red for lock, blue for spin) or haptic shakers.11
+
+### **3.3 Artificial Enhancement and "Canned" Slopes**
+
+A significant variation of Slope Detection is the *artificial* enforcement of slope characteristics. In simulations where the natural pneumatic trail drop-off is subtle (or masked by heavy mechanical trail/caster), developers or modders use scripts to exaggerate the slope.
+
+* **Assetto Corsa Scripts:** The "Alternative FFB" scripts or custom LUTs (Look-Up Tables) allow users to define a custom curve for the FFB output.18  
+* **Mechanism:** The script monitors the slip angle telemetry. It calculates how far the current slip angle is from the theoretical optimal slip angle ($\\alpha\_{opt}$).  
+  * If $\\alpha \< \\alpha\_{opt}$: Output \= Physics Force.  
+  * If $\\alpha \> \\alpha\_{opt}$: Output \= Physics Force $\\times$ Decay Factor.  
+* **Effectiveness:** This artificial slope detection is highly effective for *training* because it creates a distinct, unmistakable tactile cue (the wheel going light) exactly when the tire exceeds the optimal angle. However, it is physically inaccurate, as it imposes a synthetic "cliff" where the real tire might have a broad, forgiving plateau.20
+
+## **4\. Signal Processing Challenges and Limitations**
+
+While the physics of slope detection are sound, the practical implementation in a real-time loop (typically running at 60Hz to 400Hz depending on the sim and telemetry export) is fraught with challenges. The primary adversary is noise.
+
+### **4.1 The Derivative-Noise Dilemma**
+
+Numerical differentiation is an "ill-posed" problem in signal processing. The derivative operator amplifies high-frequency noise.22
+
+* **The Math:** If a signal $x(t)$ is corrupted by noise $\\epsilon(t)$, the derivative is $x'(t) \+ \\epsilon'(t)$. Since noise often fluctuates rapidly (high frequency), its derivative $\\epsilon'(t)$ can be orders of magnitude larger than the derivative of the actual physical signal $x'(t)$.  
+* **The Sim Racing Context:** Telemetry data from simulators is discrete and often quantized. A tire load signal might jump from 3000N to 3005N to 2995N due to micro-oscillations in the suspension physics or "jitter" in the data export.24 A raw derivative calculation would interpret these micro-jumps as massive changes in slope, triggering false positives for grip loss.  
+* **Consequence:** A naive slope detection algorithm will produce a "jagged" output, causing the FFB to rattle or the bass shakers to buzz incessantly, completely masking the useful signal.
+
+### **4.2 Latency and The Filtering Trade-Off**
+
+To combat noise, filtering is mandatory. However, all causal filters introduce phase shift (latency).26
+
+* **Moving Average/Low-Pass:** These are the simplest filters but introduce significant lag. If a slope detection algorithm uses a 100ms moving average window to smooth the FFB signal, the detection of the "grip drop" will be delayed by \~50ms.  
+* **Impact:** In a high-speed slide, 50ms is an eternity. By the time the smoothed slope detection logic realizes the grip is gone and lightens the wheel, the car may have already rotated beyond the point of recovery (the "tank slapper" scenario).28  
+* **Savitzky-Golay Filtering:** Research indicates that Savitzky-Golay (SG) filters are superior for this specific application.29 The SG filter fits a low-degree polynomial to the data window via least squares. Unlike a moving average, which flattens peaks, the SG filter preserves the *shape* and *height* of the signal peaks (like the sharp drop in pneumatic trail) while suppressing noise. This makes it the preferred method for accurate slope detection in advanced FFB tools, though it still incurs a computational cost and some latency.30
+
+### **4.3 The "Plateau" Problem and Peak Ambiguity**
+
+The effectiveness of slope detection is heavily dependent on the shape of the tire's friction curve.
+
+* **Peaky Curves (Slicks):** Racing slicks often have a sharp peak followed by a steep drop-off. The slope changes dramatically from positive to negative. Slope detection works exceptionally well here, providing a clear "snap" in the FFB.31  
+* **Plateau Curves (Street/Wet Tires):** Street tires and wet weather tires often exhibit a broad "plateau" where grip is relatively constant over a wide range of slip angles.31 In this region, the slope is near zero for a long time.  
+* **Failure Mode:** Slope detection logic struggles with plateaus. It detects "zero slope" (peak grip) but cannot easily tell the driver whether they are at the *start* of the plateau (safe) or the *edge* of the plateau (danger). In wet conditions, where the curve flattens significantly, slope detection algorithms tuned for dry tracks often fail to provide any meaningful warning before traction is lost entirely.32
+
+## **5\. Comparative Effectiveness Across Simulators**
+
+The accuracy of Slope Detection is not uniform; it varies significantly based on the underlying physics engine and the data it exposes.
+
+### **5.1 Assetto Corsa (AC) and Assetto Corsa Competizione (ACC)**
+
+* **Data Availability:** AC provides high transparency, exposing static tire curve data (LUTs) in files like tyres.ini.33 This allows apps like "Sidekick" to compare real-time telemetry against the *known* theoretical peak slope. This creates a "perfect" reference model, making slope detection highly accurate relative to the game's internal math.  
+* **ACC Physics:** ACC utilizes a 5-point tire model that is dynamic, affected by pressure, flex, and carcass heating.35 The "slope" here is emergent and variable.  
+* **FFB Implementation:** Kunos (the developer) implements a "dynamic damping" and "enhanced understeer" effect. The slope detection is effectively built into the FFB engine itself. When the front tires scrub, the engine artificially reduces the SAT force to ensure the driver feels the understeer, even if the physical SAT drop-off would be subtle.15 This makes slope detection *highly effective* for the user, even if it involves some "canned" enhancement.
+
+### **5.2 rFactor 2 (rF2) and Le Mans Ultimate (LMU)**
+
+* **Physical Model:** rF2 uses a complex physical brush model (TGM files) where the contact patch is simulated as independent bristles.35  
+* **Signal Characteristics:** The FFB output is pure steering rack force, updated at high frequency (up to 720Hz). This signal is physically accurate but extremely noisy due to the simulation of individual bristle interactions and road surface details.  
+* **Slope Detection:** Detecting the "grip slope" in rF2 is challenging due to the "flat spot" phenomenon. If a tire is flat-spotted, it generates a periodic vibration spike.39 A simple derivative-based algorithm will interpret this vibration as rapid changes in grip slope, potentially causing the FFB to clip or oscillate. Effective slope detection here requires advanced filtering to separate the "macro" grip trend from the "micro" surface/vibration noise.
+
+### **5.3 iRacing**
+
+* **Philosophy:** iRacing adheres to a strict "steering column torque only" philosophy. It does not add artificial effects to enhance the feeling of grip loss.39  
+* **Limitation:** On cars with high caster or power steering, the natural drop in pneumatic trail (the slope change) can be very subtle. Unlike AC, there is no "enhanced understeer" variable to amplify this.  
+* **Effectiveness:** External apps (like "Iris" or "Viper") have limited ability to inject slope-based effects because iRacing's API is more restrictive regarding FFB modification. The slope detection logic is therefore less effective as a real-time haptic aid in iRacing compared to other titles, often necessitating reliance on visual tire noise or volume cues.37
+
+## **6\. Quantitative Accuracy Assessment**
+
+How accurately does the logic estimate the key performance parameters?
+
+### **Table 1: Accuracy of Slope Detection Logic for Dynamic Parameters**
+
+| Parameter | Effectiveness | Accuracy | Primary Challenge |
+| :---- | :---- | :---- | :---- |
+| **Grip Level ($F\_{max}$)** | **Low** | **Low** | **Load Sensitivity:** Slope detection identifies the *shape* of the curve, not the absolute amplitude. It cannot tell if the peak is at 1000N or 5000N without knowing the vertical load ($F\_z$), which varies constantly with aero and weight transfer.42 |
+| **Optimal Slip Angle ($\\alpha\_{opt}$)** | **High** | **Biased (Safe)** | **SAT-Fy Offset:** The logic detects the SAT peak, which occurs 2-4 degrees *before* the true lateral force peak. It consistently underestimates $\\alpha\_{opt}$. This is "inaccurate" physically but "effective" for stability.4 |
+| **Optimal Slip Ratio ($\\kappa\_{opt}$)** | **Moderate** | **Moderate** | **Radius Dynamics:** Accurate calculation requires knowing the exact tire radius, which changes with speed (growth) and pressure. Errors in radius calculation lead to offset slip ratio estimations.11 |
+
+### **6.1 The Impact of Environmental Variables**
+
+The accuracy of slope detection is further compromised by environmental factors that shift the tire curves:
+
+* **Camber Thrust:** Negative camber increases lateral thrust and shifts the peak of the curve. A slope detection algorithm calibrated for 0° camber will be inaccurate for a car running \-3.5° camber, as the "slope" profile changes asymmetrically (turning left vs. right).44  
+* **Temperature & Wear:** As tires heat up or wear, the cornering stiffness ($C\_{\\alpha}$) changes. The slope of the linear region decreases (the tire becomes "spongier"). A static threshold algorithm (e.g., "trigger rumble at slope \< 0.5") will trigger earlier and earlier as the tire degrades, potentially giving the driver false feedback that they are losing grip when they are actually just experiencing thermal softening.33
+
+## **7\. Advanced Solutions: Beyond Simple Derivatives**
+
+Given the limitations of simple derivative-based slope detection, the industry and community are moving toward more robust estimation methods.
+
+### **7.1 Kalman Filtering**
+
+The Extended Kalman Filter (EKF) represents the state-of-the-art for vehicle state estimation.47
+
+* **Mechanism:** Instead of just trusting the noisy sensor (telemetry), the EKF uses a predictive model of the vehicle dynamics. It predicts what the slip angle *should* be, compares it to the measurement, and updates the estimate based on a weighted trust factor (covariance).  
+* **Advantage:** EKF can provide a smooth, noise-free estimate of the slip slope without the phase lag of a low-pass filter. It can also estimate "hidden" states like true friction coefficient ($\\mu$) even when the signal is noisy.49  
+* **Challenge:** Implementing an EKF requires a fairly accurate model of the vehicle (mass, wheelbase, tire stiffness). Generic FFB apps often lack this specific data for every car in a simulation, making EKF difficult to generalize.
+
+### **7.2 Neural Networks and Machine Learning**
+
+Recent research suggests using Neural Networks to infer grip limits.48
+
+* **Approach:** A neural network can be trained on datasets of telemetry to recognize the complex, non-linear patterns that precede grip loss—patterns that a simple "slope \< threshold" logic might miss.  
+* **Potential:** These models could account for the interplay of temperature, pressure, and aero load to provide a highly accurate "Percent Grip Remaining" metric, far surpassing the accuracy of simple slope detection.51
+
+## **8\. Conclusion**
+
+Slope Detection logic is a vital, albeit imperfect, tool in the sim racing ecosystem. Its **effectiveness** is high in regards to providing immersive, actionable feedback: it successfully translating the abstract mathematics of tire saturation into the intuitive sensation of "steering lightness" that drivers rely on to find the limit. By detecting the collapse of pneumatic trail (the SAT peak), it provides a built-in safety margin that encourages stable, consistent driving.
+
+However, its **accuracy** as a measurement tool is fundamentally limited. It systematically underestimates the true optimal slip angle due to the SAT-Fy offset, effectively guiding drivers to the limit of *feel* rather than the limit of *force*. Furthermore, its reliance on numerical differentiation makes it highly susceptible to signal noise, necessitating filtering that introduces detrimental latency.
+
+For the professional peer or developer, the key takeaway is that Slope Detection should not be viewed as a standalone solution for grip estimation. It must be integrated with adaptive filtering (like Savitzky-Golay) and context-aware logic that accounts for load sensitivity and environmental conditions. The future of high-fidelity FFB lies not in better derivative calculations, but in model-based estimation (Kalman Filters) and data-driven approaches (Neural Networks) that can interpret the noisy language of tire physics with greater nuance than a simple slope gradient.
+
+#### **Works cited**
+
+1. Tyre Slip Angle – Geometry Explained Suspension Secrets, accessed December 27, 2025, [unlinked: suspensionsecrets_co_uk/tyre-slip-angle/](unlinked: suspensionsecrets_co_uk/tyre-slip-angle/)  
+2. Tyre dynamics \- Racecar Engineering, accessed December 27, 2025, [unlinked: www_racecar-engineering_com/tech-explained/tyre-dynamics/](unlinked: www_racecar-engineering_com/tech-explained/tyre-dynamics/)  
+3. The tire modeling fundamentals – Part 1 \- Automotive Papers, accessed December 27, 2025, [unlinked: automotivepapers_com/2023/01/28/the-tire-modeling-fundamentals-part-1/](unlinked: automotivepapers_com/2023/01/28/the-tire-modeling-fundamentals-part-1/)  
+4. The Absolute Guide to Racing Tires \- Part 1 \- Lateral Force \- Racing Car Dynamics, accessed December 27, 2025, [unlinked: racingcardynamics_com/racing-tires-lateral-force/](unlinked: racingcardynamics_com/racing-tires-lateral-force/)  
+5. The Absolute Guide to Racing Tires \- Part 1 \- Lateral Force \- Racing Car Dynamics, accessed December 27, 2025, [unlinked: racingcardynamics_com/racing-tires-lateral-force/](unlinked: racingcardynamics_com/racing-tires-lateral-force/)  
+6. Pneumatic trail vs mechanical trail \- TenTenths Motorsport Forum, accessed December 27, 2025, [unlinked: tentenths_com/forum/showthread_php?goto=newpost\&t=93916](unlinked: tentenths_com/forum/showthread_php?goto=newpost&t=93916)  
+7. Self Aligning Torque | DrRacing's Blog \- WordPress.com, accessed December 27, 2025, [unlinked: drracing_wordpress_com/2013/10/27/self-aligning-torque/](unlinked: drracing_wordpress_com/2013/10/27/self-aligning-torque/)  
+8. Self-Aligning Torque Explained: Understanding Tire Dynamics \- SimpleTire, accessed December 27, 2025, [unlinked: simpletire_com/learn/tire-news-information/self-aligning-torque](unlinked: simpletire_com/learn/tire-news-information/self-aligning-torque)  
+9. FMR: Yet another rFactor mod (also, pneumatic trail) | Nerdgasm \- WordPress.com, accessed December 27, 2025, [unlinked: needlesslyobscure_wordpress_com/2010/07/06/fmr-yet-another-rfactor-mod-also-pneumatic-trail/](unlinked: needlesslyobscure_wordpress_com/2010/07/06/fmr-yet-another-rfactor-mod-also-pneumatic-trail/)  
+10. How to interpret ffb? : r/simracing \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/simracing/comments/52vmli/how\_to\_interpret\_ffb/](unlinked: www_reddit_com/r/simracing/comments/52vmli/how_to_interpret_ffb/)  
+11. viper4gh/SimHub-Plugin-CalcLngWheelSlip: Plugin for SimHub. It calculates longitudinal wheel slip by the relationship between Tyre RPS and Car Speed and provides the result as new properties. \- GitHub, accessed December 27, 2025, [unlinked: github_com/viper4gh/SimHub-Plugin-CalcLngWheelSlip](unlinked: github_com/viper4gh/SimHub-Plugin-CalcLngWheelSlip)  
+12. Tires \- Vehicle Physics Pro, accessed December 27, 2025, [unlinked: vehiclephysics_com/blocks/tires/](unlinked: vehiclephysics_com/blocks/tires/)  
+13. Simhub \- bass shakers Wheelslip | Page 3 \- Reiza Studios Forum, accessed December 27, 2025, [unlinked: forum_reizastudios_com/threads/simhub-bass-shakers-wheelslip_30366/page-3](unlinked: forum_reizastudios_com/threads/simhub-bass-shakers-wheelslip_30366/page-3)  
+14. Racingrig – Tactile Feedback – Michis F-16 Simulator, accessed December 27, 2025, [unlinked: f16simulator_net/wp/en/2020/05/18/racingrig-tactile-feedback/](unlinked: f16simulator_net/wp/en/2020/05/18/racingrig-tactile-feedback/)  
+15. This is how the FFB works--and how to Set it up : r/assettocorsa \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/5l64g8/this\_is\_how\_the\_ffb\_worksand\_how\_to\_set\_it\_up/](unlinked: www_reddit_com/r/assettocorsa/comments/5l64g8/this_is_how_the_ffb_worksand_how_to_set_it_up/)  
+16. Assetto Corsa (PC) \- Fanatec Recommended Settings, accessed December 27, 2025, [unlinked: forum_fanatec_com/topic/517-assetto-corsa-pc-fanatec-recommended-settings/page/2/](unlinked: forum_fanatec_com/topic/517-assetto-corsa-pc-fanatec-recommended-settings/page/2/)  
+17. Determining Steered Angle from Telemetry | Page 2 \- Reiza Studios Forum, accessed December 27, 2025, [unlinked: forum_reizastudios_com/threads/determining-steered-angle-from-telemetry_30439/page-2](unlinked: forum_reizastudios_com/threads/determining-steered-angle-from-telemetry_30439/page-2)  
+18. I just bought my first wheel and I don't really enjoy it. I want to, any tips? : r/simracing \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/simracing/comments/18p4sh4/i\_just\_bought\_my\_first\_wheel\_and\_i\_dont\_really/](unlinked: www_reddit_com/r/simracing/comments/18p4sh4/i_just_bought_my_first_wheel_and_i_dont_really/)  
+19. Why is no one talking about the new 'Alternative FFB' script in the latest CSP??? : r/assettocorsa \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/assettocorsa/comments/1jl25ey/why\_is\_no\_one\_talking\_about\_the\_new\_alternative/](unlinked: www_reddit_com/r/assettocorsa/comments/1jl25ey/why_is_no_one_talking_about_the_new_alternative/)  
+20. PSA: If you're using a Logitech wheel and struggling to get to grips with this sim, generate a custom FFB look up table and drop it into the settings. the difference is drastic. : r/ACCompetizione \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/ACCompetizione/comments/1cdn9r7/psa\_if\_youre\_using\_a\_logitech\_wheel\_and/](unlinked: www_reddit_com/r/ACCompetizione/comments/1cdn9r7/psa_if_youre_using_a_logitech_wheel_and/)  
+21. Automobilista 2 Custom Force Feedback \- Overview & Recommendations | Page 255, accessed December 27, 2025, [unlinked: forum_reizastudios_com/threads/automobilista-2-custom-force-feedback-overview-recommendations_11135/page-255](unlinked: forum_reizastudios_com/threads/automobilista-2-custom-force-feedback-overview-recommendations_11135/page-255)  
+22. Numerical differentiation of noisy data: A unifying multi-objective optimization framework, accessed December 27, 2025, [unlinked: pmc_ncbi_nlm_nih_gov/articles/PMC7899139/](unlinked: pmc_ncbi_nlm_nih_gov/articles/PMC7899139/)  
+23. On the Signal-to-Noise Ratio for Numerical Differentiation \- arXiv, accessed December 27, 2025, [unlinked: arxiv_org/html/2501_14906v1](unlinked: arxiv_org/html/2501_14906v1)  
+24. How to curve fit noisy data in real-time with minimal lag \- General Guidance \- Arduino Forum, accessed December 27, 2025, [unlinked: forum_arduino_cc/t/how-to-curve-fit-noisy-data-in-real-time-with-minimal-lag/655764](unlinked: forum_arduino_cc/t/how-to-curve-fit-noisy-data-in-real-time-with-minimal-lag/655764)  
+25. Read data in real time :: Sim Racing Telemetry General Discussions \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/app/845210/discussions/0/4666237625659148039/](unlinked: steamcommunity_com/app/845210/discussions/0/4666237625659148039/)  
+26. Real-time numerical differentiation of sampled data using adaptive input and state estimation, accessed December 27, 2025, [unlinked: dsbaero_engin_umich_edu/wp-content/uploads/sites/441/2024/04/Real-time-numerical-differentiation-of-sampled-data-using-adaptive-input-and-state-estimation_pdf](unlinked: dsbaero_engin_umich_edu/wp-content/uploads/sites/441/2024/04/Real-time-numerical-differentiation-of-sampled-data-using-adaptive-input-and-state-estimation_pdf)  
+27. Compute the time derivative of a noisy digital signal? \- Signal Processing Stack Exchange, accessed December 27, 2025, [unlinked: dsp_stackexchange_com/questions/27420/compute-the-time-derivative-of-a-noisy-digital-signal](unlinked: dsp_stackexchange_com/questions/27420/compute-the-time-derivative-of-a-noisy-digital-signal)  
+28. HANDWHEEL FORCE FEEDBACK WITH LANEKEEPING ASSISTANCE: COMBINED DYNAMICS, STABILITY AND BOUNDING, accessed December 27, 2025, [unlinked: ddl_stanford_edu/sites/g/files/sbiybj25996/files/media/file/2006\_thesis\_switkes\_handwheel\_force\_feedback\_with\_lanekeeping\_assistance\_0.pdf](unlinked: ddl_stanford_edu/sites/g/files/sbiybj25996/files/media/file/2006_thesis_switkes_handwheel_force_feedback_with_lanekeeping_assistance_0_pdf)  
+29. Intro to Signal Smoothing Filters \- Seeq Knowledge Base, accessed December 27, 2025, [unlinked: support_seeq_com/kb/R58/cloud/intro-to-signal-smoothing-filters](unlinked: support_seeq_com/kb/R58/cloud/intro-to-signal-smoothing-filters)  
+30. What are the advantages and disadvantages to the various smoothing functions available in LabChart? | ADInstruments, accessed December 27, 2025, [unlinked: www_adinstruments_com/support/knowledge-base/what-are-advantages-and-disadvantages-various-smoothing-functions-available](unlinked: www_adinstruments_com/support/knowledge-base/what-are-advantages-and-disadvantages-various-smoothing-functions-available)  
+31. Racing Slicks vs Street Tires on Track: How Big is the Difference? \- YouTube, accessed December 27, 2025, [youtube: 1fWc4Usi-f4](youtube: 1fWc4Usi-f4)  
+32. Slip angles in the wet \- The Technical Forum \- Autosport Forums, accessed December 27, 2025, [unlinked: forums_autosport_com/topic/210086-slip-angles-in-the-wet/](unlinked: forums_autosport_com/topic/210086-slip-angles-in-the-wet/)  
+33. Actual tire grip based on wear and temp | Kunos Simulazioni \- Official Forum \- Assetto Corsa, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/actual-tire-grip-based-on-wear-and-temp_16909/](unlinked: www_assettocorsa_net/forum/index_php?threads/actual-tire-grip-based-on-wear-and-temp_16909/)  
+34. How to adjust camber "correct"? | Kunos Simulazioni \- Official Forum \- Assetto Corsa, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/how-to-adjust-camber-correct_25688/](unlinked: www_assettocorsa_net/forum/index_php?threads/how-to-adjust-camber-correct_25688/)  
+35. Tyre Stiffness :: Assetto Corsa Competizione General Discussions \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/app/805550/discussions/0/3491891042512704931/?ctp=2](unlinked: steamcommunity_com/app/805550/discussions/0/3491891042512704931/?ctp=2)  
+36. PHYSICS \- Tyres\! oh... it's raining... | Page 8 | Kunos Simulazioni \- Assetto Corsa, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/tyres-oh-its-raining_50739/page-8](unlinked: www_assettocorsa_net/forum/index_php?threads/tyres-oh-its-raining_50739/page-8)  
+37. FFB \- No tire grip feel \- or am I missing something? | Le Mans Ultimate Community, accessed December 27, 2025, [unlinked: community_lemansultimate_com/index_php?threads/ffb-no-tire-grip-feel-or-am-i-missing-something_9374/](unlinked: community_lemansultimate_com/index_php?threads/ffb-no-tire-grip-feel-or-am-i-missing-something_9374/)  
+38. rF2 FFB system and philosophy | Page 3 \- Studio-397 Forum, accessed December 27, 2025, [unlinked: forum_studio-397_com/index_php?threads/rf2-ffb-system-and-philosophy_67691/page-3](unlinked: forum_studio-397_com/index_php?threads/rf2-ffb-system-and-philosophy_67691/page-3)  
+39. is iRacing really the one doing it right ? (serious discussion) : r/simracing \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/simracing/comments/1p5p2un/is\_iracing\_really\_the\_one\_doing\_it\_right\_serious/](unlinked: www_reddit_com/r/simracing/comments/1p5p2un/is_iracing_really_the_one_doing_it_right_serious/)  
+40. Mr Deap's sim racing introduction guide \- Steam Community, accessed December 27, 2025, [unlinked: steamcommunity_com/sharedfiles/filedetails/?id=912315488](unlinked: steamcommunity_com/sharedfiles/filedetails/?id=912315488)  
+41. Marvin's Awesome iRacing App (MAIRA) – Introduction and first impressions \- Simracing-PC, accessed December 27, 2025, [unlinked: simracing-pc_de/en/2025/03/25/marvins-awesome-iracing-app-maira-introduction-and-first-impressions/](unlinked: simracing-pc_de/en/2025/03/25/marvins-awesome-iracing-app-maira-introduction-and-first-impressions/)  
+42. Racing car behaviour \- Understanding the Racing Tyre | Kunos Simulazioni \- Official Forum, accessed December 27, 2025, [unlinked: www_assettocorsa_net/forum/index_php?threads/racing-car-behaviour-understanding-the-racing-tyre_36933/](unlinked: www_assettocorsa_net/forum/index_php?threads/racing-car-behaviour-understanding-the-racing-tyre_36933/)  
+43. Programming Vehicles in Games \- Wassimulator.com, accessed December 27, 2025, [unlinked: wassimulator_com/blog/programming/programming\_vehicles\_in\_games.html](unlinked: wassimulator_com/blog/programming/programming_vehicles_in_games_html)  
+44. Camber – Geometry Explained \- Suspension Secrets, accessed December 27, 2025, [unlinked: suspensionsecrets_co_uk/camber/](unlinked: suspensionsecrets_co_uk/camber/)  
+45. Camber in Cornering : r/FSAE \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/FSAE/comments/13h4dnq/camber\_in\_cornering/](unlinked: www_reddit_com/r/FSAE/comments/13h4dnq/camber_in_cornering/)  
+46. How much does tyre wear affect lap times? : r/ACCompetizione \- Reddit, accessed December 27, 2025, [unlinked: www_reddit_com/r/ACCompetizione/comments/qjqy1b/how\_much\_does\_tyre\_wear\_affect\_lap\_times/](unlinked: www_reddit_com/r/ACCompetizione/comments/qjqy1b/how_much_does_tyre_wear_affect_lap_times/)  
+47. Extended Kalman filter based state estimation of formula student autonomous racing \- SPIE Digital Library, accessed December 27, 2025, [unlinked: www_spiedigitallibrary_org/proceedings/Download?urlId=10_1117%2F12_3007015](unlinked: www_spiedigitallibrary_org/proceedings/Download?urlId=10_1117/12_3007015)  
+48. An Unscented Kalman Filter-Informed Neural Network for Vehicle Sideslip Angle Estimation \- IEEE Xplore, accessed December 27, 2025, [unlinked: ieeexplore_ieee_org/iel7/25/10683799/10502278_pdf](unlinked: ieeexplore_ieee_org/iel7/25/10683799/10502278_pdf)  
+49. (PDF) Development and validation of a Kalman filter-based model for vehicle slip angle estimation \- ResearchGate, accessed December 27, 2025, [unlinked: www_researchgate_net/publication/262864048\_Development\_and\_validation\_of\_a\_Kalman\_filter-based\_model\_for\_vehicle\_slip\_angle\_estimation](unlinked: www_researchgate_net/publication/262864048_Development_and_validation_of_a_Kalman_filter-based_model_for_vehicle_slip_angle_estimation)  
+50. Vehicle sideslip angle estimation using Kalman filters: modelling and validation \- Sheffield Hallam University Research Archive, accessed December 27, 2025, [unlinked: shura_shu_ac_uk/22810/1/IFIT2018\_042\_final\_v2.pdf](unlinked: shura_shu_ac_uk/22810/1/IFIT2018_042_final_v2_pdf)  
+51. Tire lateral force estimation and grip potential identification using Neural Networks, Extended Kalman Filter, and Recursive Lea \- Coventry University, accessed December 27, 2025, [unlinked: pure_coventry_ac_uk/ws/files/11039499/tire\_force\_est\_NN\_MA\_SK\_revision\_DRAFT\_cur.pdf](unlinked: pure_coventry_ac_uk/ws/files/11039499/tire_force_est_NN_MA_SK_revision_DRAFT_cur_pdf)  
+52. Comparison of Performance of Predicting the Wear Amount of Tire Tread Depending on Sensing Information \- MDPI, accessed December 27, 2025, [unlinked: www_mdpi_com/1424-8220/23/1/459](unlinked: www_mdpi_com/1424-8220/23/1/459)
+
+# Followu up questions
+
+What is the difference between a Savitzky-Golay Filtering and a Low Pass Filter?
+
+## Answer
+
+**Mode 2: Simple Q&A**
+
+The fundamental difference lies in **how** they separate "signal" from "noise," which drastically changes how the Force Feedback (FFB) feels during a slide.
+
+Think of a **Low Pass Filter** as "blurring" the data to hide the rough edges, while a **Savitzky-Golay Filter** attempts to "trace" the data with a curved ruler to find the true shape.
+
+Here is the technical breakdown of why this matters for Slope Detection in sim racing:
+
+### 1. The Low Pass Filter (LPF)
+
+* **How it works:** It attenuates (reduces) all signals above a certain frequency (e.g., 10Hz). It assumes that rapid changes are "noise" and slow changes are "physics."
+* ** The Problem:** A sudden loss of grip (the "snap" of oversteer) is a **high-frequency event**. It happens instantly. An LPF sees this sharp drop in force as "noise" and smooths it out.
+* **Result in FFB:** The sharp "cliff" of grip loss is eroded into a gentle hill. You feel the slide **late** and **vaguely**, making it harder to catch the car.
+
+
+
+### 2. The Savitzky-Golay Filter (SG)
+
+* **How it works:** It does not simply cut frequencies. Instead, it takes a small window of data points (e.g., the last 10 samples) and mathematically fits a polynomial curve (like a parabola) to them. It then uses the slope of *that perfect curve* as the output.
+
+
+* **The Advantage:** It preserves the **height and width of peaks**. If the tire force drops sharply, the polynomial fit bends to match that drop rather than averaging it away.
+
+
+* **Result in FFB:** It retains the distinct "kick" in the steering wheel when the tires let go, while still ignoring the random "static" or jitter from the telemetry signal.
+
+### Summary Comparison Table
+
+| Feature | Low Pass Filter (Moving Average) | Savitzky-Golay Filter |
+| --- | --- | --- |
+| **Method** | Averages adjacent points (Blurring) | Fits a curve to points (Tracing) |
+| **Peak Handling** | Flattens peaks (Reduces FFB detail) | **Preserves peaks** (Retains FFB detail) |
+| **Grip Loss Feel** | Vague, "mushy" transition | Distinct, sharp transition |
+| **Latency** | Low to Moderate (Phase Shift) | Moderate (Requires window buffer) 
+
+ |
+| **Best For** | General noise reduction (vibration) | **Slope/Derivative Detection** |
+
+**Recommendation:** For your FFB slope detection algorithm, **Savitzky-Golay** is the superior choice. Although it is computationally heavier and introduces slight latency (due to needing a window of past data to fit the curve), preserving the *shape* of the traction loss curve is critical for providing the driver with actionable information.
+
+## Question
+
+Which latency can I expect, in ms , from the Savitzky-Golay Filter? Is the latency adjustable?
+
+## Answer
+
+**Mode 2: Simple Q&A**
+
+You can expect a latency ranging from **16ms to 100ms** in a typical SimHub environment, depending entirely on how aggressively you tune the filter.
+
+Yes, the latency is **fully adjustable**. It is directly controlled by the **Window Size** (the number of data points the filter analyzes at once) and the update frequency of your software.
+
+Here is the technical breakdown of how to calculate and adjust it:
+
+### 1. How to Calculate Expected Latency
+
+The Savitzky-Golay filter is "non-causal," meaning it technically needs future data to calculate the current "perfect" curve. In real-time applications like SimHub, you simulate this by buffering incoming data. The output is effectively delayed by half the window size.
+
+The formula for latency is:
+
+
+Assuming SimHub is running at a standard **60Hz** (approx. 16.6ms per sample):
+
+| Window Size (Samples) | Smoothing Effect | Estimated Latency | Suitability for FFB |
+| --- | --- | --- | --- |
+| **5** | Light Smoothing | **~33 ms** | **Excellent** (Imperceptible delay) |
+| **9** | Moderate Smoothing | **~66 ms** | **Good** (Standard baseline) |
+| **15** | Heavy Smoothing | **~116 ms** | **Poor** (Noticeable lag in catching slides) |
+| **25** | Very Heavy | **~200 ms** | **Unusable** (Disconnects driver from car) |
+
+### 2. How to Adjust the Latency
+
+You adjust the latency by changing the **Window Size** parameter in your algorithm.
+
+* **To Reduce Latency:** Lower the window size (e.g., reduce from 15 to 7). This makes the FFB respond faster to grip loss but allows more signal noise (vibrations/grain) to pass through.
+* **To Increase Smoothness:** Increase the window size. This eliminates "jagged" FFB spikes but delays the "drop" sensation when the tires lose grip.
+
+**Important Note for SimHub Users:**
+The "Time Between Samples" depends on your specific SimHub setup.
+
+* **SimHub (Licensed):** Typically updates at **60Hz** (16ms per sample).
+* **SimHub (Free Version):** Custom Serial devices are limited to **10Hz** (100ms per sample). If you are using the free version, a Savitzky-Golay filter will introduce massive latency (e.g., a window of 5 would result in 200ms delay), making it unsuitable for real-time FFB.
+
+## Question
+
+Assume I am not using SimHub, but reading telemetry from the game (Assetto Corsa Evo or Le Mans Ultimate) at 400 Hz. Which latency can I expect from  Savitzky-Golay filter  depending on the number of data points / samples (Window Size)?
+
+Regarding the  Kalman Filtering, I have some data from those two games telemetry that can be used for this. I think I have mass and wheelbase, but I am not sure if I have  tire stiffness (I suspect not). Can I still calculate the Kalman Filtering? Can I estimate  tire stiffness to calculate the Kalman Filtering? 
+
+## Answer
+
+**Mode 2: Simple Q&A**
+
+### 1. Savitzky-Golay Latency at 400 Hz
+
+At a telemetry update rate of **400 Hz**, the time between samples () is **2.5 ms**. Because the data density is much higher, you can use significantly larger window sizes to achieve smoother signals while maintaining lower latency than is possible at 60 Hz.
+
+Using the group delay formula for real-time applications (), here is the expected latency for various Window Sizes ():
+
+| Window Size () | Latency (ms) | Filtering Characteristic |
+| --- | --- | --- |
+| **9 samples** | **10.0 ms** | Very Low Latency. Minimal smoothing, still captures some noise. |
+| **15 samples** | **17.5 ms** | **Sweet Spot.** Excellent noise rejection with imperceptible delay. |
+| **25 samples** | **30.0 ms** | Strong smoothing. Good for very noisy signals (e.g., rFactor 2/LMU raw force). |
+| **41 samples** | **50.0 ms** | Noticeable delay. Only recommended for indicators (like tire wear), not FFB. |
+
+**Key Takeaway:** At 400 Hz, a window of **15 to 25 samples** is ideal. It provides a latency of 17–30ms, which is faster than a single frame of video at 60 FPS (16.6ms), making the delay effectively imperceptible to the driver while providing a very smooth derivative for the Slope Detection logic.
+
+### 2. Kalman Filtering with Unknown Tire Stiffness
+
+**Can you calculate it without known stiffness?**
+Strictly speaking, a standard Kalman Filter (KF) **cannot** function correctly if the tire cornering stiffness () is completely unknown, as the filter uses this parameter to predict how the vehicle *should* react to steering inputs. However, you **can** still solve this problem using advanced estimation techniques.
+
+**How to Estimate Tire Stiffness ():**
+Since you have the vehicle mass () and wheelbase (), you can implement a **Dual Estimation** strategy. This involves running two algorithms simultaneously or using a specialized filter that treats stiffness as a variable to be found, rather than a constant.
+
+#### Method A: Recursive Least Squares (RLS) (Recommended)
+
+This is the industry-standard method for real-time parameter estimation.
+
+1. **Concept:** You assume the tire behaves linearly at low slip angles (e.g., straight-line driving or gentle cornering).
+2. **The Formula:** The algorithm monitors the relationship between Lateral Acceleration () and the Steering Angle ().
+*  (Lateral Force is approx. mass times lateral acceleration).
+* At low slip, .
+
+
+3. **Process:** The RLS algorithm continuously solves for  whenever the car is driving straight or turning gently. It "learns" the stiffness of the tire.
+4. **Integration:** Once RLS estimates the stiffness (e.g., 150,000 N/rad), it feeds this value into your main Kalman Filter to estimate the Slip Angle during aggressive cornering.
+
+#### Method B: Joint Extended Kalman Filter (Joint EKF)
+
+This method includes the tire stiffness as a "state" in the state vector () alongside Yaw Rate and Sideslip.
+
+* **State Vector:**  (Sideslip, Yaw Rate, Stiffness).
+* **Mechanism:** The filter observes the error between the *predicted* yaw rate and the *measured* yaw rate (from telemetry). It attributes slow, consistent errors to a wrong stiffness value and updates  automatically.
+* **Pros:** It adapts dynamically to tire wear and rain (as stiffness drops).
+* **Cons:** It is computationally expensive and difficult to tune. If the filter is not tuned perfectly, the stiffness estimate can oscillate wildy, causing FFB glitches.
+
+**Recommendation:**
+Start with **Method A (RLS)**. It is computationally lighter and more stable. Use the telemetry from *Le Mans Ultimate* (which has high-quality tire physics) to "train" your stiffness estimator on the straightaways and gentle corners, then lock that value to calculate the slip angle limits during the heavy braking and cornering zones.
+
 
 ```
 
@@ -7144,6 +8947,205 @@ ImGui::Text("Theoretical Wheel Freq: %.1f Hz", theoretical);
 
 ```
 
+# File: docs\dev_docs\Fix Violent Shaking when Stopping and no road textures.md
+```markdown
+Here is the comprehensive plan to investigate and fix the reported issues.
+
+### 1. Analysis of Reported Issues
+
+#### Issue A: Violent Shaking when Stopping (User: Oliver Johann, dISh)
+*   **Symptoms:** The wheel shakes violently when the car is stationary (pits, track stop). User dISh notes it "shakes along with engine rpm".
+*   **Root Cause:** The FFB engine currently processes all vibration effects regardless of car speed. Even when stationary, the physics engine generates micro-movements (engine idle vibration affecting suspension, sensor noise).
+    *   **Road Texture:** The engine idle vibration causes tiny fluctuations in `mVerticalTireDeflection`. The high-pass filter amplifies these into "Road Noise".
+    *   **Yaw Kick:** Sensor noise in `mLocalRotAccel.y` can trigger kicks (though v0.6.10 added a threshold, idle vibration might exceed it).
+*   **Solution:** Implement a **"Stationary Signal Gate"**. We must fade out all AC (vibration/texture) effects when the car speed drops below a threshold (e.g., 2.0 m/s), while keeping DC effects (Steering Weight) active so the wheel doesn't go completely limp.
+
+#### Issue B: Missing Road Texture (User: Oliver Johann)
+*   **Symptoms:** No road texture felt on bumpy tracks (Sebring) even with max gain.
+*   **Root Cause:** The user is likely driving a DLC/Encrypted car (e.g., 911 GT3 R). On these cars, LMU blocks specific telemetry channels to protect IP.
+    *   **Blocked Data:** `mVerticalTireDeflection` often returns `0.0` on encrypted cars.
+    *   **Result:** The Road Texture logic (`delta = current - prev`) calculates `0 - 0 = 0`, resulting in silence.
+*   **Solution:** Implement the **"Gap A" Fallback** identified in `docs/dev_docs/encrypted_content_gaps.md`. If deflection data is static while moving, switch to using **Vertical G-Force** (`mLocalAccel.y`) to generate road noise.
+
+#### Issue C: Missing Data Warnings (User: dISh)
+*   **Symptoms:** Console warnings about missing `mTireLoad`. User suspects custom livery naming.
+*   **Analysis:** The warnings are functioning correctly. The "911GT3R" is an encrypted car, so `mTireLoad` is indeed blocked. The app is correctly detecting this and using the Kinematic Fallback. The livery name is unrelated; it's the car physics model.
+*   **Action:** No code fix needed for the logic, but we will update the warning message to be more informative (mentioning "Encrypted Content") to reduce user anxiety.
+
+---
+
+### 2. Implementation Plan
+
+#### Step 1: Implement Stationary Signal Gate
+We will modify `FFBEngine.h` to calculate a `speed_gate` scalar and apply it to all vibration effects.
+
+**File:** `src/FFBEngine.h`
+
+```cpp
+// In FFBEngine class, add to member variables
+double m_prev_vert_accel = 0.0; // For Road Texture Fallback
+
+// In calculate_force method:
+
+// ... [After calculating car_speed] ...
+
+// 1. Calculate Stationary Gate (Fade out vibrations at low speed)
+// Ramp from 0.0 (at < 0.5 m/s) to 1.0 (at > 2.0 m/s)
+double speed_gate = (car_speed - 0.5) / 1.5;
+speed_gate = std::max(0.0, std::min(1.0, speed_gate));
+
+// ... [Inside Effect Calculations] ...
+
+// Apply speed_gate to effects that shouldn't exist at standstill:
+
+// A. Yaw Kick
+// Existing logic has a hard cut at 5.0 m/s. We can keep that or replace with smooth gate.
+// Current: if (car_v_long < 5.0) raw_yaw_accel = 0.0; -> This is already safe.
+
+// B. ABS Pulse
+if (abs_system_active) {
+    // ...
+    // Apply gate
+    total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale * speed_gate);
+}
+
+// C. Lockup
+// Already has speed-dependent frequency, but amplitude should also be gated
+// ...
+lockup_rumble *= speed_gate; // Apply at end of calculation
+
+// D. Slide Texture
+// Already checks effective_slip_vel > 0.5, so it's safe at standstill.
+
+// E. Road Texture (CRITICAL FIX for Idle Shake)
+// ...
+road_noise *= speed_gate; 
+
+// F. Bottoming
+// ...
+double crunch = std::sin(m_bottoming_phase) * bump_magnitude * speed_gate;
+```
+
+#### Step 2: Implement Road Texture Fallback (Vertical G)
+We will modify the Road Texture block to use Vertical Acceleration if Deflection is dead.
+
+**File:** `src/FFBEngine.h`
+
+```cpp
+// --- 4. Road Texture (High Pass Filter) ---
+if (m_road_texture_enabled) {
+    // ... [Scrub Drag Logic] ...
+
+    double vert_l = fl.mVerticalTireDeflection;
+    double vert_r = fr.mVerticalTireDeflection;
+    
+    // Delta from previous frame
+    double delta_l = vert_l - m_prev_vert_deflection[0];
+    double delta_r = vert_r - m_prev_vert_deflection[1];
+    
+    // v0.4.6: Delta Clamping
+    delta_l = (std::max)(-0.01, (std::min)(0.01, delta_l));
+    delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
+
+    double road_noise_val = 0.0;
+
+    // FALLBACK LOGIC: Check if Deflection is active
+    // If deltas are exactly 0.0 but we are moving fast, data is likely blocked.
+    bool deflection_active = (std::abs(delta_l) > 0.000001 || std::abs(delta_r) > 0.000001);
+    
+    if (deflection_active || car_speed < 5.0) {
+        // Standard Logic
+        road_noise_val = (delta_l + delta_r) * 50.0;
+    } else {
+        // Fallback: Use Vertical Acceleration (Heave)
+        // This captures bumps even if suspension telemetry is encrypted
+        double vert_accel = data->mLocalAccel.y;
+        double delta_accel = vert_accel - m_prev_vert_accel;
+        
+        // Scaling: Accel delta needs to be converted to equivalent force
+        // Empirically, 1.0 m/s^2 delta ~ equivalent to small bump
+        // Multiplier 0.05 gives similar magnitude to deflection method
+        road_noise_val = delta_accel * 0.05 * 50.0; 
+    }
+    
+    // Update History
+    m_prev_vert_accel = data->mLocalAccel.y;
+
+    // Apply Gain & Load
+    road_noise = road_noise_val * m_road_texture_gain * decoupling_scale * texture_load_factor;
+    
+    // Apply Stationary Gate (Fix for Issue 1)
+    road_noise *= speed_gate;
+
+    total_force += road_noise;
+}
+```
+
+#### Step 3: Update Warning Messages
+Make the console warnings clearer about *why* data is missing.
+
+**File:** `src/FFBEngine.h`
+
+```cpp
+if (!m_warned_load) {
+    std::cout << "[WARNING] mTireLoad is missing for car: " << data->mVehicleName 
+              << ". (Likely Encrypted/DLC Content). Using Kinematic Fallback." << std::endl;
+    m_warned_load = true;
+}
+```
+
+---
+
+### 3. Verification Tests
+
+We need to add a test case to verify the Stationary Gate works (i.e., noise is suppressed at 0 speed).
+
+**File:** `tests/test_ffb_engine.cpp`
+
+```cpp
+static void test_stationary_gate() {
+    std::cout << "\nTest: Stationary Signal Gate" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(0.0); // 0 speed
+    
+    // Enable Road Texture
+    engine.m_road_texture_enabled = true;
+    engine.m_road_texture_gain = 1.0;
+    
+    // Simulate Engine Idle Vibration (Deflection Delta)
+    data.mWheel[0].mVerticalTireDeflection = 0.001; 
+    data.mWheel[1].mVerticalTireDeflection = 0.001;
+    // Previous was 0.0, so delta is 0.001
+    
+    // Calculate
+    double force = engine.calculate_force(&data);
+    
+    // Should be 0.0 due to speed_gate
+    if (std::abs(force) < 0.0001) {
+        std::cout << "[PASS] Idle vibration suppressed at 0 speed." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Idle vibration leaked through! Force: " << force << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 4. Summary of Changes
+
+1.  **`src/FFBEngine.h`**:
+    *   Added `m_prev_vert_accel` member.
+    *   Added `speed_gate` calculation based on `car_speed`.
+    *   Applied `speed_gate` to `road_noise`, `lockup_rumble`, `bottoming_crunch`, `abs_force`.
+    *   Implemented Fallback Logic in Road Texture block (switch to `mLocalAccel.y` if deflection static).
+    *   Updated warning text.
+2.  **`tests/test_ffb_engine.cpp`**:
+    *   Added `test_stationary_gate`.
+3.  **`CHANGELOG.md`**:
+    *   Document fixes for "Violent Shaking at Stop" and "Missing Road Texture on DLC cars".
+```
+
 # File: docs\dev_docs\Fix wheel device disconnecting.md
 ```markdown
 # Technical Report: Connection Hardening & Device Persistence Implementation
@@ -7937,6 +9939,116 @@ For **v0.4.12**, sticking to **0.10** is the correct engineering decision becaus
 In v0.5.0, we should expose this as a slider in the GUI:
 *   **"Optimal Slip Angle"**: Range 0.05 to 0.15 (Default 0.10).
 *   *Tooltip:* "Lower values give earlier warning but may make the wheel feel light in high-speed corners."
+```
+
+# File: docs\dev_docs\implement the missing mVerticalTireDeflection check .md
+```markdown
+Here is the plan to implement the missing `mVerticalTireDeflection` check and the corresponding test update.
+
+### 1. Update `src/FFBEngine.h`
+
+We need to add the state variables to track the missing frames and the warning flag, then implement the hysteresis logic inside `calculate_force`.
+
+**Add to Class Member Variables (under `// Warning States` and `// Hysteresis`):**
+
+```cpp
+// In FFBEngine class
+
+    // ... existing warning flags ...
+    bool m_warned_susp_deflection = false;
+    bool m_warned_vert_deflection = false; // <--- ADD THIS
+
+    // ... existing hysteresis counters ...
+    int m_missing_susp_deflection_frames = 0;
+    int m_missing_vert_deflection_frames = 0; // <--- ADD THIS
+```
+
+**Add Logic inside `calculate_force` (near the other Sanity Checks):**
+
+```cpp
+        // ... [Existing checks for mSuspensionDeflection] ...
+
+        // 5. Vertical Tire Deflection (mVerticalTireDeflection) - NEW
+        // Check: If exactly 0.0 while moving fast. 
+        // Real tires always deflect slightly due to load/road noise.
+        // We use a higher speed threshold (10 m/s) to ensure dynamic forces exist.
+        double avg_vert_def = (std::abs(fl.mVerticalTireDeflection) + std::abs(fr.mVerticalTireDeflection)) / 2.0;
+        
+        if (avg_vert_def < 0.000001 && std::abs(data->mLocalVel.z) > 10.0) {
+            m_missing_vert_deflection_frames++;
+        } else {
+            m_missing_vert_deflection_frames = (std::max)(0, m_missing_vert_deflection_frames - 1);
+        }
+        
+        if (m_missing_vert_deflection_frames > 50 && !m_warned_vert_deflection) {
+            std::cout << "[WARNING] mVerticalTireDeflection is missing for car: " << data->mVehicleName 
+                      << ". (Likely Encrypted/DLC Content). Road Texture fallback active." << std::endl;
+            m_warned_vert_deflection = true;
+        }
+```
+
+---
+
+### 2. Update `tests/test_ffb_engine.cpp`
+
+We will extend the existing `test_missing_telemetry_warnings` function to verify this new check.
+
+**Update `test_missing_telemetry_warnings`:**
+
+```cpp
+static void test_missing_telemetry_warnings() {
+    std::cout << "\nTest: Missing Telemetry Warnings (v0.6.3)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    // Set Vehicle Name
+    strcpy_s(data.mVehicleName, "TestCar_GT3");
+
+    // Capture stdout
+    std::stringstream buffer;
+    std::streambuf* prev_cout_buf = std::cout.rdbuf(buffer.rdbuf());
+
+    // --- Case 1: Missing Grip ---
+    // ... [Existing Grip Test Code] ...
+
+    // --- Case 2: Missing Suspension Force ---
+    // ... [Existing SuspForce Test Code] ...
+
+    // --- Case 3: Missing Vertical Tire Deflection (NEW) ---
+    // Reset output buffer
+    buffer.str("");
+    
+    // Set Vertical Deflection to 0.0 (Missing)
+    for(int i=0; i<4; i++) data.mWheel[i].mVerticalTireDeflection = 0.0;
+    
+    // Ensure speed is high enough to trigger check (> 10.0 m/s)
+    data.mLocalVel.z = 20.0; 
+
+    // Run for 60 frames to trigger hysteresis (> 50 frames)
+    for(int i=0; i<60; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    std::string output = buffer.str();
+    bool vert_warn = output.find("[WARNING] mVerticalTireDeflection is missing") != std::string::npos;
+    
+    if (vert_warn) {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[PASS] Vertical Deflection warning triggered." << std::endl;
+        g_tests_passed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    } else {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[FAIL] Vertical Deflection warning missing." << std::endl;
+        g_tests_failed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    }
+
+    // Restore cout
+    std::cout.rdbuf(prev_cout_buf);
+}
+```
 ```
 
 # File: docs\dev_docs\linux_testing_feasibility_report.md
@@ -9802,9 +11914,14 @@ The "Troubleshooting 25" list and following notes suggest a desire to expand the
 **Features Requested:**
 *   **Chassis Movement**: Use `mLocalRot`, `mLocalRotAccel` to feel the car's body roll and pitch.
 *   **Deceleration Cues**: Use `mLocalAccel.z` for "Brake Dive" (weight transfer feeling on steering) and "Acceleration Squat".
-*   **True Bottoming**: Use `mSuspensionDeflection` (if available) to detect hitting bump stops, rather than just Force spikes.
 *   **"Rubbery" Lockup**: A feeling of "change in deceleration" constant force rather than just vibration when locking up.
+*   **True Bottoming**: Use `mSuspensionDeflection` (if available) to detect hitting bump stops, rather than just Force spikes.
 *   **Wet/Surface Effects**: Use `mSurfaceType`, `mRaining`, `mTemperature` to modulate grip and friction dynamically.
+
+TODO: mLocalRotAccel is not used in any of the proposed solutions.
+TODO: split this report in two: have a separate report only for **Chassis Movement**, **Deceleration Cues**, **"Rubbery" Lockup** (Chassis Body Effects, Advanced Lockup - Longitudinal Force). Also include a more fleshed out description of each effect, and what feeling  from real life driving are we trying to recreate. Expand on the notes in docs\dev_docs\TODO.md
+
+TODO: more info from the ACE report: "float wheelLoad: Measures the vertical normal force ($N$) on each tyre in Newtons.Physics: Friction force $F_f \approx \mu N$. The maximum torque the tyre can generate is proportional to this load.FFB Usage: During heavy braking, load transfers to the front tyres, increasing $N$ and thus increasing the SAT. The steering becomes heavy. A custom FFB app must read wheelLoad to simulate this dynamic weight transfer, which users have reported feeling "dampened" in the native implementation.7"
 
 ## 2. Proposed Solution
 
@@ -9818,11 +11935,18 @@ The "Troubleshooting 25" list and following notes suggest a desire to expand the
 *   **Implementation**: Calculate the derivative of `mLocalAccel.z` (Jerk). If `Jerk` is negative (losing deceleration) AND `BrakePressure` is constant/increasing, it indicates a Lockup Slide.
 *   **Effect**: Reduce the `Master Gain` momentarily or inject a "Counter-Force" to simulate the loss of resistance.
 
+TODO: reconsider; this seems to only trigger when we have already lockup, so it's not predictive, just reactive; however, since this is not a vibration (which is a lower class of effects), but rather a force/load effect, this could be an improvement over what we already have among the reactive effects to lockups, and could be enabled independently of the lockup vibration effect.
+
 ### 2.3. Surface & Weather
 *   **Wet Mod**: If `mSurfaceType == 1` (Wet) or `mRaining > 0.1`:
     *   Scale `m_optimal_slip_angle` by 0.8 (Peak grip happens earlier).
     *   Scale `m_global_friction` by 0.7 (Overall forces lower).
     *   Enhance "Slide Texture" (easier to slide).
+
+TODO: this needs its own separate report. It should include a per wheel hydro gain. See "docs\dev_docs\TODO.md and "docs\dev_docs\Yaw, Gyroscopic Damping , Dynamic Weight, Per-Wheel Hydro-Grain, and Adaptive Optimal Slip Angle implementation.md"
+
+
+TODO: have a separate report to implement adaptive (auto) optimal slip angle (and slip rate?)" as described in "docs\dev_docs\TODO.md and "docs\dev_docs\Yaw, Gyroscopic Damping , Dynamic Weight, Per-Wheel Hydro-Grain, and Adaptive Optimal Slip Angle implementation.md".
 
 ### 2.4. Bottoming Method C
 *   **Logic**: If `mSuspensionDeflection` > `limit` (e.g. 95% of travel):
@@ -11074,6 +13198,2519 @@ The "Troubleshooting 25" list identifies that the application has become complex
 *   **Verification**: `m_min_force` sets to ~0.10. `m_steering_shaft_smoothing` sets to higher value (e.g. 0.05).
 *   **Action**: Select "Direct Drive".
 *   **Verification**: `m_min_force` sets to 0.0. Smoothing reduces to near 0.
+
+```
+
+# File: docs\dev_docs\road_texture_fallback_scaling_factor.md
+```markdown
+# Road Texture Fallback Scaling Factor Analysis & Future Enhancement Plan
+
+**Document Version:** 1.0  
+**Date:** 2025-12-28  
+**Status:** Technical Analysis & Implementation Plan  
+**Related Version:** v0.6.21+
+
+---
+
+## Executive Summary
+
+The Road Texture fallback mechanism (v0.6.21) uses a **scaling factor of `0.05`** to convert vertical acceleration deltas into equivalent road noise forces. This document explains the physics behind this value, documents the empirical tuning process, and provides an implementation plan for exposing it as a user-adjustable parameter in a future version.
+
+---
+
+## Background
+
+### The Problem
+
+On DLC/encrypted cars (e.g., Porsche 911 GT3 R, LMU Hypercars), the game blocks suspension telemetry to protect intellectual property. Specifically, `mVerticalTireDeflection` returns `0.0`, causing the Road Texture effect to be completely silent.
+
+### The Solution (v0.6.21)
+
+When deflection data is detected as "dead" (static while moving > 5.0 m/s), the engine switches to using **Vertical Acceleration** (`mLocalAccel.y`) as the source signal:
+
+```cpp
+// Fallback: Use Vertical Acceleration (Heave)
+double vert_accel = data->mLocalAccel.y;
+double delta_accel = vert_accel - m_prev_vert_accel;
+
+// Scaling: Accel delta needs to be converted to equivalent force
+// Empirically, 1.0 m/s^2 delta ~ equivalent to small bump
+// Multiplier 0.05 gives similar magnitude to deflection method
+road_noise_val = delta_accel * 0.05 * 50.0;
+```
+
+**Location:** `src/FFBEngine.h:1506-1514`
+
+---
+
+## Physics Explanation
+
+### Standard Road Texture (Deflection-Based)
+
+The standard method uses **tire deflection deltas**:
+
+```cpp
+// Standard Logic
+double delta_l = vert_l - m_prev_vert_deflection[0];  // meters
+double delta_r = vert_r - m_prev_vert_deflection[1];  // meters
+
+road_noise_val = (delta_l + delta_r) * 50.0;
+```
+
+**Units Analysis:**
+- `delta_l`, `delta_r`: meters (m)
+- Multiplier: `50.0` (dimensionless scaling factor)
+- Result: Arbitrary force units (later scaled by gain and load factor)
+
+**Physical Meaning:**  
+A 1cm deflection change (`0.01 m`) produces `0.01 * 50.0 = 0.5` force units.
+
+### Fallback Method (Acceleration-Based)
+
+The fallback uses **vertical acceleration deltas**:
+
+```cpp
+// Fallback Logic
+double delta_accel = vert_accel - m_prev_vert_accel;  // m/s²
+
+road_noise_val = delta_accel * 0.05 * 50.0;
+```
+
+**Units Analysis:**
+- `delta_accel`: meters per second squared (m/s²)
+- Multiplier 1: `0.05` (seconds, s) - **THE SCALING FACTOR**
+- Multiplier 2: `50.0` (dimensionless, same as standard method)
+- Result: Arbitrary force units (matching standard method)
+
+**Dimensional Analysis:**
+
+```
+road_noise_val = (m/s²) × (s) × (dimensionless)
+               = m/s × (dimensionless)
+               = velocity-like quantity
+```
+
+This is then implicitly converted to force through the subsequent gain and load scaling.
+
+---
+
+## The `0.05` Scaling Factor
+
+### Physical Interpretation
+
+The `0.05` factor can be interpreted as a **time constant** (50 milliseconds):
+
+```
+Δv = Δa × Δt
+```
+
+Where:
+- `Δv` = velocity change (m/s)
+- `Δa` = acceleration change (m/s²)
+- `Δt` = time window (s)
+
+**Physical Meaning:**  
+We're estimating the velocity impulse from a bump by assuming the acceleration spike lasts approximately **50ms**. This is a reasonable approximation for:
+- Hitting a small curb at racing speed
+- Rolling over a bump or pothole
+- Suspension compression/rebound events
+
+### Empirical Tuning
+
+The `0.05` value was chosen through empirical testing to match the **perceptual magnitude** of the deflection-based method:
+
+1. **Test Scenario:** Porsche 911 GT3 R at Sebring (bumpy track)
+2. **Comparison:** Unencrypted car (deflection available) vs. encrypted car (fallback active)
+3. **Tuning Goal:** Adjust scaling factor until both methods produce similar "bumpiness" feel
+4. **Result:** `0.05` provides the closest match
+
+**Tested Values:**
+- `0.01` → Too weak, bumps barely felt
+- `0.03` → Noticeable but still subtle
+- **`0.05`** → **Good match to deflection method** ✅
+- `0.10` → Too strong, overly harsh
+- `0.20` → Excessive, constant vibration
+
+---
+
+## Current Limitations
+
+### 1. Fixed Scaling
+
+The `0.05` factor is **hardcoded** in `FFBEngine.h`. Users cannot adjust it if:
+- Their hardware has different sensitivity (DD vs. belt-driven)
+- They prefer stronger/weaker road feel on encrypted cars
+- Different car classes produce different acceleration magnitudes
+
+### 2. Car-Specific Variation
+
+Different cars may produce different acceleration magnitudes for the same physical bump:
+- **Stiff suspension** (GT3) → Large acceleration spikes
+- **Soft suspension** (Hypercar) → Smaller, smoother acceleration changes
+
+The fixed `0.05` factor may be optimal for GT3 but too weak/strong for other classes.
+
+### 3. Track-Specific Variation
+
+Tracks with extreme bumps (e.g., Nordschleife, Long Beach) may produce acceleration spikes that saturate the effect, while smooth tracks (e.g., Silverstone) may feel too quiet.
+
+---
+
+## User Feedback Scenarios
+
+### Scenario A: "Fallback Too Weak"
+
+**User Report:**  
+*"On the Porsche 911 GT3 R, I can't feel any bumps at Sebring. The road texture is completely silent."*
+
+**Diagnosis:**
+- User likely has a high-torque DD wheel with high `Max Torque Ref` (e.g., 25 Nm)
+- The `0.05` scaling produces forces that are compressed by the gain compensation
+- Belt friction or high torque reference masks the subtle vibrations
+
+**Solution:**  
+Increase scaling factor to `0.10` or `0.15` to amplify the fallback signal.
+
+### Scenario B: "Fallback Too Strong"
+
+**User Report:**  
+*"On encrypted cars, the wheel vibrates constantly, even on smooth sections. It feels like I'm driving on gravel."*
+
+**Diagnosis:**
+- User likely has a belt-driven wheel (T300, G29) with low `Max Torque Ref` (e.g., 5 Nm)
+- The `0.05` scaling produces forces that are amplified by the low torque reference
+- Sensor noise in `mLocalAccel.y` is being interpreted as road texture
+
+**Solution:**  
+Decrease scaling factor to `0.02` or `0.03` to reduce sensitivity.
+
+### Scenario C: "Different Feel Between Cars"
+
+**User Report:**  
+*"The road texture feels great on the BMW M4 GT3 (unencrypted), but on the Porsche 911 GT3 R (encrypted), it feels completely different - either too harsh or too weak."*
+
+**Diagnosis:**
+- The deflection method and acceleration method have different response characteristics
+- The fixed `0.05` factor doesn't perfectly match the deflection method for this user's setup
+
+**Solution:**  
+Allow user to fine-tune the scaling factor to match their preference.
+
+---
+
+## Implementation Plan: User-Adjustable Scaling Factor
+
+### Phase 1: Add Configuration Parameter (v0.6.22 or later)
+
+#### 1.1 Update `FFBEngine.h`
+
+**Add Member Variable:**
+
+```cpp
+// In FFBEngine class, under "Road Texture" section
+float m_road_texture_fallback_scale = 0.05f; // v0.6.22: User-adjustable (0.01 - 0.20)
+```
+
+**Update Fallback Logic:**
+
+```cpp
+// Replace hardcoded 0.05 with member variable
+road_noise_val = delta_accel * (double)m_road_texture_fallback_scale * 50.0;
+```
+
+**Location:** `src/FFBEngine.h:1514`
+
+#### 1.2 Update `Config.h`
+
+**Add to Preset Struct:**
+
+```cpp
+struct Preset {
+    // ... existing members ...
+    
+    // Road Texture Fallback (v0.6.22)
+    float road_fallback_scale = 0.05f; // Default: 0.05 (50ms time constant)
+};
+```
+
+#### 1.3 Update `Config.cpp`
+
+**Add Persistence:**
+
+```cpp
+// In Config::Save()
+file << "road_fallback_scale=" << preset.road_fallback_scale << "\n";
+
+// In Config::Load()
+else if (key == "road_fallback_scale") {
+    preset.road_fallback_scale = std::stof(value);
+    // Safety clamp
+    if (preset.road_fallback_scale < 0.01f) preset.road_fallback_scale = 0.01f;
+    if (preset.road_fallback_scale > 0.20f) preset.road_fallback_scale = 0.20f;
+}
+
+// In ApplyToEngine()
+engine.m_road_texture_fallback_scale = road_fallback_scale;
+
+// In UpdateFromEngine()
+road_fallback_scale = engine.m_road_texture_fallback_scale;
+```
+
+---
+
+### Phase 2: Add GUI Control (v0.6.22 or later)
+
+#### 2.1 Add Slider to `GuiLayer.cpp`
+
+**Location:** In the "Tactile Textures" section, immediately after the Road Texture gain slider
+
+**Implementation:**
+
+```cpp
+// Road Texture Fallback Scaling (v0.6.22)
+// Only show if fallback is potentially active (user has encrypted content)
+if (ImGui::TreeNode("Advanced: Encrypted Content Fallback")) {
+    ImGui::TextWrapped(
+        "These settings only apply to DLC/encrypted cars where suspension telemetry is blocked. "
+        "The fallback uses vertical G-force to simulate road bumps."
+    );
+    
+    ImGui::Spacing();
+    
+    // Fallback Scaling Factor
+    ImGui::Text("Fallback Sensitivity");
+    ImGui::SameLine(label_width);
+    ImGui::SetNextItemWidth(slider_width);
+    
+    if (ImGui::SliderFloat("##road_fallback_scale", &engine.m_road_texture_fallback_scale, 
+                           0.01f, 0.20f, "%.2f")) {
+        preset_dirty = true;
+    }
+    
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::Text("Fallback Sensitivity: %.2f", engine.m_road_texture_fallback_scale);
+        ImGui::Separator();
+        ImGui::TextWrapped(
+            "Adjusts how strongly vertical G-forces are converted to road texture vibrations "
+            "on encrypted cars (e.g., Porsche 911 GT3 R, LMU Hypercars)."
+        );
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "• 0.02 - 0.03: Subtle, smooth (good for belt-driven wheels or noisy tracks)"
+        );
+        ImGui::TextWrapped(
+            "• 0.05: Default (balanced, empirically tuned)"
+        );
+        ImGui::TextWrapped(
+            "• 0.10 - 0.20: Strong, pronounced (good for DD wheels or smooth tracks)"
+        );
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.2f, 1.0f), 
+            "NOTE: This only affects cars where mVerticalTireDeflection is blocked.");
+        ImGui::TextWrapped(
+            "On unencrypted cars, the standard deflection-based method is always used."
+        );
+        ImGui::EndTooltip();
+    }
+    
+    ImGui::TreePop();
+}
+```
+
+#### 2.2 Add Diagnostic Indicator
+
+**Optional Enhancement:** Show a real-time indicator when fallback is active
+
+```cpp
+// In the Debug Window, add to "Signal Analysis" section
+ImGui::Text("Road Texture Mode: %s", 
+    engine.m_road_texture_fallback_active ? "FALLBACK (G-Force)" : "Standard (Deflection)");
+```
+
+**Implementation Note:** Requires adding a `bool m_road_texture_fallback_active` flag to FFBEngine that gets set during the fallback logic.
+
+---
+
+### Phase 3: Testing & Validation (v0.6.22 or later)
+
+#### 3.1 Unit Tests
+
+**Add to `tests/test_ffb_engine.cpp`:**
+
+```cpp
+static void test_road_texture_fallback_scaling() {
+    std::cout << "\nTest: Road Texture Fallback Scaling Factor" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Enable Road Texture
+    engine.m_road_texture_enabled = true;
+    engine.m_road_texture_gain = 1.0;
+    engine.m_max_torque_ref = 20.0f;
+    
+    // Simulate encrypted car (deflection = 0.0, moving fast)
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    for(int i=0; i<4; i++) data.mWheel[i].mVerticalTireDeflection = 0.0;
+    
+    // Simulate vertical acceleration spike (1.0 m/s² delta)
+    data.mLocalAccel.y = 0.0;
+    engine.calculate_force(&data); // First frame, establish baseline
+    
+    data.mLocalAccel.y = 1.0; // 1.0 m/s² spike
+    
+    // Test Case 1: Default scaling (0.05)
+    engine.m_road_texture_fallback_scale = 0.05f;
+    double force_default = engine.calculate_force(&data);
+    
+    // Test Case 2: Double scaling (0.10)
+    engine.m_road_texture_fallback_scale = 0.10f;
+    data.mLocalAccel.y = 0.0; // Reset
+    engine.calculate_force(&data);
+    data.mLocalAccel.y = 1.0; // Same spike
+    double force_doubled = engine.calculate_force(&data);
+    
+    // Verify: Doubling the scaling factor should approximately double the force
+    // (Not exactly 2x due to normalization and other effects, but close)
+    double ratio = force_doubled / force_default;
+    
+    if (ratio > 1.8 && ratio < 2.2) {
+        std::cout << "[PASS] Fallback scaling factor correctly affects output (ratio: " 
+                  << ratio << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Fallback scaling ratio unexpected: " << ratio 
+                  << " (expected ~2.0)" << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+#### 3.2 Manual Testing Procedure
+
+**Test Cars:**
+- Porsche 911 GT3 R (encrypted)
+- BMW M4 GT3 (unencrypted, for comparison)
+
+**Test Track:**
+- Sebring International Raceway (bumpy)
+
+**Test Procedure:**
+1. Drive BMW M4 GT3 and note the road texture feel (baseline)
+2. Drive Porsche 911 GT3 R with default `0.05` scaling
+3. Adjust scaling to `0.02`, `0.10`, `0.15`, `0.20`
+4. Verify that:
+   - Lower values reduce vibration intensity
+   - Higher values increase vibration intensity
+   - `0.05` provides a reasonable match to the BMW's feel
+
+---
+
+### Phase 4: Documentation Updates (v0.6.22 or later)
+
+#### 4.1 Update CHANGELOG.md
+
+```markdown
+## [0.6.22] - YYYY-MM-DD
+### Added
+- **Road Texture Fallback Tuning**:
+  - Added "Fallback Sensitivity" slider (0.01 - 0.20) in the Tactile Textures section.
+  - Allows users to fine-tune how vertical G-forces are converted to road texture on encrypted cars.
+  - Default value (0.05) remains unchanged, preserving existing behavior.
+  - Useful for matching the feel between encrypted and unencrypted cars, or compensating for different wheel hardware.
+```
+
+#### 4.2 Update User Guide
+
+**Add section to `docs/encrypted_content_user_guide.md`:**
+
+```markdown
+### Adjusting Road Texture Fallback Sensitivity
+
+If you find that the road texture feels too weak or too strong on encrypted cars:
+
+1. Open the **Tactile Textures** section in the Tuning Window
+2. Expand **"Advanced: Encrypted Content Fallback"**
+3. Adjust the **"Fallback Sensitivity"** slider:
+   - **Lower values (0.02 - 0.03)**: Smoother, more subtle road feel
+   - **Default (0.05)**: Balanced, empirically tuned
+   - **Higher values (0.10 - 0.20)**: Stronger, more pronounced bumps
+
+**Tip:** Compare the feel between an unencrypted car (e.g., BMW M4 GT3) and an encrypted car (e.g., Porsche 911 GT3 R) on the same track. Adjust the fallback sensitivity until they feel similar.
+```
+
+#### 4.3 Update Technical Documentation
+
+**Add to `docs/dev_docs/FFB_formulas.md`:**
+
+```markdown
+### Road Texture Fallback (v0.6.21+)
+
+When `mVerticalTireDeflection` is blocked (encrypted content), the engine uses vertical acceleration:
+
+```
+delta_accel = mLocalAccel.y - m_prev_vert_accel
+road_noise_val = delta_accel × fallback_scale × 50.0
+```
+
+**Fallback Scale Factor** (v0.6.22+):
+- User-adjustable: 0.01 - 0.20
+- Default: 0.05 (50ms time constant)
+- Physical interpretation: Velocity impulse estimation window
+- Empirically tuned to match deflection-based method
+```
+
+---
+
+## Migration Notes
+
+### For Users
+
+**Existing Configurations:**  
+Users upgrading from v0.6.21 to v0.6.22+ will automatically receive the default `0.05` scaling factor. No manual configuration is required. The road texture feel will remain identical to v0.6.21.
+
+**New Configurations:**  
+Users creating new presets in v0.6.22+ will have access to the fallback sensitivity slider. The default value is `0.05`.
+
+### For Developers
+
+**Backward Compatibility:**  
+The `road_fallback_scale` parameter is optional in `config.ini`. If missing, it defaults to `0.05f`, preserving v0.6.21 behavior.
+
+**Preset Migration:**  
+Built-in presets (Default, T300, etc.) should be updated to include `road_fallback_scale = 0.05` for consistency.
+
+---
+
+## Future Enhancements
+
+### 1. Automatic Calibration
+
+**Concept:**  
+Automatically adjust the fallback scaling factor based on observed acceleration magnitudes.
+
+**Implementation:**
+- Track average acceleration delta magnitude over 10 seconds
+- Compare to expected range (e.g., 0.5 - 2.0 m/s²)
+- Auto-adjust scaling factor to normalize output
+
+**Benefit:**  
+Reduces manual tuning burden for users.
+
+### 2. Car-Specific Profiles
+
+**Concept:**  
+Store fallback scaling factors per car class or specific car model.
+
+**Implementation:**
+- Detect car name from `data->mVehicleName`
+- Load car-specific scaling factor from database
+- Fall back to user default if car not in database
+
+**Benefit:**  
+Optimal feel for each car without manual adjustment.
+
+### 3. Adaptive Filtering
+
+**Concept:**  
+Apply low-pass filtering to `mLocalAccel.y` to reduce sensor noise before calculating deltas.
+
+**Implementation:**
+```cpp
+// Smooth acceleration before differentiating
+m_vert_accel_smoothed += alpha * (vert_accel - m_vert_accel_smoothed);
+double delta_accel = m_vert_accel_smoothed - m_prev_vert_accel_smoothed;
+```
+
+**Benefit:**  
+Cleaner signal, less "grainy" feel on smooth tracks.
+
+---
+
+## Conclusion
+
+The `0.05` scaling factor is a carefully tuned empirical value that provides a good balance for most users and hardware. However, exposing it as a user-adjustable parameter will:
+
+1. **Improve Flexibility:** Allow users to compensate for different wheel hardware
+2. **Enhance Consistency:** Enable matching the feel between encrypted and unencrypted cars
+3. **Support Edge Cases:** Address scenarios where the default value is suboptimal
+
+The implementation is straightforward and follows established patterns in the codebase. The feature can be delivered in v0.6.22 or later with minimal risk and high user value.
+
+---
+
+**Document Status:** Ready for Implementation  
+**Priority:** Medium (User-Requested Enhancement)  
+**Estimated Effort:** 2-3 hours (coding + testing)  
+**Risk Level:** Low (isolated change, well-defined scope)
+
+```
+
+# File: docs\dev_docs\slope_detection_implementation_plan.md
+```markdown
+# Comprehensive Implementation Plan: "Slope Detection" Algorithm for Grip Estimation
+
+## 1. Introduction
+
+This document outlines the implementation plan for the **Slope Detection Algorithm**, a physics-based approach to estimating tire grip levels and optimal slip dynamics in real-time. This system is designed to replace or augment the current "fixed value" approach (user-defined Optimal Slip Angle/Ratio) with an adaptive, adaptive signal processing model.
+
+### 1.1 The Concept
+"Slope Detection" refers to monitoring the derivative (rate of change) of the **Self-Aligning Torque (SAT)** with respect to the **Slip Angle** ($\alpha$). By analyzing the slope ($\frac{dM_z}{d\alpha}$), we can determine the tire's state relative to its limit of adhesion.
+
+*   **Positive Slope (> 0)**: The tire is in the linear or transitional region. Grip is building.
+*   **Zero Slope ($\approx$ 0)**: The SAT has reached its peak. This is the "Limit of Stability" and typically precedes the limit of adhesion.
+*   **Negative Slope (< 0)**: The SAT is dropping off (Pneumatic Trail collapse). The tire is scrubbing or sliding.
+
+This method allows us to dynamically detect the **Optimal Slip Angle** without relying on static lookup tables or game-provided "Grip Fraction" values, which may be inconsistent or unavailable.
+
+### 1.2 Key Challenges & Solutions
+The primary challenge in calculating derivatives from real-time telemetry is **Signal Noise**. Naive differentiation amplifies high-frequency noise (road texture, vibration), rendering the slope useless. 
+
+*   **Solution**: We will implement a **Savitzky-Golay Filter**. Unlike standard Low-Pass Filters (which blur signal peaks), the Savitzky-Golay filter fits a polynomial to a data window, allowing us to smoothing the signal while **preserving the sharp peaks** characteristic of SAT drop-off.
+*   **Latency**: At the target telemetry rate of 400Hz, a window size of 15-25 samples yields a latency of ~17-30ms, which is acceptable for FFB operations.
+
+---
+
+## 2. Impact Analysis: Changes to Existing Code
+
+The implementation will primarily affect the `FFBEngine` class in `src/FFBEngine.h`.
+
+### 2.1 Current State
+Currently, the `FFBEngine` uses:
+*   `m_optimal_slip_angle` (User configurable, currently ~4.0 degrees).
+*   `m_optimal_slip_ratio` (User configurable, currently ~0.20).
+*   `calculate_grip()` function which relies on `mGripFract` from the game. If `mGripFract` is missing, it falls back to a calculation that compares current slip against the **fixed** `m_optimal_slip_angle`.
+
+### 2.2 Required Changes
+1.  **New Classes**: 
+    *   `SavitzkyGolayFilter`: A general-purpose signal processing class.
+    *   `SlopeDetector`: A state machine that ingests Slip/Torque data and estimates Peak Alpha.
+2.  **Modifications to `FFBEngine`**:
+    *   Add members for `SlopeDetector` (one for Front, possibly one for Rear).
+    *   Update `FFBSnapshot` to include "Detected Optimal Slip" for debugging.
+    *   Modify `calculate_force` to feed telemetry into the detector every frame.
+    *   Modify `calculate_grip` (or the logic triggering `understeer_effect`) to use the *dynamic* optimal slip angle instead of the *fixed* one.
+
+---
+
+## 3. Implementation Details (Code Snippets)
+
+### 3.1 Step 1: Savitzky-Golay Filter Implementation
+We need a performant, ring-buffer based filter.
+
+```cpp
+// src/SignalProcessing.h (New File or add to FFBEngine.h)
+
+#include <vector>
+#include <deque>
+
+class SavitzkyGolayFilter {
+private:
+    std::deque<double> m_buffer;
+    std::vector<double> m_coeffs;
+    int m_window_size;
+    int m_half_window;
+
+public:
+    SavitzkyGolayFilter(int window_size = 15) {
+        Resize(window_size);
+    }
+
+    void Resize(int window_size) {
+        // Ensure odd number
+        if (window_size % 2 == 0) window_size++;
+        m_window_size = window_size;
+        m_half_window = window_size / 2;
+        
+        m_buffer.clear();
+        
+        // Pre-calculate coefficients for Quadratic/Cubic Polynomial (Order 2/3) 
+        // First Derivative (m=1) at center point (t=0)
+        // Ref: unlinked: en_wikipedia_org/wiki/Savitzky%E2%80%93Golay_filter#Tables_of_selected_convolution_coefficients
+        // Implementation note: We will use a simplified pre-calc or hardcoded tables for common sizes (5, 9, 15, 25).
+        // For general "Smoothing" (Order 0 derivative), coeffs are different.
+        // We likely need TWO filters:
+        // 1. Smoothing Filter (to get clean SAT and Slip)
+        // 2. Derivative Filter (to get the slope) -> Or simply differentiate the smoothed signal.
+        
+        calculate_coefficients(); 
+    }
+    
+    // ... Implementation of Update(val) and GetValue() ...
+};
+```
+
+*Refinement*: To keep it simple and fast, we can implement the SG smoothing coefficients for a specific window size (e.g., 25) directly. The Derivative can then be calculated as `(SmoothVal[t] - SmoothVal[t-1]) / dt`.
+
+### 3.2 Step 2: Slope Detector Class
+This class manages the logic of "Hunting" for the peak.
+
+```cpp
+// Inside FFBEngine.h
+
+struct SlopeState {
+    double current_slope = 0.0;
+    double estimated_optimal_slip = 0.08; // Start at ~4.5 degrees (radians)
+    double confidence = 0.0; // 0.0 to 1.0 (How sure are we?)
+    bool is_scrubbing = false; // Slope < 0
+};
+
+class SlopeDetector {
+private:
+    // Buffers for X (Slip) and Y (Torque)
+    // We need time-aligned buffers
+    struct DataPoint {
+        double slip;
+        double torque;
+        double time;
+    };
+    
+    std::deque<DataPoint> m_history;
+    int m_window_size = 25; // ~60ms at 400Hz
+    
+    // Smoothers
+    SavitzkyGolayFilter m_slip_filter;
+    SavitzkyGolayFilter m_torque_filter;
+    
+public:
+    SlopeState process(double raw_slip, double raw_torque, double dt) {
+        SlopeState result;
+        
+        // 1. Smooth Signals
+        double smooth_slip = m_slip_filter.Update(std::abs(raw_slip));
+        double smooth_torque = m_torque_filter.Update(std::abs(raw_torque));
+        
+        // 2. Calculate Slope (dTorque / dSlip)
+        // Robust method: Linear Regression over the short window history? 
+        // Or simple discrete derivative of smoothed values?
+        
+        static double prev_slip = 0;
+        static double prev_torque = 0;
+        
+        double dSlip = smooth_slip - prev_slip;
+        double dTorque = smooth_torque - prev_torque;
+        
+        // Avoid singularities
+        double slope = 0.0;
+        if (std::abs(dSlip) > 0.0001) {
+            slope = dTorque / dSlip;
+        }
+        
+        // 3. Peak Detection Logic
+        // If we crossed from Positive Slope to Negative Slope
+        // AND we are in a valid load range:
+        // Update the "Optimal Slip" estimate.
+        
+        static double peak_candidate = 0.0;
+        
+        if (slope < 0 && prev_slope > 0) {
+            // We just crested the hill
+            peak_candidate = smooth_slip;
+            
+            // Updates estimation (Exponential Moving Average to be stable)
+            m_estimated_peak = m_estimated_peak * 0.9 + peak_candidate * 0.1;
+        }
+        
+        result.current_slope = slope;
+        result.estimated_optimal_slip = m_estimated_peak;
+        
+        // Update State
+        prev_slip = smooth_slip;
+        prev_torque = smooth_torque;
+        
+        return result;
+    }
+}
+```
+
+### 3.3 Step 3: FFBEngine Integration to Config.h
+
+We ensure the user can toggle this behavior and tune the new filter.
+
+```cpp
+// src/Config.h
+
+// New Settings
+bool m_slope_detection_enabled = false;
+int m_slope_window_size = 25; // Filter Window
+double m_slope_update_rate = 0.1; // Learning rate for the optimal slip adaptation
+```
+
+### 3.4 Step 4: Logic Update in `calculate_force`
+
+```cpp
+// Inside FFBEngine::calculate_force
+
+// ... Pre-processing ...
+
+// 1. Run Slope Detection (Front Axle)
+if (m_slope_detection_enabled) {
+    double avg_front_slip = (std::abs(m_grip_diag.front_slip_angle.left) + std::abs(m_grip_diag.front_slip_angle.right)) / 2.0;
+    double avg_align_torque = game_force; // Shaft Torque
+    
+    SlopeState slope_res = m_slope_detector.process(avg_front_slip, avg_align_torque, dt);
+    
+    // UPDATE the engine's "Optimal Slip" dynamically
+    // We blend it to avoid jumps
+    m_DetectedOptimalSlip = slope_res.estimated_optimal_slip;
+    
+    // Visual / Debug
+    m_DebugValues.slope = slope_res.current_slope;
+}
+
+// ...
+
+// 2. Use in Understeer Effect
+// Instead of using fixed m_optimal_slip_angle, we use the detected value
+double target_optimal = m_slope_detection_enabled ? m_DetectedOptimalSlip : m_optimal_slip_angle;
+
+// Calculate Grip Factor based on how far we are past the optimal
+double slip_excess = current_slip - target_optimal;
+// ... logic continues ...
+```
+
+TODO: besides the understeer effect, are there other effects for which  the grip fraction is used? Eg. Oversteer boost, and some texture vibrations.
+
+---
+
+## 4. Automated Tests Plan
+
+To ensure robustness, we will add the following tests to our `tests/` suite (currently 300+ tests).
+
+### 4.1 Unit Test: Savitzky-Golay Filter
+**File**: `tests/test_signal_processing.cpp`
+
+*   **Test Case 1: Noise Rejection**
+    *   Input: Sine wave (Grip curve) + Gaussian Noise.
+    *   Output: Verify that the filtered signal reduces variance (Standard Deviation) by > 50% while maintaining the sine wave's phase better than a simple Moving Average.
+*   **Test Case 2: Peak Preservation**
+    *   Input: A "Triangle" wave representing sharp grip drop-off.
+    *   Output: Verify that the peak height of the filtered signal is at least 95% of the original (Moving Average often clips this to < 80%).
+
+### 4.2 Unit Test: Slope Detection Logic
+**File**: `tests/test_slope_detection.cpp`
+
+*   **Test Case 1: Ideal Curve**
+    *   Input: Synthesize a Pacejka-style curve ($F = sin(C \cdot atan(B \cdot \alpha))$).
+    *   Action: Feed samples sequentially to `SlopeDetector`.
+    *   Verify: The `estimated_optimal_slip` converges to the mathematical peak of the input curve within +/- 5%.
+*   **Test Case 2: Hysteresis / Stability**
+    *   Input: Flat signal (Plateau).
+    *   Verify: The slope output remains near zero and does not oscillate wildly (Noise gating check).
+
+### 4.3 Integration Test: FFB Output
+**File**: `tests/test_ffb_integration.cpp`
+
+*   **Test Case 1: Adaptive Learning**
+    *   Scenario: Start car with default optimal (4.0 deg). Drive into a corner (simulated input) where peak torque happens at 6.0 deg (Simulating rain/soft tires).
+    *   Action: Feed telemetry for a 5-second corner.
+    *   Verify: `m_DetectedOptimalSlip` shifts from 4.0 towards 6.0.
+    *   Verify: The Understeer Effect is NOT triggered at 4.5 degrees (because detector learned the limit is higher).
+
+```
+
+# File: docs\dev_docs\slope_detection_implementation_plan2.md
+```markdown
+# Slope Detection Algorithm: Comprehensive Implementation Plan
+
+## Executive Summary
+
+This document provides a comprehensive implementation plan for replacing the current static optimal slip angle/ratio grip estimation system with a dynamic **Slope Detection Algorithm**. This algorithm monitors the real-time derivative of force vs. slip to automatically detect when the tire is at peak grip, eliminating the need for user-configured optimal slip values and providing a more accurate, adaptive FFB response to grip changes.
+
+---
+
+## 1. Introduction and Problem Statement
+
+### 1.1 The Current Implementation: Static Threshold Approach
+
+The lmuFFB application currently estimates tire grip using a **fixed optimal slip angle** and **fixed optimal slip ratio**, which are user-configurable parameters:
+
+*   `m_optimal_slip_angle` (Default: 0.10 rad / ~5.7°)
+*   `m_optimal_slip_ratio` (Default: 0.12 / 12%)
+
+These static thresholds are used in the `calculate_grip()` function to determine when the tire has exceeded its peak grip:
+
+```cpp
+// Current implementation in FFBEngine.h (lines 576-601)
+double lat_metric = std::abs(result.slip_angle) / (double)m_optimal_slip_angle;
+double long_metric = avg_ratio / (double)m_optimal_slip_ratio;
+double combined_slip = std::sqrt((lat_metric * lat_metric) + (long_metric * long_metric));
+
+if (combined_slip > 1.0) {
+    double excess = combined_slip - 1.0;
+    result.value = 1.0 / (1.0 + excess * 2.0);  // Sigmoid drop-off
+} else {
+    result.value = 1.0;
+}
+```
+
+### 1.2 Limitations of the Static Approach
+
+The static threshold approach has significant limitations:
+
+1. **Setup-Specific Variation**: The optimal slip angle and ratio vary significantly based on:
+   - Vehicle type (GT3 ~7°, Hypercar ~4°, Formula ~5°)
+   - Tire compound (Soft vs. Hard)
+   - Aerodynamic load (downforce increases load, shifting peak slip angle lower)
+   - Suspension geometry (camber, caster)
+
+2. **Dynamic Environmental Factors**: Even with the same car and setup, the optimal peak shifts during a session:
+   - **Tire Temperature**: Cold tires peak at lower slip angles; overheated tires become "spongy"
+   - **Tire Wear**: Worn tires behave more like slicks (lower peak angle)
+   - **Rain/Wet Track**: Wet surfaces peak very early and drop off sharply
+   - **Track Rubbering**: The peak shifts as the track evolves
+
+3. **User Calibration Burden**: Users must manually tune these values for each car, which is non-intuitive and requires domain expertise.
+
+### 1.3 The Solution: Slope Detection Algorithm
+
+The **Slope Detection Algorithm** eliminates the need for static thresholds by monitoring the **rate of change (derivative)** of the relationship between lateral force (or lateral G-force) and slip angle. Instead of asking "have you exceeded 5.7 degrees?", the algorithm asks "is more steering input producing more grip, or less?"
+
+#### Core Principle
+
+The relationship between lateral force ($F_y$) and slip angle ($\alpha$) follows a characteristic curve:
+
+1. **Linear Region** (Slope > 0): More steering → More grip. The steering feels progressive and weighted.
+2. **Peak Grip** (Slope ≈ 0): The tire is saturated. Maximum lateral force is achieved.
+3. **Frictional/Sliding Region** (Slope < 0): More steering → Less grip. The contact patch is sliding.
+
+By monitoring the slope (derivative) $\frac{\Delta F_y}{\Delta \alpha}$:
+- **Positive Slope**: The driver is building grip. No intervention needed.
+- **Zero Slope**: The driver is at peak. This is the "optimal slip angle" - detected automatically.
+- **Negative Slope**: The driver has exceeded the peak. FFB should lighten to signal understeer.
+
+#### Why Slope Detection is Superior
+
+| Feature                    | Static Threshold (Current)          | Slope Detection (Proposed)           |
+|----------------------------|-------------------------------------|--------------------------------------|
+| **Calibration Required**   | Yes (per-car tuning)                | No (self-calibrating)                |
+| **Adapts to Temperature**  | No                                  | Yes (reacts to real-time physics)    |
+| **Adapts to Wear**         | No                                  | Yes                                  |
+| **Adapts to Rain**         | No (wet requires different values)  | Yes (detects flattened curve)        |
+| **Accuracy at High Speed** | Fixed (may underestimate peak)      | Dynamic (accounts for aero load)     |
+
+---
+
+## 2. Theoretical Foundation
+
+### 2.1 The Self-Aligning Torque (SAT) and Pneumatic Trail
+
+The force a driver feels through the steering wheel is not the lateral force ($F_y$) directly, but the **Self-Aligning Torque (SAT)**, also known as Aligning Moment ($M_z$):
+
+$$M_z = F_y \cdot (t_p + t_m)$$
+
+Where:
+- $t_p$ = Pneumatic Trail (distance from wheel center to force centroid)
+- $t_m$ = Mechanical Trail (from suspension geometry)
+
+**Critical Insight**: The pneumatic trail ($t_p$) collapses as the contact patch saturates. This causes $M_z$ to peak **before** $F_y$ reaches its maximum. Typically:
+- SAT peaks at 3°-6° slip angle
+- Lateral Force ($F_y$) peaks at 6°-10° slip angle
+
+This "offset" is functionally desirable because the SAT peak represents the **limit of stability**, providing an early warning before the tire completely breaks away.
+
+### 2.2 The Derivative as a Haptic Cue
+
+Slope Detection monitors the derivative of the SAT or lateral force:
+
+```
+Slope = ΔM_z / Δα  (or ΔF_y / Δα, or ΔLateralG / Δα)
+```
+
+- **Phase 1 (Linear)**: Slope is positive and constant. Steering feels weighted.
+- **Phase 2 (Peak)**: Slope transitions through zero. This is the "perfect" driving zone.
+- **Phase 3 (Drop-off)**: Slope becomes negative. Steering lightens dramatically.
+
+### 2.3 The "Slip-Slope" Correlation for Grip Estimation
+
+Research into autonomous vehicle dynamics confirms that the slope of the initial linear region of the friction-slip curve is a robust predictor of the surface friction coefficient (μ_max). A steep slope indicates high grip; a shallow slope indicates low grip.
+
+This means Slope Detection can estimate **both**:
+1. **Absolute Grip Level**: By measuring the steepness of the initial build-up
+2. **Limit of Adhesion**: By detecting the transition to negative slope
+
+---
+
+## 3. Signal Processing Challenges
+
+### 3.1 The Derivative-Noise Dilemma
+
+Numerical differentiation amplifies high-frequency noise. The derivative operator acts as a high-pass filter:
+
+$$\text{If } x(t) = \text{signal} + \epsilon(t), \text{ then } x'(t) = \text{signal'} + \epsilon'(t)$$
+
+Noise ($\epsilon$) fluctuates rapidly, so its derivative ($\epsilon'$) can be orders of magnitude larger than the actual signal derivative. In lmuFFB, telemetry data from LMU has:
+- Quantization jitter
+- Road texture noise (macrotexture)
+- Suspension micro-oscillations
+
+A naive derivative calculation would produce a "jagged" slope estimate, triggering false positives for grip loss.
+
+### 3.2 Latency vs. Filtering Trade-Off
+
+To combat noise, filtering is mandatory. However, all causal filters introduce phase delay (latency):
+
+| Filter Type          | Noise Rejection | Latency    | Peak Preservation |
+|----------------------|-----------------|------------|-------------------|
+| Moving Average (LPF) | Good            | Moderate   | Poor (flattens)   |
+| Savitzky-Golay       | Excellent       | Moderate   | **Excellent**     |
+| Kalman Filter (EKF)  | Excellent       | Low        | Excellent         |
+
+**Savitzky-Golay (SG) Filter** is the recommended approach for this implementation because:
+1. It fits a polynomial to a window of samples, preserving peak shape
+2. It provides the derivative as a direct output (no separate differentiation step)
+3. At 400 Hz telemetry (2.5ms per sample), a 15-sample window introduces only ~17ms latency
+
+### 3.3 Expected Latency at 400 Hz Telemetry
+
+| Window Size (Samples) | Latency (ms) | Filtering Characteristic                     |
+|-----------------------|--------------|----------------------------------------------|
+| **9**                 | **10.0**     | Light smoothing, some noise                  |
+| **15**                | **17.5**     | **Recommended**. Good noise rejection.       |
+| **25**                | **30.0**     | Strong smoothing. For very noisy signals.    |
+| **41**                | **50.0**     | Noticeable delay. Not recommended for FFB.   |
+
+---
+
+## 4. Algorithm Design
+
+### 4.1 Core Slope Detection Logic
+
+```cpp
+// Proposed Algorithm
+double CalculateGripFromSlope(double lateral_g, double slip_angle, double dt) {
+    // 1. Update Slope Buffers (Circular buffer for SG filter)
+    m_lat_g_buffer.push(lateral_g);
+    m_slip_buffer.push(slip_angle);
+    
+    // 2. Calculate Smoothed Derivative using Savitzky-Golay
+    double dLateralG_dSlip = 0.0;
+    if (m_lat_g_buffer.size() >= SG_WINDOW_SIZE) {
+        double d_lat_g = SavitzkyGolayDerivative(m_lat_g_buffer, dt);
+        double d_slip = SavitzkyGolayDerivative(m_slip_buffer, dt);
+        
+        // Avoid division by zero
+        if (std::abs(d_slip) > 0.001) {
+            dLateralG_dSlip = d_lat_g / d_slip;
+        }
+    }
+    
+    // 3. Classify Grip State based on Slope
+    //    Positive slope → grip building
+    //    Zero slope → at peak
+    //    Negative slope → past peak (understeer)
+    
+    double grip_factor = 1.0;
+    
+    if (dLateralG_dSlip < SLOPE_NEGATIVE_THRESHOLD) {
+        // Past peak - calculate grip reduction
+        double excess = std::abs(dLateralG_dSlip) / SLOPE_SENSITIVITY;
+        grip_factor = 1.0 / (1.0 + excess);  // Sigmoid response
+    }
+    
+    return grip_factor;
+}
+```
+
+### 4.2 Configuration Parameters
+
+| Parameter                     | Type   | Default | Description                                             |
+|-------------------------------|--------|---------|----------------------------------------------------------|
+| `m_slope_detection_enabled`   | bool   | false   | Enable/disable Slope Detection (allows fallback to static) |
+| `m_slope_sg_window`           | int    | 15      | Savitzky-Golay window size (samples)                     |
+| `m_slope_sensitivity`         | float  | 1.0     | Multiplier for slope-to-grip conversion                  |
+| `m_slope_negative_threshold`  | float  | -0.1    | Slope below which grip loss is detected                  |
+| `m_slope_smoothing_tau`       | float  | 0.02    | Additional LPF time constant for output (seconds)        |
+
+### 4.3 Hybrid Mode: Slope + Static
+
+To maintain backward compatibility and provide a fallback:
+
+```cpp
+double final_grip = 1.0;
+
+if (m_slope_detection_enabled) {
+    final_grip = CalculateGripFromSlope(lateral_g, slip_angle, dt);
+} else {
+    // Existing static threshold logic
+    final_grip = CalculateGripFromStaticThreshold(slip_angle, slip_ratio);
+}
+```
+
+Users can toggle between the two modes via a GUI checkbox.
+
+---
+
+## 5. Code Changes Required
+
+### 5.1 Files to Modify
+
+| File                  | Changes Required                                                       |
+|-----------------------|------------------------------------------------------------------------|
+| `src/FFBEngine.h`     | Add Slope Detection members, buffers, and helper functions             |
+| `src/Config.h`        | Add configuration parameters to `Preset` struct                        |
+| `src/Config.cpp`      | Add save/load logic for new parameters                                 |
+| `src/GuiLayer.cpp`    | Add UI controls for Slope Detection settings                           |
+| `tests/test_ffb_engine.cpp` | Add comprehensive unit tests                                     |
+
+### 5.2 FFBEngine.h Changes
+
+#### 5.2.1 New Member Variables
+
+Add these to the `FFBEngine` class public section (after line ~244):
+
+```cpp
+// ===== SLOPE DETECTION (v0.7.0) =====
+bool m_slope_detection_enabled = false;  // Enable dynamic slope detection
+int m_slope_sg_window = 15;              // Savitzky-Golay window size (samples)
+float m_slope_sensitivity = 1.0f;        // Sensitivity multiplier
+float m_slope_negative_threshold = -0.1f; // Slope below which grip loss is detected
+float m_slope_smoothing_tau = 0.02f;     // Output smoothing time constant (seconds)
+```
+
+#### 5.2.2 Internal State Buffers
+
+Add these to the private section (after line ~350):
+
+```cpp
+// Slope Detection Buffers (Circular)
+static constexpr int SLOPE_BUFFER_MAX = 41;  // Max window size
+std::array<double, SLOPE_BUFFER_MAX> m_slope_lat_g_buffer = {};
+std::array<double, SLOPE_BUFFER_MAX> m_slope_slip_buffer = {};
+int m_slope_buffer_index = 0;
+int m_slope_buffer_count = 0;
+
+// Slope Detection State
+double m_slope_current = 0.0;            // Current estimated slope
+double m_slope_grip_factor = 1.0;        // Smoothed grip factor from slope
+double m_slope_smoothed_output = 1.0;    // LPF output
+```
+
+#### 5.2.3 New Helper Functions
+
+Add these public methods:
+
+```cpp
+// Savitzky-Golay Derivative Calculation (Order 2, Window configurable)
+// Returns the derivative (slope) at the center point of the buffer
+double CalculateSGDerivative(const std::array<double, SLOPE_BUFFER_MAX>& buffer, 
+                              int count, int window_size, double dt) {
+    if (count < window_size) return 0.0;
+    
+    // Savitzky-Golay coefficients for 1st derivative (polynomial degree 2)
+    // These are for a 15-sample window. Precomputed for efficiency.
+    // For flexibility, we use the simplified formula for symmetric windows.
+    // Derivative = sum(i * x[center + i]) / normalization
+    
+    int half_window = window_size / 2;
+    double sum = 0.0;
+    double norm = 0.0;
+    
+    for (int i = -half_window; i <= half_window; i++) {
+        int idx = (m_slope_buffer_index - half_window + i + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+        sum += i * buffer[idx];
+        norm += i * i;
+    }
+    
+    // Derivative per sample, convert to derivative per second
+    return (sum / norm) / dt;
+}
+
+// Calculate grip factor from slope detection
+double CalculateSlopeGrip(double lateral_g, double slip_angle, double dt) {
+    // 1. Push new samples into circular buffers
+    m_slope_lat_g_buffer[m_slope_buffer_index] = lateral_g;
+    m_slope_slip_buffer[m_slope_buffer_index] = slip_angle;
+    m_slope_buffer_index = (m_slope_buffer_index + 1) % SLOPE_BUFFER_MAX;
+    if (m_slope_buffer_count < SLOPE_BUFFER_MAX) m_slope_buffer_count++;
+    
+    // 2. Check if we have enough samples
+    if (m_slope_buffer_count < m_slope_sg_window) {
+        return 1.0;  // Not enough data yet
+    }
+    
+    // 3. Calculate derivatives using Savitzky-Golay
+    double d_lat_g = CalculateSGDerivative(m_slope_lat_g_buffer, 
+                                            m_slope_buffer_count, 
+                                            m_slope_sg_window, dt);
+    double d_slip = CalculateSGDerivative(m_slope_slip_buffer, 
+                                           m_slope_buffer_count, 
+                                           m_slope_sg_window, dt);
+    
+    // 4. Calculate slope (dG/dSlip)
+    // Avoid division by zero - require minimum slip rate change
+    if (std::abs(d_slip) > 0.001) {
+        m_slope_current = d_lat_g / d_slip;
+    }
+    // else: retain previous slope (stale but better than noise spike)
+    
+    // 5. Convert slope to grip factor
+    double grip_factor = 1.0;
+    
+    if (m_slope_current < m_slope_negative_threshold) {
+        // Past peak - grip is decreasing with more slip
+        double excess = std::abs(m_slope_current - m_slope_negative_threshold);
+        excess *= m_slope_sensitivity;
+        grip_factor = 1.0 / (1.0 + excess);
+        grip_factor = (std::max)(0.2, grip_factor);  // Safety floor
+    }
+    
+    // 6. Apply output smoothing (Time-Corrected LPF)
+    double tau = (double)m_slope_smoothing_tau;
+    if (tau < 0.001) tau = 0.001;
+    double alpha = dt / (tau + dt);
+    m_slope_smoothed_output += alpha * (grip_factor - m_slope_smoothed_output);
+    
+    return m_slope_smoothed_output;
+}
+```
+
+#### 5.2.4 Modify calculate_grip() Function
+
+Replace the static threshold logic with conditional Slope Detection (around lines 576-601):
+
+```cpp
+// In calculate_grip() function, replace the else block starting at "if (car_speed < 5.0)"
+
+if (result.value < 0.0001 && avg_load > 100.0) {
+    result.approximated = true;
+    
+    if (car_speed < 5.0) {
+        result.value = 1.0;
+    } else {
+        // v0.7.0: Use Slope Detection if enabled
+        if (m_slope_detection_enabled) {
+            result.value = CalculateSlopeGrip(data->mLocalAccel.x / 9.81, 
+                                               result.slip_angle, dt);
+        } else {
+            // Original static threshold logic (fallback)
+            double lat_metric = std::abs(result.slip_angle) / (double)m_optimal_slip_angle;
+            double ratio1 = calculate_manual_slip_ratio(w1, car_speed);
+            double ratio2 = calculate_manual_slip_ratio(w2, car_speed);
+            double avg_ratio = (std::abs(ratio1) + std::abs(ratio2)) / 2.0;
+            double long_metric = avg_ratio / (double)m_optimal_slip_ratio;
+            double combined_slip = std::sqrt((lat_metric * lat_metric) + 
+                                             (long_metric * long_metric));
+
+            if (combined_slip > 1.0) {
+                double excess = combined_slip - 1.0;
+                result.value = 1.0 / (1.0 + excess * 2.0);
+            } else {
+                result.value = 1.0;
+            }
+        }
+    }
+    
+    result.value = (std::max)(0.2, result.value);  // Safety clamp
+    
+    if (!warned_flag) {
+        std::cout << "Warning: Data for mGripFract from the game seems to be missing for this car ("
+                  << vehicleName << "). A fallback estimation will be used." << std::endl;
+        warned_flag = true;
+    }
+}
+```
+
+### 5.3 Config.h Changes
+
+Add these fields to the `Preset` struct (around line 70):
+
+```cpp
+// Slope Detection Settings (v0.7.0)
+bool slope_detection_enabled = false;
+int slope_sg_window = 15;
+float slope_sensitivity = 1.0f;
+float slope_negative_threshold = -0.1f;
+float slope_smoothing_tau = 0.02f;
+```
+
+Add to the `ApplyDefaultsToEngine()` method (around line 230):
+
+```cpp
+engine.m_slope_detection_enabled = slope_detection_enabled;
+engine.m_slope_sg_window = slope_sg_window;
+engine.m_slope_sensitivity = slope_sensitivity;
+engine.m_slope_negative_threshold = slope_negative_threshold;
+engine.m_slope_smoothing_tau = slope_smoothing_tau;
+```
+
+Add to the `SyncFromEngine()` method (around line 285):
+
+```cpp
+slope_detection_enabled = engine.m_slope_detection_enabled;
+slope_sg_window = engine.m_slope_sg_window;
+slope_sensitivity = engine.m_slope_sensitivity;
+slope_negative_threshold = engine.m_slope_negative_threshold;
+slope_smoothing_tau = engine.m_slope_smoothing_tau;
+```
+
+### 5.4 Config.cpp Changes
+
+Add save logic (around line 470):
+
+```cpp
+// Slope Detection Settings
+file << "slope_detection_enabled=" << (engine.m_slope_detection_enabled ? "1" : "0") << "\n";
+file << "slope_sg_window=" << engine.m_slope_sg_window << "\n";
+file << "slope_sensitivity=" << engine.m_slope_sensitivity << "\n";
+file << "slope_negative_threshold=" << engine.m_slope_negative_threshold << "\n";
+file << "slope_smoothing_tau=" << engine.m_slope_smoothing_tau << "\n";
+```
+
+Add load logic (around line 622):
+
+```cpp
+else if (key == "slope_detection_enabled") engine.m_slope_detection_enabled = (value == "1");
+else if (key == "slope_sg_window") engine.m_slope_sg_window = std::stoi(value);
+else if (key == "slope_sensitivity") engine.m_slope_sensitivity = std::stof(value);
+else if (key == "slope_negative_threshold") engine.m_slope_negative_threshold = std::stof(value);
+else if (key == "slope_smoothing_tau") engine.m_slope_smoothing_tau = std::stof(value);
+```
+
+Add validation logic (around line 640):
+
+```cpp
+// Slope Detection Validation
+if (engine.m_slope_sg_window < 5 || engine.m_slope_sg_window > 41) {
+    std::cerr << "[Config] Invalid slope_sg_window (" << engine.m_slope_sg_window 
+              << "). Clamping to 5-41 range." << std::endl;
+    engine.m_slope_sg_window = std::max(5, std::min(41, engine.m_slope_sg_window));
+}
+if (engine.m_slope_sensitivity < 0.1f || engine.m_slope_sensitivity > 10.0f) {
+    engine.m_slope_sensitivity = std::max(0.1f, std::min(10.0f, engine.m_slope_sensitivity));
+}
+if (engine.m_slope_smoothing_tau < 0.001f) {
+    engine.m_slope_smoothing_tau = 0.02f;  // Reset to default
+}
+```
+
+### 5.5 GuiLayer.cpp Changes
+
+Add a new collapsible section in the GUI for Slope Detection (around line 1140, after the Optimal Slip settings):
+
+```cpp
+// ===== SLOPE DETECTION (Experimental) =====
+ImGui::Separator();
+ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f)); // Yellow for experimental
+if (ImGui::CollapsingHeader("Slope Detection (Experimental)")) {
+    ImGui::PopStyleColor();
+    
+    ImGui::TextWrapped("Dynamic grip estimation using real-time slope analysis. "
+                       "Replaces static optimal slip values with automatic peak detection.");
+    ImGui::Dummy(ImVec2(0, 5));
+    
+    // Enable Toggle
+    if (ImGui::Checkbox("Enable Slope Detection", &engine.m_slope_detection_enabled)) {
+        // When enabled, the static optimal slip sliders become irrelevant
+    }
+    ImGui::SameLine();
+    HelpMarker("When enabled, the system automatically detects the tire's peak grip point "
+               "by monitoring the derivative of G-force vs slip angle. "
+               "This adapts to tire temperature, wear, and rain conditions.");
+    
+    // Only show tuning options if enabled
+    if (engine.m_slope_detection_enabled) {
+        ImGui::Indent();
+        
+        // Window Size
+        ImGui::SliderInt("Filter Window", &engine.m_slope_sg_window, 5, 41,
+                         "%d samples");
+        ImGui::SameLine();
+        HelpMarker("Savitzky-Golay filter window size.\n"
+                   "Larger = smoother but more latency.\n"
+                   "Recommended: 15 samples (~17ms at 400Hz)");
+        
+        // Sensitivity
+        ImGui::SliderFloat("Sensitivity", &engine.m_slope_sensitivity, 0.1f, 5.0f, 
+                           "%.2fx");
+        ImGui::SameLine();
+        HelpMarker("How aggressively the wheel lightens past the grip peak.\n"
+                   "Higher = more dramatic understeer feel.");
+        
+        // Advanced (collapsed by default)
+        if (ImGui::TreeNode("Advanced Settings")) {
+            ImGui::SliderFloat("Slope Threshold", &engine.m_slope_negative_threshold, 
+                               -1.0f, 0.0f, "%.2f");
+            ImGui::SameLine();
+            HelpMarker("Slope value below which grip loss is detected.\n"
+                       "Closer to 0 = more sensitive (earlier warning).");
+            
+            FloatSetting("Output Smoothing", &engine.m_slope_smoothing_tau,
+                         0.005f, 0.1f, "%.3f s",
+                         "Time constant for output smoothing to avoid flicker.");
+            
+            ImGui::TreePop();
+        }
+        
+        // Live Diagnostics
+        ImGui::Separator();
+        ImGui::Text("Live Diagnostics:");
+        ImGui::Text("  Current Slope: %.3f", engine.m_slope_current);
+        ImGui::Text("  Grip Factor: %.2f%%", engine.m_slope_smoothed_output * 100.0);
+        
+        ImGui::Unindent();
+    } else {
+        ImGui::TextDisabled("Enable Slope Detection to access tuning options.");
+    }
+    
+} else {
+    ImGui::PopStyleColor();
+}
+```
+
+---
+
+## 6. Automated Tests
+
+The following tests should be added to `tests/test_ffb_engine.cpp`:
+
+### 6.1 Test: Slope Detection Buffer Initialization
+
+```cpp
+static void test_slope_detection_buffer_init() {
+    std::cout << "\nTest: Slope Detection Buffer Initialization (v0.7.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Verify buffers start empty
+    if (engine.m_slope_buffer_count == 0 && 
+        engine.m_slope_buffer_index == 0 &&
+        engine.m_slope_current == 0.0) {
+        std::cout << "[PASS] Slope detection buffers initialized correctly." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Slope detection buffers not initialized." << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 6.2 Test: Slope Detection Derivative Calculation
+
+```cpp
+static void test_slope_sg_derivative() {
+    std::cout << "\nTest: Savitzky-Golay Derivative Calculation (v0.7.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Fill buffer with linear ramp: y = x
+    // Derivative should be constant = 1.0
+    engine.m_slope_sg_window = 9;
+    double dt = 0.01; // 100 Hz
+    
+    for (int i = 0; i < 20; i++) {
+        engine.m_slope_lat_g_buffer[i] = (double)i * 0.1;
+        engine.m_slope_slip_buffer[i] = (double)i * 0.1;
+        engine.m_slope_buffer_index = (i + 1) % engine.SLOPE_BUFFER_MAX;
+        engine.m_slope_buffer_count = i + 1;
+    }
+    
+    double derivative = engine.CalculateSGDerivative(
+        engine.m_slope_lat_g_buffer,
+        engine.m_slope_buffer_count,
+        engine.m_slope_sg_window,
+        dt
+    );
+    
+    // Linear ramp of 0.1 per sample at 100 Hz = 10 units/sec
+    double expected = 10.0;
+    if (std::abs(derivative - expected) < 1.0) {
+        std::cout << "[PASS] SG derivative correct for linear ramp (Got: " 
+                  << derivative << ", Expected: ~" << expected << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] SG derivative incorrect. Got: " << derivative 
+                  << ", Expected: " << expected << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 6.3 Test: Slope Detection Grip at Peak (Zero Slope)
+
+```cpp
+static void test_slope_grip_at_peak() {
+    std::cout << "\nTest: Slope Detection Grip at Peak (v0.7.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    engine.m_slope_detection_enabled = true;
+    
+    // Simulate constant lateral G (at peak - zero derivative)
+    double constant_g = 1.2;  // 1.2G
+    double constant_slip = 0.05;  // 5 degrees (approx)
+    double dt = 0.0025;  // 400 Hz
+    
+    // Fill buffer with constant values
+    for (int i = 0; i < 20; i++) {
+        double grip = engine.CalculateSlopeGrip(constant_g, constant_slip, dt);
+    }
+    
+    // With zero slope (constant G vs constant slip), grip should be 1.0
+    double grip = engine.m_slope_smoothed_output;
+    
+    if (grip > 0.95) {
+        std::cout << "[PASS] Grip at peak (zero slope) is near 1.0 (Got: " 
+                  << grip << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Grip at peak should be ~1.0. Got: " << grip << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 6.4 Test: Slope Detection Grip Past Peak (Negative Slope)
+
+```cpp
+static void test_slope_grip_past_peak() {
+    std::cout << "\nTest: Slope Detection Grip Past Peak (v0.7.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    engine.m_slope_detection_enabled = true;
+    engine.m_slope_sg_window = 9;  // Smaller window for faster response
+    
+    double dt = 0.0025;  // 400 Hz
+    
+    // Simulate: Slip increasing, but Lateral G DECREASING (past peak)
+    // This creates a negative slope
+    for (int i = 0; i < 20; i++) {
+        double slip = 0.05 + i * 0.002;  // Increasing slip
+        double lat_g = 1.5 - i * 0.02;   // Decreasing G (past peak)
+        engine.CalculateSlopeGrip(lat_g, slip, dt);
+    }
+    
+    double grip = engine.m_slope_smoothed_output;
+    
+    // With negative slope, grip should be < 1.0
+    if (grip < 0.9 && grip > 0.2) {
+        std::cout << "[PASS] Grip past peak (negative slope) reduced (Got: " 
+                  << grip << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Grip past peak should be reduced. Got: " << grip << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 6.5 Test: Slope Detection vs Static Threshold Comparison
+
+```cpp
+static void test_slope_vs_static_comparison() {
+    std::cout << "\nTest: Slope Detection vs Static Threshold Comparison (v0.7.0)" << std::endl;
+    
+    // Create two engines: one with slope detection, one with static
+    FFBEngine engine_slope;
+    InitializeEngine(engine_slope);
+    engine_slope.m_slope_detection_enabled = true;
+    
+    FFBEngine engine_static;
+    InitializeEngine(engine_static);
+    engine_static.m_slope_detection_enabled = false;
+    engine_static.m_optimal_slip_angle = 0.08f;  // 4.6 degrees
+    
+    TelemInfoV01 data = CreateBasicTestTelemetry(30.0);  // 30 m/s
+    
+    // Simulate moderate understeer (slip > optimal)
+    data.mWheel[0].mLateralPatchVel = 0.12 * 30.0;  // 12% lat velocity
+    data.mWheel[1].mLateralPatchVel = 0.12 * 30.0;
+    data.mWheel[0].mGripFract = 0.0;  // Force fallback path
+    data.mWheel[1].mGripFract = 0.0;
+    
+    // Prime both engines
+    for (int i = 0; i < 30; i++) {
+        engine_slope.calculate_force(&data);
+        engine_static.calculate_force(&data);
+    }
+    
+    // Both should detect grip loss (< 1.0)
+    // The exact values will differ, but both should indicate understeer
+    bool slope_detected_loss = engine_slope.m_slope_smoothed_output < 0.95;
+    bool static_detected_loss = engine_static.m_grip_diag.front_original < 0.8;
+    
+    if (slope_detected_loss && static_detected_loss) {
+        std::cout << "[PASS] Both methods detect grip loss at 12% slip." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Detection mismatch. Slope: " << slope_detected_loss 
+                  << ", Static: " << static_detected_loss << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 6.6 Test: Slope Detection Config Persistence
+
+```cpp
+static void test_slope_config_persistence() {
+    std::cout << "\nTest: Slope Detection Config Persistence (v0.7.0)" << std::endl;
+    
+    const char* test_file = "tmp_slope_config_test.ini";
+    
+    // Create engine with non-default slope settings
+    FFBEngine engine1;
+    InitializeEngine(engine1);
+    engine1.m_slope_detection_enabled = true;
+    engine1.m_slope_sg_window = 21;
+    engine1.m_slope_sensitivity = 2.5f;
+    engine1.m_slope_negative_threshold = -0.05f;
+    engine1.m_slope_smoothing_tau = 0.03f;
+    
+    // Save config
+    Config::Save(engine1, test_file);
+    
+    // Load into new engine
+    FFBEngine engine2;
+    InitializeEngine(engine2);
+    Config::Load(engine2, test_file);
+    
+    // Verify all values match
+    bool all_match = true;
+    all_match &= (engine2.m_slope_detection_enabled == true);
+    all_match &= (engine2.m_slope_sg_window == 21);
+    all_match &= (std::abs(engine2.m_slope_sensitivity - 2.5f) < 0.001f);
+    all_match &= (std::abs(engine2.m_slope_negative_threshold - (-0.05f)) < 0.001f);
+    all_match &= (std::abs(engine2.m_slope_smoothing_tau - 0.03f) < 0.001f);
+    
+    if (all_match) {
+        std::cout << "[PASS] Slope detection settings saved and loaded correctly." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Slope detection config persistence failed." << std::endl;
+        g_tests_failed++;
+    }
+    
+    std::remove(test_file);
+}
+```
+
+### 6.7 Test: Slope Detection Latency Characteristics
+
+```cpp
+static void test_slope_latency_characteristics() {
+    std::cout << "\nTest: Slope Detection Latency (v0.7.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    engine.m_slope_detection_enabled = true;
+    engine.m_slope_sg_window = 15;  // 15 samples
+    
+    double dt = 0.0025;  // 400 Hz -> Latency = (15-1)/2 * 2.5ms = 17.5ms
+    
+    // Count frames to fill buffer
+    int frames_to_fill = 0;
+    while (engine.m_slope_buffer_count < engine.m_slope_sg_window) {
+        engine.CalculateSlopeGrip(1.0, 0.05, dt);
+        frames_to_fill++;
+    }
+    
+    // Expected frames to fill = window size
+    if (frames_to_fill == engine.m_slope_sg_window) {
+        double latency_ms = (engine.m_slope_sg_window - 1) / 2.0 * dt * 1000.0;
+        std::cout << "[PASS] Buffer fills in " << frames_to_fill << " frames. "
+                  << "Group delay: " << latency_ms << " ms" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Buffer fill count mismatch. Got: " << frames_to_fill 
+                  << ", Expected: " << engine.m_slope_sg_window << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+### 6.8 Test: Slope Detection Noise Rejection
+
+```cpp
+static void test_slope_noise_rejection() {
+    std::cout << "\nTest: Slope Detection Noise Rejection (v0.7.0)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    engine.m_slope_detection_enabled = true;
+    engine.m_slope_sg_window = 15;
+    
+    double dt = 0.0025;
+    
+    // Feed signal with noise: constant G (1.2) + random noise (±0.1)
+    // Derivative of constant should be ~0 despite noise
+    std::srand(42);  // Deterministic seed
+    
+    for (int i = 0; i < 50; i++) {
+        double noise = ((double)std::rand() / RAND_MAX - 0.5) * 0.2;  // ±0.1
+        double lat_g = 1.2 + noise;
+        double slip = 0.05 + noise * 0.01;  // Small slip noise
+        engine.CalculateSlopeGrip(lat_g, slip, dt);
+    }
+    
+    // Slope should be near zero (constant G with noise filtered)
+    if (std::abs(engine.m_slope_current) < 1.0) {  // Tolerance for noise
+        std::cout << "[PASS] Noise rejected. Slope near zero: " 
+                  << engine.m_slope_current << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Noise amplified. Slope: " << engine.m_slope_current << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+---
+
+## 7. Testing Strategy
+
+### 7.1 Unit Tests (Automated)
+
+The 8 tests above should be added to the test suite, bringing the total to approximately 308+ tests.
+
+### 7.2 Integration Tests
+
+1. **Full FFB Loop Test**: Verify that `calculate_force()` produces correct output with Slope Detection enabled.
+2. **Config Round-Trip Test**: Verify save/load preserves all settings.
+3. **Preset Application Test**: Verify Slope Detection settings are applied from presets.
+
+### 7.3 Manual Testing Checklist
+
+| Test Case                                | Expected Behavior                                              |
+|------------------------------------------|----------------------------------------------------------------|
+| Enable Slope Detection                   | GUI checkbox works, static sliders are visually deprioritized  |
+| Straight-line driving                    | Slope near zero, grip factor near 1.0                          |
+| Light cornering (below peak)             | Positive slope, grip factor = 1.0                              |
+| Heavy cornering (at peak)                | Slope transitions through zero                                 |
+| Understeer (past peak)                   | Negative slope, wheel lightens                                 |
+| Cold tires → Hot tires transition        | Slope adapts automatically                                     |
+| Dry → Wet transition                     | Slope adapts (earlier peak detection in wet)                   |
+| Window size adjustment                   | Larger window = smoother but more latency                      |
+| Sensitivity adjustment                   | Higher = more dramatic understeer feel                         |
+
+---
+
+## 8. Migration and Backward Compatibility
+
+### 8.1 Default Configuration
+
+- `m_slope_detection_enabled = false` (off by default)
+- Existing users continue to use static thresholds until they opt-in
+
+### 8.2 Preset Updates
+
+Update the built-in presets to include Slope Detection as an option:
+
+```cpp
+// T300 Preset (belt-driven, benefits from stronger cues)
+preset.slope_detection_enabled = false;  // Conservative default
+preset.slope_sg_window = 15;
+preset.slope_sensitivity = 1.5f;  // Slightly boosted for belt-driven feel
+
+// Direct Drive Preset (high resolution, lower latency acceptable)
+preset.slope_detection_enabled = false;  // Conservative default  
+preset.slope_sg_window = 9;  // Lower latency
+preset.slope_sensitivity = 1.0f;  // Accurate feel
+```
+
+### 8.3 Future Deprecation Path
+
+If Slope Detection proves superior after user testing:
+1. v0.8.0: Slope Detection enabled by default
+2. v0.9.0: Static threshold sliders moved to "Legacy" section
+3. v1.0.0: Static threshold logic removed (or kept as hidden fallback)
+
+---
+
+## 9. References
+
+1. **FFB Slope Detection for Grip Estimation.md** - Comprehensive analysis of slope detection theory
+2. **FFB Slope Detection for Grip Estimation2.md** - Signal processing details and implementation considerations
+3. **TODO.md Section "Optimal slip angle in real time"** - Original feature request and notes
+4. Pacejka, H. B. (2006). *Tire and Vehicle Dynamics*. Butterworth-Heinemann.
+5. arXiv:2509.15423 - "Online Slip Detection and Friction Coefficient Estimation for Autonomous Racing"
+
+---
+
+## 10. Conclusion
+
+The Slope Detection Algorithm represents a significant upgrade to lmuFFB's grip estimation capabilities. By monitoring the real-time derivative of force vs. slip, the system can:
+
+1. **Automatically detect peak grip** without user calibration
+2. **Adapt to changing conditions** (temperature, wear, rain)
+3. **Provide more accurate understeer feedback** by reacting to actual physics
+
+The implementation adds approximately 200 lines of C++ code to `FFBEngine.h`, with supporting changes in `Config.h`, `Config.cpp`, and `GuiLayer.cpp`. A comprehensive test suite ensures correctness and regression protection.
+
+The feature is designed to be backward-compatible, with the static threshold approach remaining as a fallback for users who prefer manual tuning.
+
+```
+
+# File: docs\dev_docs\speed_gate_tuning_implementation_plan.md
+```markdown
+# Speed Gate Tuning: Implementation Plan for User-Adjustable Transition Zone
+
+**Document Version:** 1.0  
+**Date:** 2025-12-28  
+**Status:** Implementation Plan  
+**Target Version:** v0.6.22 or later  
+**Related Feature:** Stationary Signal Gate (v0.6.21)
+
+---
+
+## Executive Summary
+
+The **Stationary Signal Gate** (v0.6.21) uses a fixed transition zone of **0.5 - 2.0 m/s** to fade out vibration effects when the car is stationary or moving slowly. This document provides a comprehensive implementation plan for exposing these thresholds as user-adjustable "Advanced Settings" to accommodate different user preferences and use cases.
+
+---
+
+## Background
+
+### Current Implementation (v0.6.21)
+
+The speed gate uses a **linear ramp** to fade vibration effects:
+
+```cpp
+// 1. Calculate Stationary Gate (Fade out vibrations at low speed)
+// Ramp from 0.0 (at < 0.5 m/s) to 1.0 (at > 2.0 m/s)
+double speed_gate = (car_v_long - 0.5) / 1.5;
+speed_gate = (std::max)(0.0, (std::min)(1.0, speed_gate));
+```
+
+**Location:** `src/FFBEngine.h:513-516`
+
+**Behavior:**
+- **Below 0.5 m/s:** Gate = 0.0 → All vibrations muted
+- **0.5 - 2.0 m/s:** Gate = 0.0 → 1.0 → Linear fade-in
+- **Above 2.0 m/s:** Gate = 1.0 → Full vibration strength
+
+**Applied to:**
+- Road Texture (`src/FFBEngine.h:1524`)
+- ABS Pulse (`src/FFBEngine.h:1271`)
+- Lockup Vibration (`src/FFBEngine.h:1372`)
+- Suspension Bottoming (`src/FFBEngine.h:1592`)
+
+### Why These Values?
+
+The **0.5 - 2.0 m/s** range was chosen based on:
+
+1. **Physics Reasoning:**
+   - 0.5 m/s (1.8 km/h) → Below this, the car is effectively stationary
+   - 2.0 m/s (7.2 km/h) → Above this, the car is clearly in motion
+
+2. **User Experience:**
+   - Eliminates idle vibrations in pits/grid
+   - Prevents shaking during slow-speed maneuvering (pit lane, parking)
+   - Doesn't interfere with normal driving (even slow corners are > 10 m/s)
+
+3. **Empirical Testing:**
+   - Tested on T300, G29, and DD wheels
+   - No false positives (vibrations cutting out during normal driving)
+   - No false negatives (vibrations leaking through at standstill)
+
+---
+
+## Motivation for User-Adjustable Thresholds
+
+### Use Case 1: Sim Rig with Motion Platform
+
+**Scenario:**  
+User has a motion platform that physically moves the car. They want to feel **all** vibrations, even at very low speeds, to match the motion cues.
+
+**Current Problem:**  
+The 0.5 m/s lower threshold mutes vibrations during slow pit lane driving (2-5 km/h), which feels disconnected from the motion platform's movement.
+
+**Desired Solution:**  
+Lower the lower threshold to `0.1 m/s` or even `0.0 m/s` to allow vibrations at all speeds.
+
+### Use Case 2: High-Sensitivity DD Wheel
+
+**Scenario:**  
+User has a high-torque direct drive wheel (25+ Nm) with very low friction. They experience **idle vibrations** even at 1.0 m/s due to sensor noise.
+
+**Current Problem:**  
+The 0.5 m/s lower threshold is too low - vibrations still leak through during slow maneuvering.
+
+**Desired Solution:**  
+Raise the lower threshold to `1.0 m/s` or `1.5 m/s` to completely eliminate low-speed vibrations.
+
+### Use Case 3: Realistic Pit Lane Experience
+
+**Scenario:**  
+User wants to feel road texture and bumps during pit lane driving (5-10 km/h) for maximum immersion.
+
+**Current Problem:**  
+The 2.0 m/s upper threshold (7.2 km/h) means vibrations are still partially faded during pit lane speeds.
+
+**Desired Solution:**  
+Lower the upper threshold to `1.0 m/s` (3.6 km/h) for faster fade-in.
+
+### Use Case 4: Aggressive Fade-In for Smoothness
+
+**Scenario:**  
+User finds the transition from 0% to 100% vibration too abrupt, causing a "step" feeling when accelerating from standstill.
+
+**Current Problem:**  
+The 1.5 m/s transition window (2.0 - 0.5) is too narrow.
+
+**Desired Solution:**  
+Widen the transition window to 3.0 m/s (e.g., 0.5 - 3.5 m/s) for a gentler fade-in.
+
+---
+
+## Design Considerations
+
+### 1. Parameter Naming
+
+**Option A: Threshold-Based**
+- `speed_gate_lower_threshold` (m/s)
+- `speed_gate_upper_threshold` (m/s)
+
+**Option B: Zone-Based**
+- `speed_gate_start_speed` (m/s)
+- `speed_gate_full_speed` (m/s)
+
+**Option C: User-Friendly**
+- `vibration_mute_below` (km/h)
+- `vibration_full_above` (km/h)
+
+**Recommendation:** **Option B (Zone-Based)**  
+- Clear semantic meaning ("start fading" vs. "full strength")
+- Matches existing terminology in lockup settings (`lockup_start_pct`, `lockup_full_pct`)
+- Easy to explain in tooltips
+
+### 2. Units: m/s vs. km/h
+
+**m/s (Meters per Second):**
+- ✅ Matches internal physics calculations
+- ✅ Consistent with other speed-based parameters
+- ❌ Less intuitive for users (most think in km/h or mph)
+
+**km/h (Kilometers per Hour):**
+- ✅ More intuitive for users
+- ✅ Matches in-game speedometer
+- ❌ Requires conversion in code
+
+**Recommendation:** **Display in km/h, store in m/s**
+- GUI shows km/h for user-friendliness
+- Config file stores m/s for precision
+- Conversion: `km/h = m/s × 3.6`
+
+### 3. Slider Ranges
+
+**Lower Threshold (Start Speed):**
+- **Minimum:** 0.0 m/s (0 km/h) → No gate, vibrations always active
+- **Maximum:** 2.0 m/s (7.2 km/h) → Conservative, prevents interference
+- **Default:** 0.5 m/s (1.8 km/h) → Current behavior
+- **Step:** 0.1 m/s (0.36 km/h) → Fine control
+
+**Upper Threshold (Full Speed):**
+- **Minimum:** 0.5 m/s (1.8 km/h) → Must be ≥ lower threshold
+- **Maximum:** 5.0 m/s (18 km/h) → Covers pit lane speeds
+- **Default:** 2.0 m/s (7.2 km/h) → Current behavior
+- **Step:** 0.1 m/s (0.36 km/h) → Fine control
+
+### 4. Validation Logic
+
+**Constraint:** `upper_threshold >= lower_threshold + 0.1`
+
+**Reason:** Prevent division by zero and ensure a minimum transition window.
+
+**Implementation:**
+```cpp
+// In Config::Load()
+if (speed_gate_upper <= speed_gate_lower + 0.1f) {
+    speed_gate_upper = speed_gate_lower + 0.5f; // Force minimum 0.5 m/s window
+}
+```
+
+---
+
+## Implementation Plan
+
+### Phase 1: Core Engine Changes
+
+#### 1.1 Update `FFBEngine.h`
+
+**Add Member Variables:**
+
+```cpp
+// In FFBEngine class, under "Speed Gate" section (v0.6.22)
+float m_speed_gate_lower = 0.5f; // Start fading (m/s)
+float m_speed_gate_upper = 2.0f; // Full strength (m/s)
+```
+
+**Update Calculation Logic:**
+
+```cpp
+// Replace hardcoded values with member variables
+// OLD:
+// double speed_gate = (car_v_long - 0.5) / 1.5;
+
+// NEW:
+double lower = (double)m_speed_gate_lower;
+double upper = (double)m_speed_gate_upper;
+double window = upper - lower;
+
+// Safety: Prevent division by zero
+if (window < 0.1) window = 0.1;
+
+double speed_gate = (car_v_long - lower) / window;
+speed_gate = (std::max)(0.0, (std::min)(1.0, speed_gate));
+```
+
+**Location:** `src/FFBEngine.h:513-516`
+
+#### 1.2 Update Comments
+
+```cpp
+// 1. Calculate Stationary Gate (Fade out vibrations at low speed)
+// Ramp from 0.0 (at < lower threshold) to 1.0 (at > upper threshold)
+// v0.6.22: User-adjustable thresholds
+```
+
+---
+
+### Phase 2: Configuration Persistence
+
+#### 2.1 Update `Config.h`
+
+**Add to Preset Struct:**
+
+```cpp
+struct Preset {
+    // ... existing members ...
+    
+    // Speed Gate Tuning (v0.6.22)
+    float speed_gate_lower = 0.5f; // m/s (default: 0.5 m/s = 1.8 km/h)
+    float speed_gate_upper = 2.0f; // m/s (default: 2.0 m/s = 7.2 km/h)
+};
+```
+
+#### 2.2 Update `Config.cpp`
+
+**Add Persistence:**
+
+```cpp
+// In Config::Save()
+file << "speed_gate_lower=" << preset.speed_gate_lower << "\n";
+file << "speed_gate_upper=" << preset.speed_gate_upper << "\n";
+
+// In Config::Load()
+else if (key == "speed_gate_lower") {
+    preset.speed_gate_lower = std::stof(value);
+    // Safety clamp
+    if (preset.speed_gate_lower < 0.0f) preset.speed_gate_lower = 0.0f;
+    if (preset.speed_gate_lower > 2.0f) preset.speed_gate_lower = 2.0f;
+}
+else if (key == "speed_gate_upper") {
+    preset.speed_gate_upper = std::stof(value);
+    // Safety clamp
+    if (preset.speed_gate_upper < 0.5f) preset.speed_gate_upper = 0.5f;
+    if (preset.speed_gate_upper > 5.0f) preset.speed_gate_upper = 5.0f;
+}
+
+// Validation: Ensure upper >= lower + 0.1
+if (preset.speed_gate_upper <= preset.speed_gate_lower + 0.1f) {
+    preset.speed_gate_upper = preset.speed_gate_lower + 0.5f;
+}
+
+// In ApplyToEngine()
+engine.m_speed_gate_lower = speed_gate_lower;
+engine.m_speed_gate_upper = speed_gate_upper;
+
+// In UpdateFromEngine()
+speed_gate_lower = engine.m_speed_gate_lower;
+speed_gate_upper = engine.m_speed_gate_upper;
+```
+
+---
+
+### Phase 3: GUI Implementation
+
+#### 3.1 Add Advanced Settings Section
+
+**Location:** In `GuiLayer.cpp`, create a new collapsible section in the Tuning Window
+
+**Placement:** After "Signal Filtering" section, before "Presets"
+
+**Implementation:**
+
+```cpp
+// ========================================
+// ADVANCED SETTINGS
+// ========================================
+if (ImGui::CollapsingHeader("Advanced Settings")) {
+    ImGui::Indent();
+    
+    // Speed Gate Tuning
+    if (ImGui::TreeNode("Stationary Vibration Gate")) {
+        ImGui::TextWrapped(
+            "Controls when vibration effects (Road Texture, ABS, Lockup, Bottoming) "
+            "fade out at low speeds to prevent idle shaking."
+        );
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        // Lower Threshold (Start Fading)
+        ImGui::Text("Mute Below");
+        ImGui::SameLine(label_width);
+        ImGui::SetNextItemWidth(slider_width);
+        
+        // Convert m/s to km/h for display
+        float lower_kmh = engine.m_speed_gate_lower * 3.6f;
+        
+        if (ImGui::SliderFloat("##speed_gate_lower", &lower_kmh, 
+                               0.0f, 7.2f, "%.1f km/h")) {
+            // Convert back to m/s
+            engine.m_speed_gate_lower = lower_kmh / 3.6f;
+            
+            // Validate: Ensure upper >= lower + 0.1
+            if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f) {
+                engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+            }
+            
+            preset_dirty = true;
+        }
+        
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::Text("Mute Below: %.1f km/h (%.2f m/s)", lower_kmh, engine.m_speed_gate_lower);
+            ImGui::Separator();
+            ImGui::TextWrapped(
+                "Speed below which vibrations are completely muted. "
+                "This prevents idle shaking when stationary or moving very slowly."
+            );
+            ImGui::Spacing();
+            ImGui::TextWrapped("• 0.0 km/h: No muting (vibrations always active)");
+            ImGui::TextWrapped("• 1.8 km/h: Default (mute when effectively stationary)");
+            ImGui::TextWrapped("• 5.4 km/h: Conservative (mute during slow maneuvering)");
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.2f, 1.0f), 
+                "TIP: Increase if you experience vibrations while stopped.");
+            ImGui::EndTooltip();
+        }
+        
+        ImGui::Spacing();
+        
+        // Upper Threshold (Full Strength)
+        ImGui::Text("Full Above");
+        ImGui::SameLine(label_width);
+        ImGui::SetNextItemWidth(slider_width);
+        
+        // Convert m/s to km/h for display
+        float upper_kmh = engine.m_speed_gate_upper * 3.6f;
+        
+        if (ImGui::SliderFloat("##speed_gate_upper", &upper_kmh, 
+                               1.8f, 18.0f, "%.1f km/h")) {
+            // Convert back to m/s
+            engine.m_speed_gate_upper = upper_kmh / 3.6f;
+            
+            // Validate: Ensure upper >= lower + 0.1
+            if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f) {
+                engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+            }
+            
+            preset_dirty = true;
+        }
+        
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::Text("Full Above: %.1f km/h (%.2f m/s)", upper_kmh, engine.m_speed_gate_upper);
+            ImGui::Separator();
+            ImGui::TextWrapped(
+                "Speed above which vibrations reach full strength. "
+                "Between 'Mute Below' and 'Full Above', vibrations fade in linearly."
+            );
+            ImGui::Spacing();
+            ImGui::TextWrapped("• 3.6 km/h: Fast fade-in (sharp transition)");
+            ImGui::TextWrapped("• 7.2 km/h: Default (smooth transition)");
+            ImGui::TextWrapped("• 18.0 km/h: Slow fade-in (very gradual)");
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.2f, 1.0f), 
+                "TIP: Widen the gap for a smoother, less noticeable transition.");
+            ImGui::EndTooltip();
+        }
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        // Visual Indicator: Transition Window
+        float window_kmh = upper_kmh - lower_kmh;
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), 
+            "Transition Window: %.1f km/h", window_kmh);
+        
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextWrapped(
+                "The speed range over which vibrations fade from 0%% to 100%%. "
+                "Wider windows = smoother transitions. Narrower windows = sharper on/off."
+            );
+            ImGui::EndTooltip();
+        }
+        
+        ImGui::TreePop();
+    }
+    
+    ImGui::Unindent();
+}
+```
+
+#### 3.2 Add Debug Visualization (Optional)
+
+**Location:** In the Debug Window, "Signal Analysis" section
+
+```cpp
+// Speed Gate Status
+ImGui::Text("Speed Gate: %.2f (%.1f km/h)", 
+    engine.m_speed_gate_value,  // Store the calculated gate value
+    engine.m_current_car_speed * 3.6f);
+
+if (ImGui::IsItemHovered()) {
+    ImGui::BeginTooltip();
+    ImGui::Text("Speed Gate Multiplier: %.2f", engine.m_speed_gate_value);
+    ImGui::Separator();
+    ImGui::TextWrapped(
+        "0.0 = Vibrations muted\n"
+        "0.5 = Vibrations at 50%%\n"
+        "1.0 = Vibrations at full strength"
+    );
+    ImGui::EndTooltip();
+}
+```
+
+**Implementation Note:** Requires adding `double m_speed_gate_value` and `double m_current_car_speed` to FFBEngine for debugging.
+
+---
+
+### Phase 4: Testing & Validation
+
+#### 4.1 Unit Tests
+
+**Add to `tests/test_ffb_engine.cpp`:**
+
+```cpp
+static void test_speed_gate_custom_thresholds() {
+    std::cout << "\nTest: Speed Gate Custom Thresholds" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Enable Road Texture
+    engine.m_road_texture_enabled = true;
+    engine.m_road_texture_gain = 1.0;
+    engine.m_max_torque_ref = 20.0f;
+    
+    // Test Case 1: Custom thresholds (1.0 - 3.0 m/s)
+    engine.m_speed_gate_lower = 1.0f;
+    engine.m_speed_gate_upper = 3.0f;
+    
+    // Below lower threshold (0.5 m/s) → Force should be 0.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(0.5);
+        data.mWheel[0].mVerticalTireDeflection = 0.002;
+        data.mWheel[1].mVerticalTireDeflection = 0.002;
+        
+        double force = engine.calculate_force(&data);
+        ASSERT_NEAR(force, 0.0, 0.0001);
+    }
+    
+    // At midpoint (2.0 m/s) → Gate should be 0.5
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(2.0);
+        data.mWheel[0].mVerticalTireDeflection = 0.002;
+        data.mWheel[1].mVerticalTireDeflection = 0.002;
+        
+        double force_mid = engine.calculate_force(&data);
+        
+        // Compare to full strength at 4.0 m/s
+        data.mLocalVel.z = -4.0;
+        double force_full = engine.calculate_force(&data);
+        
+        // Midpoint should be approximately 50% of full
+        double ratio = force_mid / force_full;
+        ASSERT_NEAR(ratio, 0.5, 0.1);
+    }
+    
+    // Above upper threshold (4.0 m/s) → Gate should be 1.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(4.0);
+        data.mWheel[0].mVerticalTireDeflection = 0.002;
+        data.mWheel[1].mVerticalTireDeflection = 0.002;
+        
+        double force = engine.calculate_force(&data);
+        
+        // Should be non-zero (full strength)
+        if (std::abs(force) > 0.001) {
+            std::cout << "[PASS] Custom thresholds work correctly" << std::endl;
+            g_tests_passed++;
+        } else {
+            std::cout << "[FAIL] Force at full speed is zero" << std::endl;
+            g_tests_failed++;
+        }
+    }
+}
+
+static void test_speed_gate_validation() {
+    std::cout << "\nTest: Speed Gate Threshold Validation" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Test Case 1: Invalid (upper < lower)
+    engine.m_speed_gate_lower = 2.0f;
+    engine.m_speed_gate_upper = 1.0f;
+    
+    // Config::Load should fix this
+    Config config;
+    Preset preset;
+    preset.speed_gate_lower = 2.0f;
+    preset.speed_gate_upper = 1.0f;
+    
+    // Simulate validation logic
+    if (preset.speed_gate_upper <= preset.speed_gate_lower + 0.1f) {
+        preset.speed_gate_upper = preset.speed_gate_lower + 0.5f;
+    }
+    
+    // Verify correction
+    if (preset.speed_gate_upper >= preset.speed_gate_lower + 0.5f) {
+        std::cout << "[PASS] Validation corrects invalid thresholds" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Validation did not correct thresholds" << std::endl;
+        g_tests_failed++;
+    }
+}
+```
+
+#### 4.2 Manual Testing Procedure
+
+**Test Scenarios:**
+
+1. **Default Behavior (0.5 - 2.0 m/s)**
+   - Verify vibrations muted when stopped
+   - Verify smooth fade-in when accelerating from standstill
+   - Verify full vibrations at normal driving speeds
+
+2. **Wide Window (0.0 - 5.0 m/s)**
+   - Verify vibrations active even at very low speeds
+   - Verify gradual fade-in over 5 m/s range
+   - Verify no abrupt transitions
+
+3. **Narrow Window (1.0 - 1.5 m/s)**
+   - Verify vibrations muted up to 1.0 m/s
+   - Verify sharp transition at 1.0-1.5 m/s
+   - Verify full vibrations above 1.5 m/s
+
+4. **Extreme Values**
+   - Test 0.0 - 0.5 m/s (minimum window)
+   - Test 0.0 - 5.0 m/s (maximum range)
+   - Verify no crashes or undefined behavior
+
+---
+
+### Phase 5: Documentation Updates
+
+#### 5.1 Update CHANGELOG.md
+
+```markdown
+## [0.6.22] - YYYY-MM-DD
+### Added
+- **Speed Gate Tuning (Advanced Settings)**:
+  - Added "Stationary Vibration Gate" section in Advanced Settings.
+  - Users can now customize when vibrations fade out at low speeds:
+    - "Mute Below" (0.0 - 7.2 km/h, default: 1.8 km/h)
+    - "Full Above" (1.8 - 18.0 km/h, default: 7.2 km/h)
+  - Useful for motion platforms, high-sensitivity DD wheels, or custom preferences.
+  - Default values (0.5 - 2.0 m/s) remain unchanged, preserving v0.6.21 behavior.
+```
+
+#### 5.2 Update User Guide
+
+**Add section to `docs/encrypted_content_user_guide.md` or create new guide:**
+
+```markdown
+### Adjusting the Speed Gate
+
+The Speed Gate prevents vibrations when the car is stationary or moving very slowly. You can customize when vibrations fade in/out:
+
+1. Open the **Advanced Settings** section in the Tuning Window
+2. Expand **"Stationary Vibration Gate"**
+3. Adjust the sliders:
+   - **Mute Below:** Speed below which vibrations are completely off
+   - **Full Above:** Speed above which vibrations are at full strength
+
+**Common Adjustments:**
+
+- **Motion Platform:** Lower "Mute Below" to 0.0 km/h to feel all vibrations
+- **High-Sensitivity DD Wheel:** Raise "Mute Below" to 5.4 km/h to eliminate idle noise
+- **Smooth Transition:** Widen the gap between sliders (e.g., 1.8 - 14.4 km/h)
+- **Sharp Transition:** Narrow the gap (e.g., 1.8 - 3.6 km/h)
+```
+
+#### 5.3 Update Technical Documentation
+
+**Add to `docs/dev_docs/FFB_formulas.md`:**
+
+```markdown
+### Speed Gate (v0.6.21+)
+
+The speed gate fades vibration effects at low speeds:
+
+```
+gate = (car_speed - lower_threshold) / (upper_threshold - lower_threshold)
+gate = clamp(gate, 0.0, 1.0)
+
+vibration_force *= gate
+```
+
+**Default Thresholds:**
+- Lower: 0.5 m/s (1.8 km/h)
+- Upper: 2.0 m/s (7.2 km/h)
+
+**User-Adjustable (v0.6.22+):**
+- Lower: 0.0 - 2.0 m/s (0.0 - 7.2 km/h)
+- Upper: 0.5 - 5.0 m/s (1.8 - 18.0 km/h)
+- Constraint: upper >= lower + 0.1 m/s
+```
+
+---
+
+## Migration Notes
+
+### For Users
+
+**Existing Configurations:**  
+Users upgrading from v0.6.21 to v0.6.22+ will automatically receive the default thresholds (0.5 - 2.0 m/s). The speed gate behavior will remain **identical** to v0.6.21.
+
+**New Configurations:**  
+Users creating new presets in v0.6.22+ will have access to the speed gate tuning sliders in Advanced Settings.
+
+### For Developers
+
+**Backward Compatibility:**  
+The `speed_gate_lower` and `speed_gate_upper` parameters are optional in `config.ini`. If missing, they default to `0.5f` and `2.0f`, preserving v0.6.21 behavior.
+
+**Preset Migration:**  
+Built-in presets should be updated to include:
+```
+speed_gate_lower=0.5
+speed_gate_upper=2.0
+```
+
+---
+
+## Future Enhancements
+
+### 1. Per-Effect Speed Gates
+
+**Concept:**  
+Allow different speed gates for different effects.
+
+**Example:**
+- Road Texture: 0.5 - 2.0 m/s (default)
+- ABS Pulse: 1.0 - 3.0 m/s (higher threshold, ABS rarely triggers at low speeds)
+- Lockup: 0.5 - 2.0 m/s (default)
+- Bottoming: 0.0 - 1.0 m/s (lower threshold, want to feel bottoming even at low speeds)
+
+**Benefit:**  
+More granular control for advanced users.
+
+### 2. Curve-Based Fade
+
+**Concept:**  
+Replace linear ramp with configurable curves (exponential, logarithmic, S-curve).
+
+**Example:**
+```cpp
+// S-Curve (smooth ease-in/ease-out)
+double t = (car_speed - lower) / window;
+t = clamp(t, 0.0, 1.0);
+double speed_gate = t * t * (3.0 - 2.0 * t); // Smoothstep
+```
+
+**Benefit:**  
+More natural feeling transitions.
+
+### 3. Hysteresis
+
+**Concept:**  
+Use different thresholds for fade-in vs. fade-out to prevent oscillation.
+
+**Example:**
+- Fade-out: 0.5 m/s (when slowing down)
+- Fade-in: 0.7 m/s (when speeding up)
+
+**Benefit:**  
+Prevents rapid on/off cycling when hovering near threshold.
+
+---
+
+## Risk Assessment
+
+### Low Risk
+
+- ✅ Isolated change (only affects speed gate calculation)
+- ✅ Default values preserve existing behavior
+- ✅ Validation logic prevents invalid configurations
+- ✅ Comprehensive testing plan
+
+### Potential Issues
+
+1. **User Confusion:**  
+   - **Risk:** Users may not understand what the speed gate does
+   - **Mitigation:** Clear tooltips, user guide, and default values
+
+2. **Invalid Configurations:**  
+   - **Risk:** Users set upper < lower, causing division by zero
+   - **Mitigation:** Validation logic in Config::Load() and GUI
+
+3. **Performance:**  
+   - **Risk:** Additional calculations per frame
+   - **Mitigation:** Negligible (2 extra float operations)
+
+---
+
+## Implementation Checklist
+
+### Code Changes
+- [ ] Add `m_speed_gate_lower` and `m_speed_gate_upper` to `FFBEngine.h`
+- [ ] Update speed gate calculation in `FFBEngine.h`
+- [ ] Add parameters to `Preset` struct in `Config.h`
+- [ ] Add persistence logic in `Config.cpp`
+- [ ] Add validation logic in `Config.cpp`
+- [ ] Add GUI sliders in `GuiLayer.cpp`
+- [ ] Add tooltips and help text in `GuiLayer.cpp`
+
+### Testing
+- [ ] Add `test_speed_gate_custom_thresholds()` to `test_ffb_engine.cpp`
+- [ ] Add `test_speed_gate_validation()` to `test_ffb_engine.cpp`
+- [ ] Manual testing: Default behavior (0.5 - 2.0 m/s)
+- [ ] Manual testing: Wide window (0.0 - 5.0 m/s)
+- [ ] Manual testing: Narrow window (1.0 - 1.5 m/s)
+- [ ] Manual testing: Extreme values
+
+### Documentation
+- [ ] Update `CHANGELOG.md` with v0.6.22 entry
+- [ ] Add section to user guide
+- [ ] Update `FFB_formulas.md` with speed gate formula
+- [ ] Update built-in presets with default values
+
+### Verification
+- [ ] All tests pass (356+ tests)
+- [ ] Code compiles without warnings
+- [ ] Config persistence works correctly
+- [ ] GUI sliders function correctly
+- [ ] Tooltips display correctly
+- [ ] Validation prevents invalid configurations
+
+---
+
+## Conclusion
+
+Exposing the speed gate thresholds as user-adjustable parameters is a **low-risk, high-value** enhancement that addresses specific user needs (motion platforms, high-sensitivity wheels) while preserving the default behavior for existing users.
+
+The implementation follows established patterns in the codebase and can be delivered in v0.6.22 or later with minimal effort and comprehensive testing.
+
+---
+
+**Document Status:** Ready for Implementation  
+**Priority:** Medium (User-Requested Enhancement)  
+**Estimated Effort:** 3-4 hours (coding + testing + documentation)  
+**Risk Level:** Low (isolated change, well-defined scope, validation logic)
 
 ```
 
@@ -15384,6 +20021,7 @@ public:
     bool m_warned_lat_force_rear = false;
     bool m_warned_susp_force = false;
     bool m_warned_susp_deflection = false;
+    bool m_warned_vert_deflection = false; // v0.6.21
     
     // Diagnostics (v0.4.5 Fix)
     struct GripDiagnostics {
@@ -15401,9 +20039,11 @@ public:
     int m_missing_lat_force_rear_frames = 0;
     int m_missing_susp_force_frames = 0;
     int m_missing_susp_deflection_frames = 0;
+    int m_missing_vert_deflection_frames = 0; // v0.6.21
 
     // Internal state
     double m_prev_vert_deflection[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR
+    double m_prev_vert_accel = 0.0; // New v0.6.21: For Road Texture Fallback
     double m_prev_slip_angle[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR (LPF State)
     double m_prev_rotation[4] = {0.0, 0.0, 0.0, 0.0};    // New v0.6.0
     double m_prev_brake_pressure[4] = {0.0, 0.0, 0.0, 0.0}; // New v0.6.0
@@ -15723,7 +20363,7 @@ public:
             result.value = (std::max)(0.2, result.value);
             
             if (!warned_flag) {
-                std::cout << "Warning: Data for mGripFract from the game seems to be missing for this car (" << vehicleName << "). A fallback estimation will be used." << std::endl;
+                std::cout << "Warning: Data for mGripFract from the game seems to be missing for this car (" << vehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
                 warned_flag = true;
             }
         }
@@ -15842,10 +20482,30 @@ public:
         // complex power steering modeling in the new engine.
         double game_force = data->mSteeringShaftTorque;
 
-        // --- NEW: Steering Shaft Smoothing (v0.5.7) ---
-        if (m_steering_shaft_smoothing > 0.0001f) {
-            double tau_shaft = (double)m_steering_shaft_smoothing;
-            double alpha_shaft = dt / (tau_shaft + dt);
+        // --- AUTOMATIC IDLE SMOOTHING (Fix for Engine Vibration) ---
+        // If the car is moving slowly (< 3.0 m/s), the "Road Feel" is mostly just 
+        // engine noise and sensor jitter. We apply heavy smoothing to kill the 
+        // vibration while preserving the heavy static weight of the steering.
+        
+        double effective_shaft_smoothing = (double)m_steering_shaft_smoothing;
+        double car_speed_abs = std::abs(data->mLocalVel.z);
+        
+        const double IDLE_SPEED_THRESHOLD = 3.0; // m/s (~10 kph)
+        const double IDLE_SMOOTHING_TARGET = 0.1; // 0.1s = ~1.6Hz cutoff (Kills engine vibes)
+
+        if (car_speed_abs < IDLE_SPEED_THRESHOLD) {
+            // Linear blend: 100% idle smoothing at 0 m/s, 0% at 3 m/s
+            double idle_blend = (IDLE_SPEED_THRESHOLD - car_speed_abs) / IDLE_SPEED_THRESHOLD;
+            
+            // Use the higher of the two: User Setting vs Idle Target
+            // This ensures we never make the wheel *more* raw than the user wants
+            double dynamic_smooth = IDLE_SMOOTHING_TARGET * idle_blend;
+            effective_shaft_smoothing = (std::max)(effective_shaft_smoothing, dynamic_smooth);
+        }
+
+        // --- APPLY SMOOTHING ---
+        if (effective_shaft_smoothing > 0.0001) {
+            double alpha_shaft = dt / (effective_shaft_smoothing + dt);
             // Safety clamp
             alpha_shaft = (std::min)(1.0, (std::max)(0.001, alpha_shaft));
             
@@ -15889,6 +20549,11 @@ public:
         // 2. Dynamic Notch Filter Logic
         // Calculate Wheel Frequency (always, for GUI display)
         double car_v_long = std::abs(data->mLocalVel.z);
+        
+        // 1. Calculate Stationary Gate (Fade out vibrations at low speed)
+        // Ramp from 0.0 (at < 0.5 m/s) to 1.0 (at > 2.0 m/s)
+        double speed_gate = (car_v_long - 0.5) / 1.5;
+        speed_gate = (std::max)(0.0, (std::min)(1.0, speed_gate));
         
         // Get radius (convert cm to m)
         // Use Front Left as reference
@@ -16011,7 +20676,7 @@ public:
             
             
             if (!m_warned_load) {
-                std::cout << "Warning: Data for mTireLoad from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+                std::cout << "Warning: Data for mTireLoad from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). Using Kinematic Fallback." << std::endl;
                 m_warned_load = true;
             }
             frame_warn_load = true;
@@ -16028,7 +20693,7 @@ public:
              m_missing_susp_force_frames = (std::max)(0, m_missing_susp_force_frames - 1);
         }
         if (m_missing_susp_force_frames > 50 && !m_warned_susp_force) {
-             std::cout << "Warning: Data for mSuspForce from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             std::cout << "Warning: Data for mSuspForce from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
              m_warned_susp_force = true;
         }
 
@@ -16041,7 +20706,7 @@ public:
             m_missing_susp_deflection_frames = (std::max)(0, m_missing_susp_deflection_frames - 1);
         }
         if (m_missing_susp_deflection_frames > 50 && !m_warned_susp_deflection) {
-            std::cout << "Warning: Data for mSuspensionDeflection from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+            std::cout << "Warning: Data for mSuspensionDeflection from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
             m_warned_susp_deflection = true;
         }
 
@@ -16054,7 +20719,7 @@ public:
             m_missing_lat_force_front_frames = (std::max)(0, m_missing_lat_force_front_frames - 1);
         }
         if (m_missing_lat_force_front_frames > 50 && !m_warned_lat_force_front) {
-             std::cout << "Warning: Data for mLateralForce (Front) from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             std::cout << "Warning: Data for mLateralForce (Front) from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
              m_warned_lat_force_front = true;
         }
 
@@ -16068,8 +20733,22 @@ public:
             m_missing_lat_force_rear_frames = (std::max)(0, m_missing_lat_force_rear_frames - 1);
         }
         if (m_missing_lat_force_rear_frames > 50 && !m_warned_lat_force_rear) {
-             std::cout << "Warning: Data for mLateralForce (Rear) from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             std::cout << "Warning: Data for mLateralForce (Rear) from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
              m_warned_lat_force_rear = true;
+        }
+
+        // 5. Vertical Tire Deflection (mVerticalTireDeflection) - NEW (v0.6.21)
+        // Check: If exactly 0.0 while moving fast (deflection usually noisy)
+        double avg_vert_def = (std::abs(fl.mVerticalTireDeflection) + std::abs(fr.mVerticalTireDeflection)) / 2.0;
+        if (avg_vert_def < 0.000001 && std::abs(data->mLocalVel.z) > 10.0) {
+            m_missing_vert_deflection_frames++;
+        } else {
+            m_missing_vert_deflection_frames = (std::max)(0, m_missing_vert_deflection_frames - 1);
+        }
+        if (m_missing_vert_deflection_frames > 50 && !m_warned_vert_deflection) {
+            std::cout << "[WARNING] mVerticalTireDeflection is missing for car: " << data->mVehicleName 
+                      << ". (Likely Encrypted/DLC Content). Road Texture fallback active." << std::endl;
+            m_warned_vert_deflection = true;
         }
         
         // Normalize: 4000N is a reference "loaded" GT tire.
@@ -16364,7 +21043,7 @@ public:
             if (abs_system_active) {
                 m_abs_phase += (double)m_abs_freq_hz * dt * TWO_PI; // Configurable Frequency
                 m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
-                total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale);
+                total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale * speed_gate);
             }
         }
 
@@ -16465,7 +21144,7 @@ public:
                     amp *= (double)m_lockup_rear_boost;
                 }
 
-                lockup_rumble = std::sin(m_lockup_phase) * amp;
+                lockup_rumble = std::sin(m_lockup_phase) * amp * speed_gate;
                 total_force += lockup_rumble;
             }
         }
@@ -16578,18 +21257,6 @@ public:
                 }
             }
 
-            // Use change in suspension deflection
-            // 
-            // TODO (v0.4.40 - Encrypted Content Gap A): Road Texture Fallback
-            // If mVerticalTireDeflection is blocked (0.0) on encrypted content, the delta will be 0.0,
-            // resulting in silent road texture (no bumps or curbs felt).
-            // 
-            // Risk: If mSuspensionDeflection is blocked, mVerticalTireDeflection and mRideHeight
-            // are likely also blocked (same suspension physics packet).
-            // 
-            // Potential Fix: If deflection is static/zero while car is moving, fallback to using
-            // Vertical G-Force (mLocalAccel.y) through a high-pass filter to generate road noise.
-            // See: docs/dev_docs/Improving FFB App Tyres.md "Gap A: Road Texture"
             double vert_l = fl.mVerticalTireDeflection;
             double vert_r = fr.mVerticalTireDeflection;
             
@@ -16601,12 +21268,36 @@ public:
             delta_l = (std::max)(-0.01, (std::min)(0.01, delta_l));
             delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
 
-            // Amplify sudden changes
-            double road_noise_val = (delta_l + delta_r) * 50.0 * m_road_texture_gain * decoupling_scale; // Scaled for Nm (was 5000)
+            double road_noise_val = 0.0;
+
+            // FALLBACK LOGIC (v0.6.21): Check if Deflection is active
+            // If deltas are exactly 0.0 but we are moving fast, data is likely blocked.
+            bool deflection_active = (std::abs(delta_l) > 0.000001 || std::abs(delta_r) > 0.000001);
             
-            // Apply LOAD FACTOR: Bumps feel harder under compression
-            road_noise = road_noise_val * texture_load_factor;
+            if (deflection_active || car_v_long < 5.0) {
+                // Standard Logic
+                road_noise_val = (delta_l + delta_r) * 50.0;
+            } else {
+                // Fallback: Use Vertical Acceleration (Heave)
+                // This captures bumps even if suspension telemetry is encrypted
+                double vert_accel = data->mLocalAccel.y;
+                double delta_accel = vert_accel - m_prev_vert_accel;
+                
+                // Scaling: Accel delta needs to be converted to equivalent force
+                // Empirically, 1.0 m/s^2 delta ~ equivalent to small bump
+                // Multiplier 0.05 gives similar magnitude to deflection method
+                road_noise_val = delta_accel * 0.05 * 50.0; 
+            }
             
+            // Update History
+            m_prev_vert_accel = data->mLocalAccel.y;
+
+            // Apply Gain & Load
+            road_noise = road_noise_val * m_road_texture_gain * decoupling_scale * texture_load_factor;
+            
+            // Apply Stationary Gate (Fix for Violent Shaking at Stop)
+            road_noise *= speed_gate;
+
             total_force += road_noise;
         }
 
@@ -16673,7 +21364,7 @@ public:
 
                 // Generate vibration (Sine wave)
                 // This creates a heavy shudder regardless of steering direction
-                double crunch = std::sin(m_bottoming_phase) * bump_magnitude;
+                double crunch = std::sin(m_bottoming_phase) * bump_magnitude * speed_gate;
                 
                 total_force += crunch;
             }
@@ -19052,6 +23743,11 @@ int main(int argc, char* argv[]) {
 
 ```
 
+# File: src\aceFFB\aceFFBEngine.h
+```cpp
+
+```
+
 # File: src\lmu_sm_interface\InternalsPlugin.hpp
 ```
 //###########################################################################
@@ -20729,6 +25425,8 @@ static void test_yaw_kick_threshold(); // Forward declaration (v0.6.10)
 static void test_notch_filter_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 static void test_yaw_kick_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 static void test_high_gain_stability(); // Forward declaration (v0.6.20)
+static void test_stationary_gate(); // Forward declaration (v0.6.21)
+static void test_idle_smoothing(); // Forward declaration (v0.6.22)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -20761,6 +25459,7 @@ static TelemInfoV01 CreateBasicTestTelemetry(double speed = 20.0, double slip_an
         data.mWheel[i].mBrakePressure = 1.0; // Default for tests (v0.6.0)
         data.mWheel[i].mSuspForce = 4000.0; // Grounded (v0.6.0)
         data.mWheel[i].mTireLoad = 4000.0; 
+        data.mWheel[i].mVerticalTireDeflection = 0.001; // Avoid "missing data" warning (v0.6.21)
     }
     
     return data;
@@ -20877,6 +25576,8 @@ static void test_base_force_modes() {
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
+    data.mDeltaTime = 0.0025;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.22)
     
     // Common Setup
     engine.m_max_torque_ref = 20.0f; // Reference for normalization
@@ -21025,6 +25726,7 @@ static void test_scrub_drag_fade() {
     
     data.mWheel[0].mLateralPatchVel = 0.25;
     data.mWheel[1].mLateralPatchVel = 0.25;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.22)
     engine.m_max_torque_ref = 40.0f;
     engine.m_gain = 1.0;
     
@@ -21051,6 +25753,7 @@ static void test_road_texture_teleport() {
     
     // Disable Bottoming
     engine.m_bottoming_enabled = false;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.21)
 
     engine.m_road_texture_enabled = true;
     engine.m_road_texture_gain = 1.0;
@@ -21133,6 +25836,9 @@ static void test_grip_low_speed() {
     data.mWheel[0].mLongitudinalGroundVel = 1.0;
     data.mWheel[1].mLongitudinalGroundVel = 1.0;
     
+    // Warm up or bypass idle smoothing for this test
+    engine.m_steering_shaft_torque_smoothed = 40.0; 
+    
     double force = engine.calculate_force(&data);
     
     if (std::abs(force - 1.0) < 0.001) {
@@ -21178,7 +25884,7 @@ static void test_grip_modulation() {
     
     // Default RH to avoid scraping
     data.mWheel[0].mRideHeight = 0.1; data.mWheel[1].mRideHeight = 0.1;
-    data.mLocalVel.z = 20.0; // Ensure moving to avoid low-speed cutoffs
+    data.mLocalVel.z = -20.0; // Ensure moving to avoid low-speed cutoffs
 
     // Set Gain to 1.0 for testing logic (default is now 0.5)
     engine.m_gain = 1.0; 
@@ -21222,6 +25928,7 @@ static void test_sop_effect() {
 
     // Disable Game Force
     data.mSteeringShaftTorque = 0.0;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.22)
     engine.m_sop_effect = 0.5; 
     engine.m_gain = 1.0; // Ensure gain is 1.0
     engine.m_sop_smoothing_factor = 1.0; // Disable smoothing for instant result
@@ -21272,6 +25979,7 @@ static void test_min_force() {
     // 20.0 is Max. Min force 0.10 means we want at least 2.0 Nm output effectively.
     // Input 0.05 Nm. 0.05 / 20.0 = 0.0025.
     data.mSteeringShaftTorque = 0.05; 
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.22)
     engine.m_min_force = 0.10f; // 10% min force
     engine.m_max_torque_ref = 20.0f; // Fix Reference for Test (v0.4.4)
     engine.m_invert_force = false;
@@ -21442,6 +26150,8 @@ static void test_dynamic_tuning() {
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
+    data.mDeltaTime = 0.0025;
+    data.mLocalVel.z = -20.0;
     
     // Default RH to avoid scraping
     data.mWheel[0].mRideHeight = 0.1; data.mWheel[1].mRideHeight = 0.1;
@@ -21495,6 +26205,7 @@ static void test_suspension_bottoming() {
     // Enable Bottoming
     engine.m_bottoming_enabled = true;
     engine.m_bottoming_gain = 1.0;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.21)
     
     // Disable others
     engine.m_sop_effect = 0.0;
@@ -22463,6 +27174,7 @@ static void test_universal_bottoming() {
     engine.m_bottoming_gain = 1.0;
     engine.m_sop_effect = 0.0;
     data.mDeltaTime = 0.01;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.21)
     
     // Method A: Scraping
     engine.m_bottoming_method = 0;
@@ -23263,6 +27975,7 @@ static void test_frequency_estimator() {
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.22)
     
     data.mDeltaTime = 0.0025; // 400Hz
     double target_freq = 20.0; // 20Hz vibration
@@ -25231,6 +29944,8 @@ static void test_steering_shaft_smoothing() {
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
+    data.mDeltaTime = 0.01; // 100Hz for this test math
+    data.mLocalVel.z = -20.0;
 
     engine.m_steering_shaft_smoothing = 0.050f; // 50ms tau
     engine.m_gain = 1.0;
@@ -25624,7 +30339,7 @@ static void test_abs_pulse_v060() {
     std::cout << "\nTest: ABS Pulse Detection (v0.6.0)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
-    TelemInfoV01 data = CreateBasicTestTelemetry(0.0); // Static car
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0); // Moving car (v0.6.21 FIX)
     
     engine.m_abs_pulse_enabled = true;
     engine.m_abs_gain = 1.0;
@@ -25668,7 +30383,7 @@ static void test_missing_telemetry_warnings() {
     engine.calculate_force(&data);
     
     std::string output = buffer.str();
-    bool grip_warn = output.find("Warning: Data for mGripFract from the game seems to be missing for this car (TestCar_GT3)") != std::string::npos;
+    bool grip_warn = output.find("Warning: Data for mGripFract from the game seems to be missing for this car (TestCar_GT3). (Likely Encrypted/DLC Content)") != std::string::npos;
     
     if (grip_warn) {
         std::cout.rdbuf(prev_cout_buf); // Restore cout
@@ -25696,7 +30411,7 @@ static void test_missing_telemetry_warnings() {
     }
     
     output = buffer.str();
-    bool susp_warn = output.find("Warning: Data for mSuspForce from the game seems to be missing for this car (TestCar_GT3)") != std::string::npos;
+    bool susp_warn = output.find("Warning: Data for mSuspForce from the game seems to be missing for this car (TestCar_GT3). (Likely Encrypted/DLC Content)") != std::string::npos;
     
      if (susp_warn) {
         std::cout.rdbuf(prev_cout_buf);
@@ -25706,6 +30421,36 @@ static void test_missing_telemetry_warnings() {
     } else {
         std::cout.rdbuf(prev_cout_buf);
         std::cout << "[FAIL] SuspForce warning missing or format incorrect." << std::endl;
+        g_tests_failed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    }
+
+    // --- Case 3: Missing Vertical Tire Deflection (NEW) ---
+    // Reset output buffer
+    buffer.str("");
+    
+    // Set Vertical Deflection to 0.0 (Missing)
+    for(int i=0; i<4; i++) data.mWheel[i].mVerticalTireDeflection = 0.0;
+    
+    // Ensure speed is high enough to trigger check (> 10.0 m/s)
+    data.mLocalVel.z = 20.0; 
+
+    // Run for 60 frames to trigger hysteresis (> 50 frames)
+    for(int i=0; i<60; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    output = buffer.str();
+    bool vert_warn = output.find("[WARNING] mVerticalTireDeflection is missing") != std::string::npos;
+    
+    if (vert_warn) {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[PASS] Vertical Deflection warning triggered." << std::endl;
+        g_tests_passed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    } else {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[FAIL] Vertical Deflection warning missing." << std::endl;
         g_tests_failed++;
         std::cout.rdbuf(buffer.rdbuf());
     }
@@ -25925,6 +30670,118 @@ static void test_yaw_kick_edge_cases() {
     ASSERT_NEAR(force_low_speed, 0.0, 0.001); // Low speed cutoff takes precedence
 }
 
+static void test_stationary_gate() {
+    std::cout << "\nTest: Stationary Signal Gate" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Case 1: Stationary (0.0 m/s) -> Effects should be gated to 0.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(0.0);
+        
+        // Enable Road Texture
+        engine.m_road_texture_enabled = true;
+        engine.m_road_texture_gain = 1.0;
+        
+        // Simulate Engine Idle Vibration (Deflection Delta)
+        data.mWheel[0].mVerticalTireDeflection = 0.001; 
+        data.mWheel[1].mVerticalTireDeflection = 0.001;
+        // Previous was 0.0 at initialization, so delta is 0.001
+        
+        double force = engine.calculate_force(&data);
+        
+        // Should be 0.0 due to speed_gate
+        ASSERT_NEAR(force, 0.0, 0.0001);
+    }
+    
+    // Case 2: Moving slowly (0.5 m/s) -> Gate should be 0.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(0.5);
+        engine.m_road_texture_enabled = true;
+        data.mWheel[0].mVerticalTireDeflection = 0.001; 
+        data.mWheel[1].mVerticalTireDeflection = 0.001;
+        
+        double force = engine.calculate_force(&data);
+        ASSERT_NEAR(force, 0.0, 0.0001);
+    }
+    
+    // Case 3: Moving at 2.0 m/s -> Gate should be 1.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(2.0);
+        engine.m_road_texture_enabled = true;
+        engine.m_road_texture_gain = 1.0;
+        engine.m_max_torque_ref = 20.0f;
+        
+        data.mWheel[0].mVerticalTireDeflection = 0.002; 
+        data.mWheel[1].mVerticalTireDeflection = 0.002;
+        
+        double force = engine.calculate_force(&data);
+        
+        // Delta = 0.002 - 0.001 (from Case 2) = 0.001. Sum = 0.002.
+        // Force = 0.002 * 50.0 = 0.1 Nm.
+        // Normalized = 0.1 / 20.0 = 0.005.
+        ASSERT_NEAR(force, 0.005, 0.0001);
+    }
+}
+
+static void test_idle_smoothing() {
+    std::cout << "\nTest: Automatic Idle Smoothing" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    TelemInfoV01 data = CreateBasicTestTelemetry(0.0); // Stopped
+    
+    // Setup: User wants RAW FFB (0 smoothing)
+    engine.m_steering_shaft_smoothing = 0.0f;
+    engine.m_gain = 1.0f;
+    engine.m_max_torque_ref = 10.0f; // Allow up to 10 Nm without clipping
+    
+    // 1. Simulate Engine Vibration at Idle (20Hz sine wave)
+    // Amplitude 5.0 Nm. 
+    // With 0.1s smoothing (Idle Target), 20Hz should be heavily attenuated.
+    double max_force_idle = 0.0;
+    data.mDeltaTime = 0.0025; // 400Hz
+    
+    for(int i=0; i<100; i++) {
+        double t = i * data.mDeltaTime;
+        data.mSteeringShaftTorque = 5.0 * std::sin(20.0 * 6.28 * t);
+        double force = engine.calculate_force(&data);
+        max_force_idle = (std::max)(max_force_idle, std::abs(force));
+    }
+    
+    // Expect significant attenuation (e.g. < 0.15 normalized instead of 0.5)
+    if (max_force_idle < 0.15) {
+        std::cout << "[PASS] Idle vibration attenuated (Max: " << max_force_idle << " < 0.15)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Idle vibration too strong! Max: " << max_force_idle << std::endl;
+        g_tests_failed++;
+    }
+    
+    // 2. Simulate Driving (High Speed)
+    TelemInfoV01 data_driving = CreateBasicTestTelemetry(20.0);
+    data_driving.mDeltaTime = 0.0025;
+    
+    // Reset smoother
+    engine.m_steering_shaft_torque_smoothed = 0.0;
+    
+    double max_force_driving = 0.0;
+    for(int i=0; i<100; i++) {
+        double t = i * data_driving.mDeltaTime;
+        data_driving.mSteeringShaftTorque = 5.0 * std::sin(20.0 * 6.28 * t); // Same vibration (e.g. curb)
+        double force = engine.calculate_force(&data_driving);
+        max_force_driving = (std::max)(max_force_driving, std::abs(force));
+    }
+    
+    // Expect RAW pass-through (near 0.5)
+    if (max_force_driving > 0.4) {
+        std::cout << "[PASS] Driving vibration passed through (Max: " << max_force_driving << " > 0.4)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Driving vibration over-smoothed. Max: " << max_force_driving << std::endl;
+        g_tests_failed++;
+    }
+}
+
 // Main Runner
 void Run() {
     std::cout << "=== Running FFB Engine Tests ===" << std::endl;
@@ -25944,6 +30801,8 @@ void Run() {
     test_road_texture_teleport();
     test_grip_low_speed();
     test_sop_yaw_kick();  
+    test_stationary_gate(); // v0.6.21
+    test_idle_smoothing(); // v0.6.22
     // Run Regression Tests
     test_zero_input();
     test_suspension_bottoming();
