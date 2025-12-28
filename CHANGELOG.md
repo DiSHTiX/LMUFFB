@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.24] - 2025-12-28
+### Changed
+- **Max Torque Ref Documentation Update**:
+  - **Updated Tooltip**: Clarified that Max Torque Ref represents the expected PEAK torque of the CAR in the game (30-60 Nm for GT3/LMP2), NOT the wheelbase capability.
+  - **New Guidance**: Added clear explanation of the tradeoff between clipping and steering weight:
+    - Higher values = Less Clipping, Less Noise, Lighter Steering
+    - Lower values = More Clipping, More Noise, Heavier Steering
+  - **Recommended Range**: Set this to ~40-60 Nm to prevent clipping for modern race cars.
+  - **README Tuning Tip**: Added troubleshooting entry explaining that Max Torque Ref is the primary way to fix violent oscillations if Smoothing/Gate settings don't catch them.
+  - **Default Value**: Maintained at 100.0 Nm for T300 compatibility (existing users' configs unchanged).
+
 ## [0.6.23] - 2025-12-28
 ### Added
 - **Configurable Speed Gate**:

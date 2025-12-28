@@ -69,6 +69,10 @@ Your testing and feedback is greatly appreciated! 🙏
 -   **FFB too weak**:
     -   Increase **Master Gain**.
     -   Or reduce **Max Torque Ref** (this amplifies the signal by setting a lower reference point for maximum torque).
+-   **Violent oscillations or shaking**:
+    -   If you experience violent oscillations that the Smoothing or Speed Gate settings don't catch, try **increasing Max Torque Ref** (e.g., from 45 to 60-80 Nm).
+    -   Higher Max Torque Ref values reduce clipping and noise, which can cause oscillations.
+    -   **Tuning Tip**: Max Torque Ref is the primary way to control the balance between clipping/noise and steering weight. Start at 45 Nm and adjust based on your preference.
 -   **Strange pull in some scenarios**:
     -   If you feel a strange pull in specific driving situations, try reducing the **Rear Align Torque**.
 -   **The app has too many options and it's confusing**:

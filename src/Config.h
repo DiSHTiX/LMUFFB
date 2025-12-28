@@ -85,8 +85,10 @@ struct Preset {
     // v0.6.23 New Settings with HIGHER DEFAULTS
     float speed_gate_lower = 1.0f; // 3.6 km/h
     float speed_gate_upper = 5.0f; // 18.0 km/h (Fixes idle shake)
-    float road_fallback_scale = 0.05f;
-    bool understeer_affects_sop = false;
+    
+    // Reserved for future implementation (v0.6.23+)
+    float road_fallback_scale = 0.05f;      // Planned: Road texture fallback scaling
+    bool understeer_affects_sop = false;     // Planned: Understeer modulation of SoP
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}

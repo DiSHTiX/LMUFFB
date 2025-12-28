@@ -948,7 +948,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         
         BoolSetting("Invert FFB Signal", &engine.m_invert_force, "Check this if the wheel pulls away from center instead of aligning.");
         FloatSetting("Master Gain", &engine.m_gain, 0.0f, 2.0f, FormatPct(engine.m_gain), "Global scale factor for all forces.\n100% = No attenuation.\nReduce if experiencing heavy clipping.");
-        FloatSetting("Max Torque Ref", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm", "The physical torque (Nm) that corresponds to 100% FFB output.\nIn theory (but not in practice) you should set this to match your wheel base's peak torque (e.g., T300=4Nm, Simucube=20Nm).\nDecouples software scaling from hardware capability.");
+        FloatSetting("Max Torque Ref", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm", "The expected PEAK torque of the CAR in the game.\nGT3/LMP2 cars produce 30-60 Nm of torque.\nSet this to ~40-60 Nm to prevent clipping.\nHigher values = Less Clipping, Less Noise, Lighter Steering.\nLower values = More Clipping, More Noise, Heavier Steering.");
         FloatSetting("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f", "Boosts small forces to overcome the mechanical friction/deadzone of gear/belt driven wheels.\nPrevents the 'dead center' feeling.\nTypical: 0.0 for DD, 0.01-0.05 for Belt/Gear.");
         
         ImGui::TreePop();

@@ -227,7 +227,7 @@ The staged changes successfully implement the speed-gated FFB smoothing mechanis
 
 ### 4. Potential Issues and Recommendations
 
-#### ⚠️ Minor Issue 1: Unused Settings in This Release
+#### ✅ ~~Minor Issue 1: Unused Settings in This Release~~ [RESOLVED]
 
 **Observation:**
 The diff includes two new settings that are added to the Preset system but not used in the FFB engine logic:
@@ -239,12 +239,12 @@ The diff includes two new settings that are added to the Preset system but not u
 - `src/Config.h` (Lines 61-62): Added to Preset struct
 - No usage found in `calculate_force()` method
 
-**Recommendation:**
-- **Option A (Preferred):** Remove these from the v0.6.23 commit and implement them in a future release when the logic is ready.
-- **Option B:** Add a comment in the code indicating these are "reserved for future use" to avoid confusion.
-- **Option C:** Accept as-is if these are intentionally staged for an upcoming feature.
+**Resolution: ✅ IMPLEMENTED**
+Added clarifying comments to both files indicating these settings are "Reserved for future use":
+- `src/FFBEngine.h`: Added 3-line comment explaining these are declared but not yet implemented
+- `src/Config.h`: Added inline comments describing the planned functionality
 
-**Severity:** Low (does not affect functionality, but adds unused code)
+**Severity:** ~~Low~~ **RESOLVED** (no longer an issue)
 
 ---
 
@@ -351,7 +351,7 @@ TOTAL PASSED: 360
 None. The implementation is production-ready.
 
 ### Should Consider (Optional)
-1. **Unused Settings:** Decide whether to keep `m_road_fallback_scale` and `m_understeer_affects_sop` in this release or defer to a future commit.
+1. ~~**Unused Settings:**~~ ✅ **RESOLVED** - Added comments indicating these are reserved for future use.
 2. **Tooltip Enhancement:** Add a note about the 3.0 m/s safety floor to the "Full Above" slider tooltip.
 
 ### Nice to Have (Future Work)
@@ -375,7 +375,7 @@ The implementation is of high quality and fully satisfies all requirements from 
 6. ✅ All 360 tests passing
 
 **Minor Observations:**
-1. Two unused settings (`m_road_fallback_scale`, `m_understeer_affects_sop`) are included but not implemented
+1. ~~Two unused settings (`m_road_fallback_scale`, `m_understeer_affects_sop`) are included but not implemented~~ ✅ **RESOLVED** - Comments added
 2. Minor documentation formatting improvement in GIT_DIFF_RETRIEVAL_STRATEGY.md
 
 **Recommendation:** Proceed with merge. The minor observations do not affect the core functionality and can be addressed in a follow-up commit if desired.

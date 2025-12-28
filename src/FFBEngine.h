@@ -261,7 +261,9 @@ public:
     float m_speed_gate_lower = 1.0f; 
     float m_speed_gate_upper = 5.0f; 
 
-    // v0.6.23: Additional Advanced Physics
+    // v0.6.23: Additional Advanced Physics (Reserved for future use)
+    // These settings are declared and persist in config/presets but are not yet
+    // implemented in the calculate_force() logic. They will be activated in a future release.
     float m_road_fallback_scale = 0.05f;
     bool m_understeer_affects_sop = false;
     
