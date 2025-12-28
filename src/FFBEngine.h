@@ -266,6 +266,7 @@ public:
     bool m_warned_lat_force_rear = false;
     bool m_warned_susp_force = false;
     bool m_warned_susp_deflection = false;
+    bool m_warned_vert_deflection = false; // v0.6.21
     
     // Diagnostics (v0.4.5 Fix)
     struct GripDiagnostics {
@@ -283,9 +284,11 @@ public:
     int m_missing_lat_force_rear_frames = 0;
     int m_missing_susp_force_frames = 0;
     int m_missing_susp_deflection_frames = 0;
+    int m_missing_vert_deflection_frames = 0; // v0.6.21
 
     // Internal state
     double m_prev_vert_deflection[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR
+    double m_prev_vert_accel = 0.0; // New v0.6.21: For Road Texture Fallback
     double m_prev_slip_angle[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR (LPF State)
     double m_prev_rotation[4] = {0.0, 0.0, 0.0, 0.0};    // New v0.6.0
     double m_prev_brake_pressure[4] = {0.0, 0.0, 0.0, 0.0}; // New v0.6.0
@@ -605,7 +608,7 @@ public:
             result.value = (std::max)(0.2, result.value);
             
             if (!warned_flag) {
-                std::cout << "Warning: Data for mGripFract from the game seems to be missing for this car (" << vehicleName << "). A fallback estimation will be used." << std::endl;
+                std::cout << "Warning: Data for mGripFract from the game seems to be missing for this car (" << vehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
                 warned_flag = true;
             }
         }
@@ -772,6 +775,11 @@ public:
         // Calculate Wheel Frequency (always, for GUI display)
         double car_v_long = std::abs(data->mLocalVel.z);
         
+        // 1. Calculate Stationary Gate (Fade out vibrations at low speed)
+        // Ramp from 0.0 (at < 0.5 m/s) to 1.0 (at > 2.0 m/s)
+        double speed_gate = (car_v_long - 0.5) / 1.5;
+        speed_gate = (std::max)(0.0, (std::min)(1.0, speed_gate));
+        
         // Get radius (convert cm to m)
         // Use Front Left as reference
         const TelemWheelV01& fl_ref = data->mWheel[0];
@@ -893,7 +901,7 @@ public:
             
             
             if (!m_warned_load) {
-                std::cout << "Warning: Data for mTireLoad from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+                std::cout << "Warning: Data for mTireLoad from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). Using Kinematic Fallback." << std::endl;
                 m_warned_load = true;
             }
             frame_warn_load = true;
@@ -910,7 +918,7 @@ public:
              m_missing_susp_force_frames = (std::max)(0, m_missing_susp_force_frames - 1);
         }
         if (m_missing_susp_force_frames > 50 && !m_warned_susp_force) {
-             std::cout << "Warning: Data for mSuspForce from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             std::cout << "Warning: Data for mSuspForce from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
              m_warned_susp_force = true;
         }
 
@@ -923,7 +931,7 @@ public:
             m_missing_susp_deflection_frames = (std::max)(0, m_missing_susp_deflection_frames - 1);
         }
         if (m_missing_susp_deflection_frames > 50 && !m_warned_susp_deflection) {
-            std::cout << "Warning: Data for mSuspensionDeflection from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+            std::cout << "Warning: Data for mSuspensionDeflection from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
             m_warned_susp_deflection = true;
         }
 
@@ -936,7 +944,7 @@ public:
             m_missing_lat_force_front_frames = (std::max)(0, m_missing_lat_force_front_frames - 1);
         }
         if (m_missing_lat_force_front_frames > 50 && !m_warned_lat_force_front) {
-             std::cout << "Warning: Data for mLateralForce (Front) from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             std::cout << "Warning: Data for mLateralForce (Front) from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
              m_warned_lat_force_front = true;
         }
 
@@ -950,8 +958,22 @@ public:
             m_missing_lat_force_rear_frames = (std::max)(0, m_missing_lat_force_rear_frames - 1);
         }
         if (m_missing_lat_force_rear_frames > 50 && !m_warned_lat_force_rear) {
-             std::cout << "Warning: Data for mLateralForce (Rear) from the game seems to be missing for this car (" << data->mVehicleName << "). A fallback estimation will be used." << std::endl;
+             std::cout << "Warning: Data for mLateralForce (Rear) from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
              m_warned_lat_force_rear = true;
+        }
+
+        // 5. Vertical Tire Deflection (mVerticalTireDeflection) - NEW (v0.6.21)
+        // Check: If exactly 0.0 while moving fast (deflection usually noisy)
+        double avg_vert_def = (std::abs(fl.mVerticalTireDeflection) + std::abs(fr.mVerticalTireDeflection)) / 2.0;
+        if (avg_vert_def < 0.000001 && std::abs(data->mLocalVel.z) > 10.0) {
+            m_missing_vert_deflection_frames++;
+        } else {
+            m_missing_vert_deflection_frames = (std::max)(0, m_missing_vert_deflection_frames - 1);
+        }
+        if (m_missing_vert_deflection_frames > 50 && !m_warned_vert_deflection) {
+            std::cout << "[WARNING] mVerticalTireDeflection is missing for car: " << data->mVehicleName 
+                      << ". (Likely Encrypted/DLC Content). Road Texture fallback active." << std::endl;
+            m_warned_vert_deflection = true;
         }
         
         // Normalize: 4000N is a reference "loaded" GT tire.
@@ -1246,7 +1268,7 @@ public:
             if (abs_system_active) {
                 m_abs_phase += (double)m_abs_freq_hz * dt * TWO_PI; // Configurable Frequency
                 m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
-                total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale);
+                total_force += (float)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * decoupling_scale * speed_gate);
             }
         }
 
@@ -1347,7 +1369,7 @@ public:
                     amp *= (double)m_lockup_rear_boost;
                 }
 
-                lockup_rumble = std::sin(m_lockup_phase) * amp;
+                lockup_rumble = std::sin(m_lockup_phase) * amp * speed_gate;
                 total_force += lockup_rumble;
             }
         }
@@ -1460,18 +1482,6 @@ public:
                 }
             }
 
-            // Use change in suspension deflection
-            // 
-            // TODO (v0.4.40 - Encrypted Content Gap A): Road Texture Fallback
-            // If mVerticalTireDeflection is blocked (0.0) on encrypted content, the delta will be 0.0,
-            // resulting in silent road texture (no bumps or curbs felt).
-            // 
-            // Risk: If mSuspensionDeflection is blocked, mVerticalTireDeflection and mRideHeight
-            // are likely also blocked (same suspension physics packet).
-            // 
-            // Potential Fix: If deflection is static/zero while car is moving, fallback to using
-            // Vertical G-Force (mLocalAccel.y) through a high-pass filter to generate road noise.
-            // See: docs/dev_docs/Improving FFB App Tyres.md "Gap A: Road Texture"
             double vert_l = fl.mVerticalTireDeflection;
             double vert_r = fr.mVerticalTireDeflection;
             
@@ -1483,12 +1493,36 @@ public:
             delta_l = (std::max)(-0.01, (std::min)(0.01, delta_l));
             delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
 
-            // Amplify sudden changes
-            double road_noise_val = (delta_l + delta_r) * 50.0 * m_road_texture_gain * decoupling_scale; // Scaled for Nm (was 5000)
+            double road_noise_val = 0.0;
+
+            // FALLBACK LOGIC (v0.6.21): Check if Deflection is active
+            // If deltas are exactly 0.0 but we are moving fast, data is likely blocked.
+            bool deflection_active = (std::abs(delta_l) > 0.000001 || std::abs(delta_r) > 0.000001);
             
-            // Apply LOAD FACTOR: Bumps feel harder under compression
-            road_noise = road_noise_val * texture_load_factor;
+            if (deflection_active || car_v_long < 5.0) {
+                // Standard Logic
+                road_noise_val = (delta_l + delta_r) * 50.0;
+            } else {
+                // Fallback: Use Vertical Acceleration (Heave)
+                // This captures bumps even if suspension telemetry is encrypted
+                double vert_accel = data->mLocalAccel.y;
+                double delta_accel = vert_accel - m_prev_vert_accel;
+                
+                // Scaling: Accel delta needs to be converted to equivalent force
+                // Empirically, 1.0 m/s^2 delta ~ equivalent to small bump
+                // Multiplier 0.05 gives similar magnitude to deflection method
+                road_noise_val = delta_accel * 0.05 * 50.0; 
+            }
             
+            // Update History
+            m_prev_vert_accel = data->mLocalAccel.y;
+
+            // Apply Gain & Load
+            road_noise = road_noise_val * m_road_texture_gain * decoupling_scale * texture_load_factor;
+            
+            // Apply Stationary Gate (Fix for Violent Shaking at Stop)
+            road_noise *= speed_gate;
+
             total_force += road_noise;
         }
 
@@ -1555,7 +1589,7 @@ public:
 
                 // Generate vibration (Sine wave)
                 // This creates a heavy shudder regardless of steering direction
-                double crunch = std::sin(m_bottoming_phase) * bump_magnitude;
+                double crunch = std::sin(m_bottoming_phase) * bump_magnitude * speed_gate;
                 
                 total_force += crunch;
             }

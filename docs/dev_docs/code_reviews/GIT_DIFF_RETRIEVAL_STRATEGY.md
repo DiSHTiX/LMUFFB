@@ -1,8 +1,10 @@
 # Prompt to reuse when asking for a code review
 
-Do a code review of the staged changes from git. Save the diff to a txt file for easier consultation; all saved diffs must be saved under `tmp\diffs\`. Find our any issues with the changes. Read and follow the instructions in this document on the "Git Diff Retrieval Strategy for Code Reviews": docs\dev_docs\code_reviews\GIT_DIFF_RETRIEVAL_STRATEGY.md
+Do a code review of the staged changes from git. Save the diff to a txt file for easier consultation. Determine where to save the diff files, and clean them up when you are done. Note that you might get problems if you try to save and view the diff to a file that is in .gitignore, so read the .gitignore file to find out where else you can save the diff files. 
 
-You can read the prompt with the instructions that were given to the coding agent at `docs\dev_docs\prompts\v_0.6.20.md`. Read this document to understand what was supposed to be implemented and verify that the staged changes fullfilled all requirements.
+In your code review, find out any issue with the staged changes. Read and follow the instructions in this document on the "Git Diff Retrieval Strategy for Code Reviews": docs\dev_docs\code_reviews\GIT_DIFF_RETRIEVAL_STRATEGY.md
+
+You can read the prompt with the instructions that were given to the coding agent at `docs\dev_docs\prompts\v_0.6.21.md` and `docs\dev_docs\prompts\v_0.6.21_pt2.md`. Read this document to understand what was supposed to be implemented and verify that the staged changes fullfilled all requirements.
 
 Save a detailed code review report in the `docs\dev_docs\code_reviews\` folder.
 

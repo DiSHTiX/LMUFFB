@@ -87,6 +87,7 @@ static void test_yaw_kick_threshold(); // Forward declaration (v0.6.10)
 static void test_notch_filter_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 static void test_yaw_kick_edge_cases(); // Forward declaration (v0.6.10 - Edge Cases)
 static void test_high_gain_stability(); // Forward declaration (v0.6.20)
+static void test_stationary_gate(); // Forward declaration (v0.6.21)
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -119,6 +120,7 @@ static TelemInfoV01 CreateBasicTestTelemetry(double speed = 20.0, double slip_an
         data.mWheel[i].mBrakePressure = 1.0; // Default for tests (v0.6.0)
         data.mWheel[i].mSuspForce = 4000.0; // Grounded (v0.6.0)
         data.mWheel[i].mTireLoad = 4000.0; 
+        data.mWheel[i].mVerticalTireDeflection = 0.001; // Avoid "missing data" warning (v0.6.21)
     }
     
     return data;
@@ -409,6 +411,7 @@ static void test_road_texture_teleport() {
     
     // Disable Bottoming
     engine.m_bottoming_enabled = false;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.21)
 
     engine.m_road_texture_enabled = true;
     engine.m_road_texture_gain = 1.0;
@@ -853,6 +856,7 @@ static void test_suspension_bottoming() {
     // Enable Bottoming
     engine.m_bottoming_enabled = true;
     engine.m_bottoming_gain = 1.0;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.21)
     
     // Disable others
     engine.m_sop_effect = 0.0;
@@ -1821,6 +1825,7 @@ static void test_universal_bottoming() {
     engine.m_bottoming_gain = 1.0;
     engine.m_sop_effect = 0.0;
     data.mDeltaTime = 0.01;
+    data.mLocalVel.z = -20.0; // Moving fast (v0.6.21)
     
     // Method A: Scraping
     engine.m_bottoming_method = 0;
@@ -4982,7 +4987,7 @@ static void test_abs_pulse_v060() {
     std::cout << "\nTest: ABS Pulse Detection (v0.6.0)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
-    TelemInfoV01 data = CreateBasicTestTelemetry(0.0); // Static car
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0); // Moving car (v0.6.21 FIX)
     
     engine.m_abs_pulse_enabled = true;
     engine.m_abs_gain = 1.0;
@@ -5026,7 +5031,7 @@ static void test_missing_telemetry_warnings() {
     engine.calculate_force(&data);
     
     std::string output = buffer.str();
-    bool grip_warn = output.find("Warning: Data for mGripFract from the game seems to be missing for this car (TestCar_GT3)") != std::string::npos;
+    bool grip_warn = output.find("Warning: Data for mGripFract from the game seems to be missing for this car (TestCar_GT3). (Likely Encrypted/DLC Content)") != std::string::npos;
     
     if (grip_warn) {
         std::cout.rdbuf(prev_cout_buf); // Restore cout
@@ -5054,7 +5059,7 @@ static void test_missing_telemetry_warnings() {
     }
     
     output = buffer.str();
-    bool susp_warn = output.find("Warning: Data for mSuspForce from the game seems to be missing for this car (TestCar_GT3)") != std::string::npos;
+    bool susp_warn = output.find("Warning: Data for mSuspForce from the game seems to be missing for this car (TestCar_GT3). (Likely Encrypted/DLC Content)") != std::string::npos;
     
      if (susp_warn) {
         std::cout.rdbuf(prev_cout_buf);
@@ -5064,6 +5069,36 @@ static void test_missing_telemetry_warnings() {
     } else {
         std::cout.rdbuf(prev_cout_buf);
         std::cout << "[FAIL] SuspForce warning missing or format incorrect." << std::endl;
+        g_tests_failed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    }
+
+    // --- Case 3: Missing Vertical Tire Deflection (NEW) ---
+    // Reset output buffer
+    buffer.str("");
+    
+    // Set Vertical Deflection to 0.0 (Missing)
+    for(int i=0; i<4; i++) data.mWheel[i].mVerticalTireDeflection = 0.0;
+    
+    // Ensure speed is high enough to trigger check (> 10.0 m/s)
+    data.mLocalVel.z = 20.0; 
+
+    // Run for 60 frames to trigger hysteresis (> 50 frames)
+    for(int i=0; i<60; i++) {
+        engine.calculate_force(&data);
+    }
+    
+    output = buffer.str();
+    bool vert_warn = output.find("[WARNING] mVerticalTireDeflection is missing") != std::string::npos;
+    
+    if (vert_warn) {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[PASS] Vertical Deflection warning triggered." << std::endl;
+        g_tests_passed++;
+        std::cout.rdbuf(buffer.rdbuf());
+    } else {
+        std::cout.rdbuf(prev_cout_buf);
+        std::cout << "[FAIL] Vertical Deflection warning missing." << std::endl;
         g_tests_failed++;
         std::cout.rdbuf(buffer.rdbuf());
     }
@@ -5283,6 +5318,60 @@ static void test_yaw_kick_edge_cases() {
     ASSERT_NEAR(force_low_speed, 0.0, 0.001); // Low speed cutoff takes precedence
 }
 
+static void test_stationary_gate() {
+    std::cout << "\nTest: Stationary Signal Gate" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Case 1: Stationary (0.0 m/s) -> Effects should be gated to 0.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(0.0);
+        
+        // Enable Road Texture
+        engine.m_road_texture_enabled = true;
+        engine.m_road_texture_gain = 1.0;
+        
+        // Simulate Engine Idle Vibration (Deflection Delta)
+        data.mWheel[0].mVerticalTireDeflection = 0.001; 
+        data.mWheel[1].mVerticalTireDeflection = 0.001;
+        // Previous was 0.0 at initialization, so delta is 0.001
+        
+        double force = engine.calculate_force(&data);
+        
+        // Should be 0.0 due to speed_gate
+        ASSERT_NEAR(force, 0.0, 0.0001);
+    }
+    
+    // Case 2: Moving slowly (0.5 m/s) -> Gate should be 0.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(0.5);
+        engine.m_road_texture_enabled = true;
+        data.mWheel[0].mVerticalTireDeflection = 0.001; 
+        data.mWheel[1].mVerticalTireDeflection = 0.001;
+        
+        double force = engine.calculate_force(&data);
+        ASSERT_NEAR(force, 0.0, 0.0001);
+    }
+    
+    // Case 3: Moving at 2.0 m/s -> Gate should be 1.0
+    {
+        TelemInfoV01 data = CreateBasicTestTelemetry(2.0);
+        engine.m_road_texture_enabled = true;
+        engine.m_road_texture_gain = 1.0;
+        engine.m_max_torque_ref = 20.0f;
+        
+        data.mWheel[0].mVerticalTireDeflection = 0.002; 
+        data.mWheel[1].mVerticalTireDeflection = 0.002;
+        
+        double force = engine.calculate_force(&data);
+        
+        // Delta = 0.002 - 0.001 (from Case 2) = 0.001. Sum = 0.002.
+        // Force = 0.002 * 50.0 = 0.1 Nm.
+        // Normalized = 0.1 / 20.0 = 0.005.
+        ASSERT_NEAR(force, 0.005, 0.0001);
+    }
+}
+
 // Main Runner
 void Run() {
     std::cout << "=== Running FFB Engine Tests ===" << std::endl;
@@ -5302,6 +5391,7 @@ void Run() {
     test_road_texture_teleport();
     test_grip_low_speed();
     test_sop_yaw_kick();  
+    test_stationary_gate(); // v0.6.21
     // Run Regression Tests
     test_zero_input();
     test_suspension_bottoming();

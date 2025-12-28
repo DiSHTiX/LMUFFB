@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.21] - 2025-12-28
+### Added
+- **Stationary Signal Gate**:
+  - Implemented a "Speed Gate" that automatically fades out high-frequency vibration effects (Road Texture, ABS Pulse, Lockup, and Bottoming) when the car is stationary or moving at very low speeds (< 2.0 m/s).
+  - This eliminates the "Violent Shaking at Stop" issue caused by engine idle vibrations and sensor noise being amplified while the car is in the pits or parked.
+- **Road Texture Fallback (Encrypted Content Support)**:
+  - Implemented a "Vertical G-Force" fallback mechanism for Road Texture specifically for DLC/Encrypted cars where suspension telemetry is blocked by the game.
+  - The engine now automatically detects "dead" deflection signals while moving fast (> 5.0 m/s) and switches to using **Vertical Acceleration** (`mLocalAccel.y`) to generate road noise, ensuring bumps and curbs are felt on all cars.
+- **Improved Telemetry Diagnostics**:
+  - Added native detection for missing `mVerticalTireDeflection` data with hysteresis.
+  - Unified all missing telemetry warnings (`mTireLoad`, `mGripFract`, `mSuspForce`, etc.) to explicitly include **"(Likely Encrypted/DLC Content)"**, helping users identify why fallback logic is active.
+- **Improved Test Coverage**:
+  - Added `test_stationary_gate()` and updated `test_missing_telemetry_warnings()` to verify the new vibration suppression and deflection diagnostic logic.
+
+### Changed
+- **Warning Clarity**: Updated the `mTireLoad` missing data warning to explicitly mention "(Likely Encrypted/DLC Content)" to help users understand why the kinematic fallback is being used.
+
 ## [0.6.20] - 2025-12-27
 ### Added
 - **Effect Tuning & Slider Range Expansion**:
