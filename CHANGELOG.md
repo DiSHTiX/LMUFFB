@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.23] - 2025-12-28
+### Added
+- **Configurable Speed Gate**:
+  - Introduced the **"Stationary Vibration Gate"** in Advanced Settings, allowing manual control over where vibrations fade out.
+  - Added **"Mute Below"** (0-20 km/h) and **"Full Above"** (1-50 km/h) sliders to tune the transition between idle smoothing and full FFB.
+  - Implemented safety clamping to ensure the upper threshold always remains above the lower threshold.
+- **Improved Idle Shaking Elimination**:
+  - Increased the default speed gate to **18.0 km/h (5.0 m/s)**. This ensures that the violent engine vibrations common in LMU/rF2 below 15 km/h are surgically smoothed out by default.
+  - Updated the automatic idle smoothing logic to utilize the user-configured thresholds with a 3.0 m/s safety floor.
+- **Advanced Physics Configuration**:
+  - Added support for `road_fallback_scale` and `understeer_affects_sop` settings in the `Preset` system and FFB engine.
+- **Improved Test Coverage**:
+  - Added `test_speed_gate_custom_thresholds()` to verify dynamic threshold scaling and default initializations.
+  - Updated `test_stationary_gate()` to align with the new 5.0 m/s default speed gate.
+
 ## [0.6.22] - 2025-12-28
 ### Added
 - **Automatic Idle Smoothing**:

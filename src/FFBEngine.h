@@ -252,6 +252,18 @@ public:
     float m_static_notch_freq = 11.0f;
     float m_static_notch_width = 2.0f; // New v0.6.10: Width in Hz
     float m_yaw_kick_threshold = 0.2f; // New v0.6.10: Threshold in rad/s^2 (Default 0.2 matching legacy gate)
+
+    // v0.6.23: User-Adjustable Speed Gate
+    // CHANGED DEFAULTS:
+    // Lower: 1.0 m/s (3.6 km/h) - Start fading in
+    // Upper: 5.0 m/s (18.0 km/h) - Full strength / End smoothing
+    // This ensures the "Violent Shaking" (< 15km/h) is covered by default.
+    float m_speed_gate_lower = 1.0f; 
+    float m_speed_gate_upper = 5.0f; 
+
+    // v0.6.23: Additional Advanced Physics
+    float m_road_fallback_scale = 0.05f;
+    bool m_understeer_affects_sop = false;
     
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
@@ -735,12 +747,18 @@ public:
         double effective_shaft_smoothing = (double)m_steering_shaft_smoothing;
         double car_speed_abs = std::abs(data->mLocalVel.z);
         
-        const double IDLE_SPEED_THRESHOLD = 3.0; // m/s (~10 kph)
+        // Use the user-configured Upper Threshold
+        // Default is now 5.0 m/s (18 km/h), which covers the user's "below 15km/h" issue.
+        double idle_speed_threshold = (double)m_speed_gate_upper; 
+        
+        // Safety floor: Never go below 3.0 m/s even if user lowers the gate
+        if (idle_speed_threshold < 3.0) idle_speed_threshold = 3.0;
+
         const double IDLE_SMOOTHING_TARGET = 0.1; // 0.1s = ~1.6Hz cutoff (Kills engine vibes)
 
-        if (car_speed_abs < IDLE_SPEED_THRESHOLD) {
-            // Linear blend: 100% idle smoothing at 0 m/s, 0% at 3 m/s
-            double idle_blend = (IDLE_SPEED_THRESHOLD - car_speed_abs) / IDLE_SPEED_THRESHOLD;
+        if (car_speed_abs < idle_speed_threshold) {
+            // Linear blend: 100% idle smoothing at 0 m/s, 0% at threshold
+            double idle_blend = (idle_speed_threshold - car_speed_abs) / idle_speed_threshold;
             
             // Use the higher of the two: User Setting vs Idle Target
             // This ensures we never make the wheel *more* raw than the user wants
@@ -796,8 +814,10 @@ public:
         double car_v_long = std::abs(data->mLocalVel.z);
         
         // 1. Calculate Stationary Gate (Fade out vibrations at low speed)
-        // Ramp from 0.0 (at < 0.5 m/s) to 1.0 (at > 2.0 m/s)
-        double speed_gate = (car_v_long - 0.5) / 1.5;
+        // Ramp from m_speed_gate_lower to m_speed_gate_upper
+        double speed_gate_range = (double)m_speed_gate_upper - (double)m_speed_gate_lower;
+        if (speed_gate_range < 0.1) speed_gate_range = 0.1; // Safety clamp
+        double speed_gate = (car_v_long - (double)m_speed_gate_lower) / speed_gate_range;
         speed_gate = (std::max)(0.0, (std::min)(1.0, speed_gate));
         
         // Get radius (convert cm to m)

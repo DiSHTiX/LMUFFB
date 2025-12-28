@@ -82,6 +82,12 @@ struct Preset {
     float static_notch_width = 2.0f; // New v0.6.10
     float yaw_kick_threshold = 0.2f; // New v0.6.10
 
+    // v0.6.23 New Settings with HIGHER DEFAULTS
+    float speed_gate_lower = 1.0f; // 3.6 km/h
+    float speed_gate_upper = 5.0f; // 18.0 km/h (Fixes idle shake)
+    float road_fallback_scale = 0.05f;
+    bool understeer_affects_sop = false;
+
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
     Preset() : name("Unnamed"), is_builtin(false) {} // Default constructor for file loading
@@ -144,6 +150,7 @@ struct Preset {
         return *this;
     }
     Preset& SetYawKickThreshold(float v) { yaw_kick_threshold = v; return *this; }
+    Preset& SetSpeedGate(float lower, float upper) { speed_gate_lower = lower; speed_gate_upper = upper; return *this; }
 
     Preset& SetOptimalSlip(float angle, float ratio) {
         optimal_slip_angle = angle;
@@ -223,6 +230,10 @@ struct Preset {
         engine.m_static_notch_freq = static_notch_freq;
         engine.m_static_notch_width = static_notch_width;
         engine.m_yaw_kick_threshold = yaw_kick_threshold;
+        engine.m_speed_gate_lower = speed_gate_lower;
+        engine.m_speed_gate_upper = speed_gate_upper;
+        engine.m_road_fallback_scale = road_fallback_scale;
+        engine.m_understeer_affects_sop = understeer_affects_sop;
         engine.m_optimal_slip_angle = optimal_slip_angle;
         engine.m_optimal_slip_ratio = optimal_slip_ratio;
         engine.m_steering_shaft_smoothing = steering_shaft_smoothing;
@@ -279,6 +290,10 @@ struct Preset {
         static_notch_freq = engine.m_static_notch_freq;
         static_notch_width = engine.m_static_notch_width;
         yaw_kick_threshold = engine.m_yaw_kick_threshold;
+        speed_gate_lower = engine.m_speed_gate_lower;
+        speed_gate_upper = engine.m_speed_gate_upper;
+        road_fallback_scale = engine.m_road_fallback_scale;
+        understeer_affects_sop = engine.m_understeer_affects_sop;
         optimal_slip_angle = engine.m_optimal_slip_angle;
         optimal_slip_ratio = engine.m_optimal_slip_ratio;
         steering_shaft_smoothing = engine.m_steering_shaft_smoothing;

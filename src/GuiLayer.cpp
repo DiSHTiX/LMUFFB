@@ -1245,6 +1245,41 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn(); ImGui::NextColumn(); 
     }
 
+    // --- ADVANCED SETTINGS ---
+    if (ImGui::CollapsingHeader("Advanced Settings")) {
+        ImGui::Indent();
+        
+        if (ImGui::TreeNode("Stationary Vibration Gate")) {
+            ImGui::TextWrapped("Controls when vibrations fade out and Idle Smoothing activates.");
+            
+            float lower_kmh = engine.m_speed_gate_lower * 3.6f;
+            // Range: 0 to 20 km/h
+            if (ImGui::SliderFloat("Mute Below", &lower_kmh, 0.0f, 20.0f, "%.1f km/h")) {
+                engine.m_speed_gate_lower = lower_kmh / 3.6f;
+                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f) 
+                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+                selected_preset = -1;
+            }
+
+            float upper_kmh = engine.m_speed_gate_upper * 3.6f;
+            // Range: 1 to 50 km/h (Increased max range to give users flexibility)
+            if (ImGui::SliderFloat("Full Above", &upper_kmh, 1.0f, 50.0f, "%.1f km/h")) {
+                engine.m_speed_gate_upper = upper_kmh / 3.6f;
+                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f)
+                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+                selected_preset = -1;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Speed where vibrations reach full strength.\n"
+                "CRITICAL: Speeds below this value will have SMOOTHING applied\n"
+                "to eliminate engine idle vibration.\n"
+                "Default: 18.0 km/h (Safe for all wheels).");
+            
+            ImGui::TreePop();
+        }
+        ImGui::Unindent();
+    }
+
     // End Columns
     ImGui::Columns(1);
     

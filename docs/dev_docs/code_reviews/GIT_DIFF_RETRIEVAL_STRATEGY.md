@@ -1,6 +1,8 @@
 # Prompt to reuse when asking for a code review
 
-Do a code review of the staged changes from git. Save the diff to a txt file for easier consultation. Determine where to save the diff files, and clean them up when you are done. Note that you might get problems if you try to save and view the diff to a file that is in .gitignore, so read the .gitignore file to find out where else you can save the diff files. 
+Do a code review of the staged changes from git. 
+
+Save the diff to a txt file for easier consultation. Determine where to save the diff files, and clean them up when you are done. Note that you might get problems if you try to save and view the diff to a file that is in .gitignore, so read the .gitignore file to find out where else you can save the diff files. 
 
 In your code review, find out any issue with the staged changes. Read and follow the instructions in this document on the "Git Diff Retrieval Strategy for Code Reviews": docs\dev_docs\code_reviews\GIT_DIFF_RETRIEVAL_STRATEGY.md
 

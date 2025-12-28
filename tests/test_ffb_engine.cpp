@@ -5356,7 +5356,7 @@ static void test_stationary_gate() {
         ASSERT_NEAR(force, 0.0, 0.0001);
     }
     
-    // Case 2: Moving slowly (0.5 m/s) -> Gate should be 0.0
+    // Case 2: Moving slowly (0.5 m/s) -> Gate should be 0.0 (since 0.5 < m_speed_gate_lower)
     {
         TelemInfoV01 data = CreateBasicTestTelemetry(0.5);
         engine.m_road_texture_enabled = true;
@@ -5367,9 +5367,9 @@ static void test_stationary_gate() {
         ASSERT_NEAR(force, 0.0, 0.0001);
     }
     
-    // Case 3: Moving at 2.0 m/s -> Gate should be 1.0
+    // Case 3: Moving at 5.0 m/s (m_speed_gate_upper) -> Gate should be 1.0
     {
-        TelemInfoV01 data = CreateBasicTestTelemetry(2.0);
+        TelemInfoV01 data = CreateBasicTestTelemetry(5.0);
         engine.m_road_texture_enabled = true;
         engine.m_road_texture_gain = 1.0;
         engine.m_max_torque_ref = 20.0f;
@@ -5379,7 +5379,7 @@ static void test_stationary_gate() {
         
         double force = engine.calculate_force(&data);
         
-        // Delta = 0.002 - 0.001 (from Case 2) = 0.001. Sum = 0.002.
+        // Delta = 0.002 - 0.001 = 0.001. Sum = 0.002.
         // Force = 0.002 * 50.0 = 0.1 Nm.
         // Normalized = 0.1 / 20.0 = 0.005.
         ASSERT_NEAR(force, 0.005, 0.0001);
@@ -5444,6 +5444,38 @@ static void test_idle_smoothing() {
     }
 }
 
+static void test_speed_gate_custom_thresholds() {
+    std::cout << "\nTest: Speed Gate Custom Thresholds" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Verify new defaults
+    if (engine.m_speed_gate_upper == 5.0f) {
+        std::cout << "[PASS] Default upper threshold is 5.0 m/s (18 km/h)." << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Default upper threshold is " << engine.m_speed_gate_upper << std::endl;
+        g_tests_failed++;
+    }
+
+    // Try custom thresholds
+    engine.m_speed_gate_lower = 2.0f;
+    engine.m_speed_gate_upper = 10.0f;
+    
+    TelemInfoV01 data = CreateBasicTestTelemetry(6.0); // Exactly halfway
+    engine.m_road_texture_enabled = true;
+    engine.m_road_texture_gain = 1.0;
+    engine.m_max_torque_ref = 20.0f;
+    data.mWheel[0].mVerticalTireDeflection = 0.001;
+    data.mWheel[1].mVerticalTireDeflection = 0.001;
+    
+    double force = engine.calculate_force(&data);
+    // Gate = (6 - 2) / (10 - 2) = 4 / 8 = 0.5
+    // Texture Force = 0.5 * (0.001 + 0.001) * 50.0 = 0.05 Nm
+    // Normalized = 0.05 / 20.0 = 0.0025
+    ASSERT_NEAR(force, 0.0025, 0.0001);
+}
+
 // Main Runner
 void Run() {
     std::cout << "=== Running FFB Engine Tests ===" << std::endl;
@@ -5465,6 +5497,7 @@ void Run() {
     test_sop_yaw_kick();  
     test_stationary_gate(); // v0.6.21
     test_idle_smoothing(); // v0.6.22
+    test_speed_gate_custom_thresholds(); // v0.6.23
     // Run Regression Tests
     test_zero_input();
     test_suspension_bottoming();
