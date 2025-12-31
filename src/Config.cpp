@@ -10,6 +10,7 @@ bool Config::m_enable_vjoy = false;
 bool Config::m_output_ffb_to_vjoy = false;
 bool Config::m_always_on_top = true;
 std::string Config::m_last_device_guid = "";
+std::string Config::m_config_path = "config.ini";
 
 // Window Geometry Defaults (v0.5.5)
 int Config::win_pos_x = 100;
@@ -262,7 +263,7 @@ void Config::LoadPresets() {
 
     // --- Parse User Presets from config.ini ---
     // (Keep the existing parsing logic below, it works fine for file I/O)
-    std::ifstream file("config.ini");
+    std::ifstream file(m_config_path);
     if (!file.is_open()) return;
 
     std::string line;
@@ -411,7 +412,8 @@ void Config::AddUserPreset(const std::string& name, const FFBEngine& engine) {
 }
 
 void Config::Save(const FFBEngine& engine, const std::string& filename) {
-    std::ofstream file(filename);
+    std::string final_path = filename.empty() ? m_config_path : filename;
+    std::ofstream file(final_path);
     if (file.is_open()) {
         file << "ini_version=" << LMUFFB_VERSION << "\n"; // NEW v0.6.25
         file << "ignore_vjoy_version_warning=" << m_ignore_vjoy_version_warning << "\n";
@@ -558,7 +560,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
 }
 
 void Config::Load(FFBEngine& engine, const std::string& filename) {
-    std::ifstream file(filename);
+    std::string final_path = filename.empty() ? m_config_path : filename;
+    std::ifstream file(final_path);
     if (!file.is_open()) {
         std::cout << "[Config] No config found, using defaults." << std::endl;
         return;

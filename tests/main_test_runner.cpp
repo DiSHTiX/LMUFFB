@@ -1,6 +1,8 @@
 #include <iostream>
 #include <atomic>
 #include <mutex>
+#include <cstdio>
+#include "src/Config.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -43,6 +45,11 @@ namespace GuiInteractionTests {
 int main() {
     int total_passed = 0;
     int total_failed = 0;
+
+    // Redirect config to a test-specific file to avoid overwriting user settings
+    Config::m_config_path = "test_config_runner.ini";
+    std::remove(Config::m_config_path.c_str());
+    std::remove("imgui.ini");
 
     // --- FFB Engine Tests ---
     // Always run these as they are platform agnostic (mostly)
@@ -107,6 +114,20 @@ int main() {
     std::cout << "  TOTAL PASSED : " << total_passed << std::endl;
     std::cout << "  TOTAL FAILED : " << total_failed << std::endl;
     std::cout << "==============================================" << std::endl;
+
+    // Cleanup artifacts
+    std::remove(Config::m_config_path.c_str());
+    std::remove("test_persistence.ini");
+    std::remove("test_config_win.ini");
+    std::remove("test_config_top.ini");
+    std::remove("test_config_preset_temp.ini");
+    std::remove("test_config_brake.ini");
+    std::remove("test_config_sg.ini");
+    std::remove("test_config_ap.ini");
+    std::remove("test_version.ini");
+    std::remove("roundtrip.ini");
+    std::remove("test_clamp.ini");
+    std::remove("imgui.ini");
 
     return (total_failed > 0) ? 1 : 0;
 }

@@ -310,8 +310,9 @@ struct Preset {
 
 class Config {
 public:
-    static void Save(const FFBEngine& engine, const std::string& filename = "config.ini");
-    static void Load(FFBEngine& engine, const std::string& filename = "config.ini");
+    static std::string m_config_path; // Default: "config.ini"
+    static void Save(const FFBEngine& engine, const std::string& filename = "");
+    static void Load(FFBEngine& engine, const std::string& filename = "");
     
     // Preset Management
     static std::vector<Preset> presets;

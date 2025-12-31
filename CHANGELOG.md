@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.28] - 2025-12-31
+### Added
+- **Test Sandbox & Artifact Cleanup**:
+  - Implemented a "Sandboxed" test environment that redirects all configuration file I/O to temporary files, preventing tests from overwriting user's `config.ini`.
+  - Added automatic artifact cleanup at the end of the test runner to remove all temporary `.ini` files generated during execution.
+  - Suppressed `imgui.ini` creation during headless GUI tests.
+- **Configurable Config Path**:
+  - Updated `Config` class to support a configurable file path (`m_config_path`), allowing the application to load/save settings from arbitrary locations.
+
 ## [0.6.27] - 2025-12-31
 ### Added
 - **Reactive Auto-Save**:

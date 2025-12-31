@@ -206,7 +206,7 @@ static void test_preset_management_system() {
     ASSERT_TRUE(found);
     
     // 7. Cleanup: Remove the test config file created by AddUserPreset
-    remove("config.ini");
+    remove(Config::m_config_path.c_str());
 }
 
 static void test_gui_style_application() {
@@ -214,6 +214,7 @@ static void test_gui_style_application() {
     
     // 1. Initialize Headless ImGui Context
     ImGuiContext* ctx = ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr; // Disable imgui.ini during tests
     ASSERT_TRUE(ctx != nullptr);
     
     // 2. Apply Custom Style

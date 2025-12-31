@@ -54,7 +54,7 @@ bool FileContains(const std::string& filename, const std::string& pattern) {
 // ----------------------------------------------------------------------------
 void test_texture_load_cap_in_presets() {
     std::cout << "Test 1: Texture Load Cap in Presets..." << std::endl;
-    std::remove("config.ini");
+    std::remove(Config::m_config_path.c_str());
     FFBEngine engine;
     Preset::ApplyDefaultsToEngine(engine);
     
@@ -64,8 +64,8 @@ void test_texture_load_cap_in_presets() {
     Config::presets.clear();
     Config::AddUserPreset("TextureCapTest", engine);
     
-    ASSERT_TRUE(FileContains("config.ini", "[Preset:TextureCapTest]"));
-    ASSERT_TRUE(FileContains("config.ini", "texture_load_cap=2.8"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "[Preset:TextureCapTest]"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "texture_load_cap=2.8"));
     
     FFBEngine engine2;
     Preset::ApplyDefaultsToEngine(engine2);
@@ -145,7 +145,7 @@ void test_advanced_physics_persistence() {
 // ----------------------------------------------------------------------------
 void test_preset_all_fields() {
     std::cout << "Test 4: Preset Serialization - All New Fields..." << std::endl;
-    std::remove("config.ini");
+    std::remove(Config::m_config_path.c_str());
     FFBEngine engine;
     Preset::ApplyDefaultsToEngine(engine);
     
@@ -158,12 +158,12 @@ void test_preset_all_fields() {
     Config::presets.clear();
     Config::AddUserPreset("AllFieldsTest", engine);
     
-    ASSERT_TRUE(FileContains("config.ini", "[Preset:AllFieldsTest]"));
-    ASSERT_TRUE(FileContains("config.ini", "texture_load_cap=2.2"));
-    ASSERT_TRUE(FileContains("config.ini", "speed_gate_lower=3"));
-    ASSERT_TRUE(FileContains("config.ini", "speed_gate_upper=9"));
-    ASSERT_TRUE(FileContains("config.ini", "road_fallback_scale=0.08"));
-    ASSERT_TRUE(FileContains("config.ini", "understeer_affects_sop=1"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "[Preset:AllFieldsTest]"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "texture_load_cap=2.2"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "speed_gate_lower=3"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "speed_gate_upper=9"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "road_fallback_scale=0.08"));
+    ASSERT_TRUE(FileContains(Config::m_config_path, "understeer_affects_sop=1"));
     
     FFBEngine engine2;
     Preset::ApplyDefaultsToEngine(engine2);
@@ -194,9 +194,9 @@ void test_preset_all_fields() {
 void test_preset_clamping_brake() {
     std::cout << "Test 5: Preset Clamping - Brake Load Cap..." << std::endl;
     
-    // Manually write to config.ini
+    // Manually write to config file
     {
-        std::ofstream file("config.ini");
+        std::ofstream file(Config::m_config_path);
         file << "[Presets]\n";
         file << "[Preset:HighBrake]\n";
         file << "brake_load_cap=8.5\n";
@@ -227,9 +227,9 @@ void test_preset_clamping_brake() {
 void test_preset_clamping_lockup() {
     std::cout << "Test 6: Preset Clamping - Lockup Gain..." << std::endl;
     
-    // Manually write to config.ini
+    // Manually write to config file
     {
-        std::ofstream file("config.ini");
+        std::ofstream file(Config::m_config_path);
         file << "[Presets]\n";
         file << "[Preset:HighLockup]\n";
         file << "lockup_gain=2.9\n";
@@ -336,7 +336,7 @@ void test_configuration_versioning() {
 // ----------------------------------------------------------------------------
 void test_comprehensive_roundtrip() {
     std::cout << "Test 10: Comprehensive Round-Trip Test..." << std::endl;
-    std::remove("config.ini");
+    std::remove(Config::m_config_path.c_str());
     FFBEngine engine;
     Preset::ApplyDefaultsToEngine(engine);
     

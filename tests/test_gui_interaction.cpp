@@ -12,6 +12,7 @@ namespace GuiInteractionTests {
         IMGUI_CHECKVERSION();
         ImGuiContext* ctx = ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr; // Disable imgui.ini during tests
         
         // Mock a font to avoid assertion in some ImGui versions
         unsigned char* pixels;
