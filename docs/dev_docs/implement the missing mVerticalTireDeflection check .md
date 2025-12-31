@@ -104,3 +104,17 @@ static void test_missing_telemetry_warnings() {
     std::cout.rdbuf(prev_cout_buf);
 }
 ```
+---
+
+### Implementation Status (Verification) - 2025-12-31
+
+All changes described in this document have been **fully implemented** along with additional fallback logic.
+
+* **Implemented Changes**: 
+    *   `mVerticalTireDeflection` missing data check and warning flag added to `FFBEngine.h`.
+    *   Hysteresis logic and `[WARNING]` console logging implemented in `calculate_force`.
+    *   `test_missing_telemetry_warnings` in `tests/test_ffb_engine.cpp` updated with "Case 3: Missing Vertical Tire Deflection" to verify the fix.
+* **Implementation Version**: These changes were included in **v0.6.21** (2025-12-28).
+* **Additional Improvements**: Besides the planned check, v0.6.21 also introduced the **Road Texture Fallback** mechanism, which uses vertical acceleration (`mLocalAccel.y`) when tire deflection telemetry is unavailable, ensuring road feel is maintained even on encrypted/DLC cars.
+* **Not Yet Implemented**: None. All items in the original plan are complete.
+
