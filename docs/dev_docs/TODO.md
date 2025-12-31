@@ -74,6 +74,29 @@ DONE: **Frequency Tuning Guide**: Created comprehensive user guide at `docs/user
 
 ## Troubleshooting 25
 
+Check each slider and setting in the main GUI window, and verify that it is saved to the ini file (both as a "saved preset" and as a saved current configuration).
+Implement auto-save of the settings as current configuration every time the user makes a change to any of the sliders or inputs.
+See: docs\dev_docs\report_ui_ux_overhaul.md
+Split into a separate report only the features that we want:
+Auto-Save
+auto save last configuration. Is the save config button any longer needed?
+
+fix persistent vibrations at low speed. Apply muting and smoothing to rear align torque, all of SoP / oversteer effects, and to base game force.
+
+renaming each setting to be fully descriptive, backward compatibility, loading values from version 06.24.
+Preset and confix fix: saving new sliders values to the ini file, adding app version, 
+-> about this, expand prompt about updating the ini format (if it needs to be updated)
+
+Update default values: eg yaw kick default cut oof
+
+preset updates (see subsection below)
+
+
+
+
+
+
+
 ### FIxes 
 
 Fix: the game exited from the session, and there were still forces
@@ -93,7 +116,7 @@ presets for future: t300, g29, standard DD (<20 bit encoder), high end DD (>20 b
 
 * min force: set a value that works wheel for belt and gear driven wheels. The point it to overcome the resistance of the belt/gear for these wheels, to feel the lower forces of the FFB.
 
-### Manunal testing current effects, new presets and default values
+### Manual testing current effects, new presets and default values
 
 test and fix current effects (this requires manual testing of the app; only check if we need to implement anything to support such testing):
 * understeer effect: experiment to make it work.
@@ -201,7 +224,7 @@ lmuFFB is particularly useful for lower end wheels (belt/gear driven, and DDs < 
 overhaul the graphs: add new ones for new effects.
 reorganize them, so they also take less vertical and horizontal space.
 
-auto save last configuration. Is the save config button any longer needed?
+
 
 add timestamps to console prints
 
