@@ -1090,6 +1090,10 @@ public:
         // Apply Gain and Grip Modulation
         double output_force = (base_input * (double)m_steering_shaft_gain) * grip_factor;
         
+        // Apply Speed Gate to Base Torque
+        // This eliminates "Engine Rumble" from the steering shaft at standstill
+        output_force *= speed_gate;
+        
         // --- 2. Seat of Pants (SoP) / Oversteer ---
         // Lateral G-force
         // v0.4.6: Clamp Input to reasonable Gs (+/- 5G)
@@ -1245,6 +1249,10 @@ public:
         // Positive yaw accel (right rotation) -> Negative force (left pull)
         double yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * (double)BASE_NM_YAW_KICK * decoupling_scale;
         sop_total += yaw_force;
+        
+        // Apply Speed Gate to SoP
+        // This eliminates vibration from noisy Lateral G and Yaw Accel sensors at idle
+        sop_total *= speed_gate;
         
         double total_force = output_force + sop_total;
 

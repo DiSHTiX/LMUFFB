@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.26] - 2025-12-31
+### Fixed
+- **Remaining Low-Speed Vibrations (SoP & Base Torque)**:
+  - Extended the "Stationary Vibration Gate" (Speed Gate) to apply to **Base Torque** (Physics) and **SoP (Seat of Pants)** effects.
+  - This ensures a completely silent and still steering wheel when the car is stationary or moving at very low speeds (< 5 km/h), eliminating "engine rumble" and noisy sensor data at idle.
+  - Added safe thresholds and ramp-up logic to smoothly fade in steering weight as the car begins moving.
+
+### Added
+- **Improved Test Coverage**:
+  - Added `test_stationary_silence()` to verify all forces are muted at a car speed of 0.0 m/s, even with high noise injected into physics channels.
+  - Added `test_driving_forces_restored()` to verify FFB is fully active at driving speeds.
+  - Updated legacy test infrastructure (`InitializeEngine`) to ensure physics tests remain valid while speed gating is active.
+
 ## [0.6.25] - 2025-12-31
 ### Added
 - **Configuration Versioning**:

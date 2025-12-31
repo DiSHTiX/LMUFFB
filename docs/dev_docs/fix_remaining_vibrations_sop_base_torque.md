@@ -140,10 +140,24 @@ static void test_driving_forces_restored() {
 
 ## 5. Code Review Checklist
 
-- [ ] `speed_gate` is calculated before `output_force` (line 822 before line 1091) ✅
-- [ ] `output_force *= speed_gate;` inserted after line 1091
-- [ ] `sop_total *= speed_gate;` inserted after line 1247, before line 1249
-- [ ] Test `test_stationary_silence` passes
-- [ ] Test `test_driving_forces_restored` passes
+- [x] `speed_gate` is calculated before `output_force` (line 822 before line 1091) ✅
+- [x] `output_force *= speed_gate;` inserted after line 1091 ✅
+- [x] `sop_total *= speed_gate;` inserted after line 1247, before line 1249 ✅
+- [x] Test `test_stationary_silence` passes ✅
+- [x] Test `test_driving_forces_restored` passes ✅
 - [ ] Manual testing in LMU: Car stationary in pits = no vibration
 - [ ] Manual testing in LMU: Driving at speed = normal FFB feel
+
+---
+
+## 6. Implementation Report & Findings
+
+### Results:
+*   **Core Logic:** `speed_gate` successfully applied to Base Torque (`output_force`) and SoP Effects (`sop_total`) in `src/FFBEngine.h`.
+*   **Verification:** New test cases `test_stationary_silence` and `test_driving_forces_restored` were implemented and passed, confirming that all physics forces are completely muted at 0 speed and fully restored at driving speed.
+*   **Legacy Tests:** Several legacy tests in `test_ffb_engine.cpp` initially failed because they were designed to test physics formulas at near-zero speeds (often using `memset(0)` on telemetry, which defaults speed to 0). 
+    *   **Fix:** `FFBEngineTests::InitializeEngine` was updated to disable the speed gate by default for tests (using out-of-range negative thresholds). Tests specifically targeting the speed gate were updated to explicitly set realistic thresholds (1.0m/s to 5.0m/s).
+*   **Final Status:** All 417 tests passed.
+
+### Technical Note:
+The choice to apply `speed_gate` to the final `sop_total` instead of individual components (Lateral G, Rear Aligning Torque) provides a cleaner implementation and ensures that no future SoP additions can leak vibration at standstill. The redundant gating of Yaw Kick (which already had a 5m/s hard cutoff) is confirmed harmless.
