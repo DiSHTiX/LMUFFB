@@ -95,25 +95,25 @@ The desired state is to group settings by their GUI headers and order them top-t
 
 ## 3. Implementation Details
 
+## 3. Implementation Details
+
 ### 3.1 Modify `Config::Save` (Main Config)
-The `Config::Save` function in `src/Config.cpp` will be refactored. No logic changes, only line reordering. Comments will be added to specific sections for clarity.
+The `Config::Save` function in `src/Config.cpp` will be refactored. No logic changes, only line reordering.
+-   **Grouping:** Settings will be grouped logically using INI comment headers (lines starting with `;`).
+-   **Order:** The write order will strictly follow the "Target INI Structure" defined in Section 2.
 
 ### 3.2 Modify `Config::Save` (Presets Section)
 The loop that writes user presets should also be updated to match this order for consistency, though the primary focus is the main configuration block.
 
-| GUI Widget | INI Key |
-| :--- | :--- |
-| **General** | |
-| Invert FFB | `invert_force` |
-| Master Gain | `gain` |
-| Max Torque Ref | `max_torque_ref` |
-| Min Force | `min_force` |
-| **Front Axle** | |
-| Steering Shaft Gain | `steering_shaft_gain` |
-| Steering Shaft Smooth | `steering_shaft_smoothing` |
-| Understeer Effect | `understeer` |
-| Base Force Mode | `base_force_mode` |
-| ... | ... |
+### 3.3 Modify `Config::Load` (Critical Fix)
+**Critical Issue Identified:** The current `Config::Load` implementation reads the entire file line-by-line. Since User Presets (stored at the bottom of the file under `[Presets]`) use identical key names (e.g., `gain=...`) as the Main Configuration, the settings from the *last defined preset* currently overwrite the main global configuration during load.
+
+**Required Fix:**
+-   Update `Config::Load` to **stop parsing** (or ignore subsequent lines) immediately upon encountering the `[Presets]` section header or any line starting with `[` (indicating a section change).
+-   This ensures that the Main Configuration is determined *solely* by the key-value pairs at the top of the file, preventing pollution from preset data.
+
+### 3.4 Legacy Key Support
+While `Config::Save` will only write the modern keys (e.g., `sop_smoothing_factor`, `texture_load_cap`), `Config::Load` **must retain** the `else if` blocks for legacy keys (`smoothing`, `max_load_factor`) to ensuring complete headers backward compatibility with existing user config files.
 
 ## 4. Verification Plan
 
@@ -124,7 +124,50 @@ The loop that writes user presets should also be updated to match this order for
 5.  **Test Suite:** Run existing persistence tests to ensure no keys were accidentally deleted or typoed during the move.
 
 ## 5. Risk Assessment
-- **Risk:** Very Low.
-- **Impact:** INI file readability improved. No functional change.
-- **Backwards Compatibility:** Fully compatible. The loader identifies values by key string, so the order in the file does not affect loading.
+- **Risk:** Low (raised from Very Low due to the `Config::Load` bug discovery).
+- **Impact:** INI file readability improved. `Config::Load` robustness significantly increased.
+- **Backwards Compatibility:** Fully compatible. The loader identifies values by key string.
+
+## 6. Detailed Automated Test Plan
+
+New tests will be added to `tests/test_persistence_v0628.cpp` to verify fixes and reordering.
+
+### Test Case 1: `Load_ Stops At Presets Header`
+**Objective:** Verify that `Config::Load` stops parsing main settings when it hits `[Presets]`.
+**Steps:**
+1.  Create a temporary `config_test_isolation.ini`.
+2.  Write Main Config: `gain=0.5`
+3.  Write Header: `[Presets]`
+4.  Write Preset Line: `gain=2.0` (This would overwrite main config in the buggy implementation).
+5.  Call `Config::Load`.
+6.  **Assert:** `engine.m_gain` is `0.5`, **NOT** `2.0`.
+
+### Test Case 2: `Save_ Follows Defined Order`
+**Objective:** Verify that `Config::Save` writes keys in the specific order defined in the plan.
+**Steps:**
+1.  Initialize engine with known values.
+2.  Call `Config::Save("config_order_test.ini")`.
+3.  Read the file content as a string.
+4.  **Assert:** The string `win_pos_x` appears before `gain`.
+5.  **Assert:** The string `gain` appears before `steering_shaft_gain`.
+6.  **Assert:** The string `steering_shaft_gain` appears before `oversteer_boost`.
+7.  **Assert:** The string `[Presets]` appears after all main config keys.
+
+### Test Case 3: `Load_ Supports Legacy Keys`
+**Objective:** Verify backward compatibility is maintained.
+**Steps:**
+1.  Create `config_legacy_test.ini`.
+2.  Write: `smoothing=0.1` (Legacy key for `sop_smoothing_factor`).
+3.  Write: `max_load_factor=2.0` (Legacy key for `texture_load_cap`).
+4.  Call `Config::Load`.
+5.  **Assert:** `engine.m_sop_smoothing_factor` is `0.1`.
+6.  **Assert:** `engine.m_texture_load_cap` is `2.0`.
+
+### Test Case 4: `Structure_ Includes Comments`
+**Objective:** Verify that the new `Config::Save` adds helper comments for readability.
+**Steps:**
+1.  Call `Config::Save("config_comment_test.ini")`.
+2.  Read file content.
+3.  **Assert:** File contains string `; --- System & Window ---`.
+4.  **Assert:** File contains string `; --- General FFB ---`.
 
