@@ -385,6 +385,7 @@ void Config::ApplyPreset(int index, FFBEngine& engine) {
     if (index >= 0 && index < presets.size()) {
         presets[index].Apply(engine);
         std::cout << "[Config] Applied preset: " << presets[index].name << std::endl;
+        Save(engine); // Integrated Auto-Save (v0.6.27)
     }
 }
 

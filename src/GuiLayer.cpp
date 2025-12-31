@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "DirectInputFFB.h"
 #include "GameConnector.h"
+#include "GuiWidgets.h"
 #include <windows.h>
 #include <iostream>
 #include <vector>
@@ -786,6 +787,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
     if (ImGui::Checkbox("Always on Top", &Config::m_always_on_top)) {
         SetWindowAlwaysOnTop(g_hwnd, Config::m_always_on_top);
+        Config::Save(engine);
     }
     ImGui::SameLine();
     
@@ -844,51 +846,34 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         return (const char*)buf;
     };
 
-    auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr) {
-        ImGui::Text("%s", label);               // Column 1: Label
-        ImGui::NextColumn();                    // Switch to Column 2
-        
-        ImGui::SetNextItemWidth(-1);            // Fill width
-        std::string id = "##" + std::string(label);
-        if (ImGui::SliderFloat(id.c_str(), v, min, max, fmt)) selected_preset = -1;
-        
-        if (ImGui::IsItemHovered()) {
-            float range = max - min;
-            // Adaptive step size: finer steps for smaller ranges
-            float step = (range > 50.0f) ? 0.5f : (range < 1.0f) ? 0.001f : 0.01f; 
-            bool changed = false;
-            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) { *v -= step; changed = true; }
-            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) { *v += step; changed = true; }
-            if (changed) { *v = (std::max)(min, (std::min)(max, *v)); selected_preset = -1; }
-            
-            // Only show tooltip if not actively adjusting with keys (prevents tooltip from covering slider)
-            if (!changed) {
-                ImGui::BeginTooltip();
-                if (tooltip) { ImGui::Text("%s", tooltip); ImGui::Separator(); }
-                ImGui::Text("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
-                ImGui::EndTooltip();
-            }
+    auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr, std::function<void()> decorator = nullptr) {
+        GuiWidgets::Result res = GuiWidgets::Float(label, v, min, max, fmt, tooltip, decorator);
+        if (res.changed) {
+            selected_preset = -1;
         }
-        ImGui::NextColumn();                    // Switch back to Column 1
+        if (res.deactivated) {
+            Config::Save(engine);
+        }
     };
 
     auto BoolSetting = [&](const char* label, bool* v, const char* tooltip = nullptr) {
-        ImGui::Text("%s", label);
-        ImGui::NextColumn();
-        std::string id = "##" + std::string(label);
-        if (ImGui::Checkbox(id.c_str(), v)) selected_preset = -1;
-        if (tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tooltip);
-        ImGui::NextColumn();
+        GuiWidgets::Result res = GuiWidgets::Checkbox(label, v, tooltip);
+        if (res.changed) {
+            selected_preset = -1;
+        }
+        if (res.deactivated) {
+            Config::Save(engine);
+        }
     };
 
     auto IntSetting = [&](const char* label, int* v, const char* const items[], int items_count, const char* tooltip = nullptr) {
-        ImGui::Text("%s", label);
-        ImGui::NextColumn();
-        ImGui::SetNextItemWidth(-1);
-        std::string id = "##" + std::string(label);
-        if (ImGui::Combo(id.c_str(), v, items, items_count)) selected_preset = -1;
-        if (tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tooltip);
-        ImGui::NextColumn();
+        GuiWidgets::Result res = GuiWidgets::Combo(label, v, items, items_count, tooltip);
+        if (res.changed) {
+            selected_preset = -1;
+        }
+        if (res.deactivated) {
+            Config::Save(engine);
+        }
     };
 
     // --- 2. PRESETS AND CONFIGURATION ---
@@ -964,21 +949,13 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         
         FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 2.0f, FormatPct(engine.m_steering_shaft_gain), "Scales the raw steering torque from the physics engine.\n100% = 1:1 with game physics.\nLowering this allows other effects (SoP, Vibes) to stand out more without clipping.");
         
-        // --- NEW: Steering Shaft Smoothing (v0.5.7) ---
-        ImGui::Text("Steering Shaft Smoothing");
-        ImGui::NextColumn();
-        
-        int shaft_ms = (int)(engine.m_steering_shaft_smoothing * 1000.0f + 0.5f);
-        ImVec4 shaft_color = (shaft_ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-        ImGui::TextColored(shaft_color, "Latency: %d ms - %s", shaft_ms, (shaft_ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
-        
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##ShaftSmooth", &engine.m_steering_shaft_smoothing, 0.000f, 0.100f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) {
-             ImGui::SetTooltip("Low Pass Filter applied ONLY to the raw game force (Steering Shaft Gain).\nSmoothes out grainy or noisy signals from the game engine.");
-        }
-        ImGui::NextColumn();
-        // -------------------------------------
+        FloatSetting("Steering Shaft Smoothing", &engine.m_steering_shaft_smoothing, 0.000f, 0.100f, "%.3f s", 
+            "Low Pass Filter applied ONLY to the raw game force (Steering Shaft Gain).\nSmoothes out grainy or noisy signals from the game engine.",
+            [&]() {
+                int ms = (int)(engine.m_steering_shaft_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+            });
 
         // Display with 2 decimals to show fine arrow key adjustments (step 0.01 on 0-200 range)
         FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 200.0f, "%.2f", "Reduces the strength of the Steering Shaft Torque when front tires lose grip (Understeer).\nHelps you feel the limit of adhesion.\n0% = No feeling.\nHigh = Wheel goes light immediately upon sliding. Note: grip is calculated based on the Optimal Slip Angle setting.");
@@ -1027,57 +1004,35 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
         FloatSetting("  Activation Threshold", &engine.m_yaw_kick_threshold, 0.0f, 10.0f, "%.2f rad/s²", "Minimum yaw acceleration required to trigger the kick.\nIncrease to filter out road noise and small vibrations.");
         
-        // --- NEW: Yaw Kick Smoothing (v0.5.8) ---
-        ImGui::Text("  Kick Response");
-        ImGui::NextColumn();
-        int yaw_ms = (int)(engine.m_yaw_accel_smoothing * 1000.0f + 0.5f);
-        ImVec4 yaw_color = (yaw_ms <= 15) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-        ImGui::TextColored(yaw_color, "Latency: %d ms", yaw_ms);
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##YawSmooth", &engine.m_yaw_accel_smoothing, 0.000f, 0.050f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Low Pass Filter for the Yaw Kick signal.\nSmoothes out kick noise.\nLower = Sharper/Faster kick.\nHigher = Duller/Softer kick.");
-        ImGui::NextColumn();
-        // ----------------------------------------
+        FloatSetting("  Kick Response", &engine.m_yaw_accel_smoothing, 0.000f, 0.050f, "%.3f s",
+            "Low Pass Filter for the Yaw Kick signal.\nSmoothes out kick noise.\nLower = Sharper/Faster kick.\nHigher = Duller/Softer kick.",
+            [&]() {
+                int ms = (int)(engine.m_yaw_accel_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms <= 15) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms", ms);
+            });
 
         FloatSetting("Gyro Damping", &engine.m_gyro_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_gyro_gain, FFBEngine::BASE_NM_GYRO_DAMPING), "Simulates the gyroscopic solidity of the spinning wheels.\nResists rapid steering movements.\nPrevents oscillation and 'Tank Slappers'.\nActs like a steering damper.");
         
-        // --- NEW: Gyro Smoothing (v0.5.8) ---
-        ImGui::Text("  Gyro Smooth");
-        ImGui::NextColumn();
-        int gyro_ms = (int)(engine.m_gyro_smoothing * 1000.0f + 0.5f);
-        ImVec4 gyro_color = (gyro_ms <= 20) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-        ImGui::TextColored(gyro_color, "Latency: %d ms", gyro_ms);
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##GyroSmooth", &engine.m_gyro_smoothing, 0.000f, 0.050f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Filters the steering velocity signal used for damping.\nReduces noise in the damping effect.\nLow = Crisper damping, High = Smoother.");
-        ImGui::NextColumn();
-        // ------------------------------------
+        FloatSetting("  Gyro Smooth", &engine.m_gyro_smoothing, 0.000f, 0.050f, "%.3f s",
+            "Filters the steering velocity signal used for damping.\nReduces noise in the damping effect.\nLow = Crisper damping, High = Smoother.",
+            [&]() {
+                int ms = (int)(engine.m_gyro_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms <= 20) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms", ms);
+            });
         
         ImGui::TextColored(ImVec4(0.0f, 0.6f, 0.85f, 1.0f), "Advanced SoP");
         ImGui::NextColumn(); ImGui::NextColumn();
 
         // SoP Smoothing with Latency Text above slider
-        ImGui::Text("SoP Smoothing");
-        ImGui::NextColumn();
-        
-        int lat_ms = (int)((1.0f - engine.m_sop_smoothing_factor) * 100.0f + 0.5f);
-        ImVec4 lat_color = (lat_ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-        ImGui::TextColored(lat_color, "Latency: %d ms - %s", lat_ms, (lat_ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
-        
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) {
-            float step = 0.01f;
-            bool changed = false;
-            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) { engine.m_sop_smoothing_factor -= step; changed = true; }
-            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) { engine.m_sop_smoothing_factor += step; changed = true; }
-            if (changed) { 
-                engine.m_sop_smoothing_factor = (std::max)(0.0f, (std::min)(1.0f, engine.m_sop_smoothing_factor)); 
-                selected_preset = -1; 
-            }
-            if (!changed) ImGui::SetTooltip("Filters the Lateral G signal.\nReduces jerkiness in the SoP effect.\nFine Tune: Arrow Keys | Exact: Ctrl+Click");
-        }
-        ImGui::NextColumn();
+        FloatSetting("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f", 
+            "Filters the Lateral G signal.\nReduces jerkiness in the SoP effect.",
+            [&]() {
+                int ms = (int)((1.0f - engine.m_sop_smoothing_factor) * 100.0f + 0.5f);
+                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+            });
 
         FloatSetting("  SoP Scale", &engine.m_sop_scale, 0.0f, 20.0f, "%.2f", "Multiplies the raw G-force signal before limiting.\nAdjusts the dynamic range of the SoP effect.");
         
@@ -1092,46 +1047,22 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         ImGui::NextColumn(); ImGui::NextColumn();
         
         // Slip Smoothing with Latency Text above slider
-        ImGui::Text("Slip Angle Smoothing");
-        ImGui::NextColumn();
-        
-        int slip_ms = (int)(engine.m_slip_angle_smoothing * 1000.0f + 0.5f);
-        ImVec4 slip_color = (slip_ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-        ImGui::TextColored(slip_color, "Latency: %d ms - %s", slip_ms, (slip_ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+        FloatSetting("Slip Angle Smoothing", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, "%.3f s",
+            "Applies a time-based filter (LPF) to the Calculated Slip Angle used to estimate tire grip.\n"
+            "Smooths the high fluctuations from lateral and longitudinal velocity,\nespecially over bumps or curbs.\n"
+            "Affects: Understeer effect, Rear Aligning Torque.",
+            [&]() {
+                int ms = (int)(engine.m_slip_angle_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+            });
 
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##Slip Angle Smoothing", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) {
-            float step = 0.001f;
-            bool changed = false;
-            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) { engine.m_slip_angle_smoothing -= step; changed = true; }
-            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) { engine.m_slip_angle_smoothing += step; changed = true; }
-            if (changed) { 
-                engine.m_slip_angle_smoothing = (std::max)(0.000f, (std::min)(0.100f, engine.m_slip_angle_smoothing)); 
-                selected_preset = -1; 
-            }
-            if (!changed) {
-                ImGui::BeginTooltip();
-                ImGui::Text("Applies a time-based filter (LPF) to the Calculated Slip Angle used to estimate tire grip.\n"
-                            "Smooths the high fluctuations from lateral and longitudinal velocity,\nespecially over bumps or curbs.\n"
-                            "Affects: Understeer effect, Rear Aligning Torque.");
-                ImGui::Separator();
-                ImGui::Text("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
-                ImGui::EndTooltip();
-            }
-        }
-        ImGui::NextColumn();
-
-        // --- NEW: Chassis Inertia (v0.5.8) ---
-        ImGui::Text("Chassis Inertia (Load)");
-        ImGui::NextColumn();
-        int chassis_ms = (int)(engine.m_chassis_inertia_smoothing * 1000.0f + 0.5f);
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 1.0f, 1.0f), "Simulation: %d ms", chassis_ms);
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::SliderFloat("##ChassisSmooth", &engine.m_chassis_inertia_smoothing, 0.000f, 0.100f, "%.3f s")) selected_preset = -1;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Simulation time for weight transfer.\nSimulates how fast the suspension settles.\nAffects calculated tire load magnitude.\n25ms = Stiff Race Car.\n50ms = Soft Road Car.");
-        ImGui::NextColumn();
-        // -------------------------------------
+        FloatSetting("Chassis Inertia (Load)", &engine.m_chassis_inertia_smoothing, 0.000f, 0.100f, "%.3f s",
+            "Simulation time for weight transfer.\nSimulates how fast the suspension settles.\nAffects calculated tire load magnitude.\n25ms = Stiff Race Car.\n50ms = Soft Road Car.",
+            [&]() {
+                int ms = (int)(engine.m_chassis_inertia_smoothing * 1000.0f + 0.5f);
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 1.0f, 1.0f), "Simulation: %d ms", ms);
+            });
 
         // --- NEW: Optimal Slip Sliders (v0.5.7) ---
         FloatSetting("Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad", 
@@ -1254,22 +1185,27 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             ImGui::TextWrapped("Controls when vibrations fade out and Idle Smoothing activates.");
             
             float lower_kmh = engine.m_speed_gate_lower * 3.6f;
-            // Range: 0 to 20 km/h
             if (ImGui::SliderFloat("Mute Below", &lower_kmh, 0.0f, 20.0f, "%.1f km/h")) {
                 engine.m_speed_gate_lower = lower_kmh / 3.6f;
                 if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f) 
                     engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
                 selected_preset = -1;
             }
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                Config::Save(engine);
+            }
 
             float upper_kmh = engine.m_speed_gate_upper * 3.6f;
-            // Range: 1 to 50 km/h (Increased max range to give users flexibility)
             if (ImGui::SliderFloat("Full Above", &upper_kmh, 1.0f, 50.0f, "%.1f km/h")) {
                 engine.m_speed_gate_upper = upper_kmh / 3.6f;
                 if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f)
                     engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
                 selected_preset = -1;
             }
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                Config::Save(engine);
+            }
+            
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                 "Speed where vibrations reach full strength.\n"
                 "CRITICAL: Speeds below this value will have SMOOTHING applied\n"

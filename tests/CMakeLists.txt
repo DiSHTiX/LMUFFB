@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 # Include main source dir for headers
 include_directories(..)
+include_directories(../src)
 
 # Combined Test Executable
 set(TEST_SOURCES 
@@ -18,6 +19,7 @@ if(WIN32)
     list(APPEND TEST_SOURCES 
         test_windows_platform.cpp 
         test_screenshot.cpp
+        test_gui_interaction.cpp
         ../src/DirectInputFFB.cpp 
         ../src/GuiLayer.cpp
         ../src/GameConnector.cpp

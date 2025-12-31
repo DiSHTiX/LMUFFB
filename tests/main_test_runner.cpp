@@ -33,6 +33,11 @@ namespace ScreenshotTests {
     extern int g_tests_failed; 
     void Run(); 
 }
+namespace GuiInteractionTests { 
+    extern int g_tests_passed; 
+    extern int g_tests_failed; 
+    void Run(); 
+}
 #endif
 
 int main() {
@@ -83,6 +88,15 @@ int main() {
         total_failed++;
     } catch (...) {
         std::cout << "[FATAL] Screenshot Tests threw unknown exception" << std::endl;
+        total_failed++;
+    }
+    std::cout << "\n";
+    // --- Gui Interaction Tests ---
+    try {
+        GuiInteractionTests::Run();
+        total_passed += GuiInteractionTests::g_tests_passed;
+        total_failed += GuiInteractionTests::g_tests_failed;
+    } catch (...) {
         total_failed++;
     }
 #endif
