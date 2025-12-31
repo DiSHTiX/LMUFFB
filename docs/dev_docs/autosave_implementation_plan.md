@@ -145,24 +145,128 @@ Since `DrawTuningWindow` already holds `g_engine_mutex`, calling `Config::Save(e
 - [ ] Add Auto-Save to "Always on Top".
 - [ ] Perform binary size / performance check (disk thrashing test).
 
-## 6. Design Analysis & Refactoring Recommendation
+## 6. Phase 1: Refactoring UI Helpers (Prerequisite)
 
-### The "Manual Control" Issue
-The need to duplicate the auto-save logic across multiple "manual" controls highlights a minor design smell in the `GuiLayer`. Specifically:
-- **Inconsistent Abstraction:** Most controls use the `FloatSetting` abstraction, but significantly complex ones (e.g., those needing latency indicators) drop down to raw `ImGui` calls. All these controls share the same underlying need: *Display Label -> Edit Value -> Save on Completion*.
-- **Code Duplication:** The logic for "save on release" and "save on arrow key press" (which is quite verbose) must now be copied to 6+ different locations. This increases the risk of bugs where one slider behaves differently from another.
-- **Maintenance Burden:** Future global behavior changes (e.g., "disable editing when game is running") would require updating both the lambda and every individual manual control.
+**Objective:** specific UI code is currently duplicated across "Standard" sliders (using lambdas) and "Complex" sliders (manual implementation). This refactoring will unify all sliders under a single, flexible abstraction *before* implementing Auto-Save, ensuring consistent behavior and reducing implementation effort.
 
-### Recommendation
-While out of scope for the immediate Auto-Save implementation, it is recommended to refactor these manual controls into a more capable helper or builder pattern in a future update (e.g., v0.7.0).
+### 6.1. Design Analysis
+The current codebase has two ways of rendering a slider:
+1.  **Helper Lambda (`FloatSetting`)**: Handles Label, Slider, Tooltip, and Arrow Key logic. Used for ~80% of controls.
+2.  **Manual Implementation**: Used for controls requiring dynamic text (e.g., Latency coloring) or custom layouts. These manually repeat (or miss) the Arrow Key logic and Tooltip logic.
 
-**Proposed Solution: `FloatSettingEx`**
-Create an extended helper that accepts optional "header" or "decorator" lambdas:
+**Problem:** Implementing Auto-Save would require editing `FloatSetting` AND 6+ manual code blocks.
+**Solution:** Upgrade the helper function to support "Decorators" (custom UI elements rendered above the slider).
+
+### 6.2. Implementation Strategy
+
+We will replace the existing `FloatSetting` lambda with a more robust version that accepts an optional callback.
+
+#### Updated Lambda Signature (Conceptual)
 ```cpp
-auto FloatSettingv2 = [&](const char* label, float* v, ..., std::function<void()> pre_render_callback = nullptr) {
-    if (pre_render_callback) pre_render_callback(); // Renders the latency text/color
-    // ... Standard Slider Logic ...
-    // ... Standard Auto-Save Logic ...
+// src/GuiLayer.cpp inside DrawTuningWindow
+
+auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr, std::function<void()> decorator = nullptr) {
+    ImGui::Text("%s", label);               // Column 1: Label
+    ImGui::NextColumn();                    // Switch to Column 2
+    
+    // --- 1. Render Custom Decorator (if exists) ---
+    if (decorator) {
+        decorator(); 
+    }
+    
+    // --- 2. Standard Slider Logic ---
+    ImGui::SetNextItemWidth(-1);            // Fill width
+    std::string id = "##" + std::string(label);
+    
+    bool changed = false;
+    
+    // Slider
+    if (ImGui::SliderFloat(id.c_str(), v, min, max, fmt)) {
+        selected_preset = -1;
+        changed = true;
+    }
+    
+    // --- 3. Unified Interaction Logic (Arrow Keys & Tooltips) ---
+    if (ImGui::IsItemHovered()) {
+        float range = max - min;
+        float step = (range > 50.0f) ? 0.5f : (range < 1.0f) ? 0.001f : 0.01f; 
+        
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) { *v -= step; changed = true; }
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) { *v += step; changed = true; }
+        
+        if (changed) { 
+            *v = (std::max)(min, (std::min)(max, *v)); 
+            selected_preset = -1; 
+            // Auto-Save will go here in Phase 2
+        }
+        
+        // Tooltip (only if not interacting)
+        if (!changed) {
+            ImGui::BeginTooltip();
+            if (tooltip) { ImGui::Text("%s", tooltip); ImGui::Separator(); }
+            ImGui::Text("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
+            ImGui::EndTooltip();
+        }
+    }
+    
+    ImGui::NextColumn();                    // Switch back to Column 1
 };
 ```
-This would unify behavior across all 20+ sliders in the application, ensuring consistent Auto-Save, Arrow Key, and Tooltip behavior.
+
+#### Refactoring Targets
+The following manual blocks will be converted to use `FloatSetting` with a lambda decorator:
+
+1.  **Steering Shaft Smoothing**: Pass decorator that calculates and renders `shaft_ms` colored text.
+2.  **Yaw Kick Smoothing**: Pass decorator for `yaw_ms`.
+3.  **Gyro Smoothing**: Pass decorator for `gyro_ms`.
+4.  **SoP Smoothing**: Pass decorator for `lat_ms`.
+5.  **Slip Angle Smoothing**: Pass decorator for `slip_ms`.
+6.  **Chassis Inertia**: Pass decorator for `chassis_ms`.
+
+Example Conversion:
+```cpp
+// OLD
+/* Manual Block taking 15 lines */
+
+// NEW
+auto ShaftDecorator = [&]() {
+    int ms = (int)(engine.m_steering_shaft_smoothing * 1000.0f + 0.5f);
+    ImVec4 color = (ms < 15) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+    ImGui::TextColored(color, "Latency: %d ms", ms);
+};
+FloatSetting("Steering Shaft Smoothing", &engine.m_steering_shaft_smoothing, 0.0f, 0.1f, "%.3f s", "Tooltip...", ShaftDecorator);
+```
+
+### 6.3. Phase 1 Verification Tests
+
+#### Test 1.1: UI Integrity Check
+1.  **Action:** Launch application.
+2.  **Check:** Verify all "Latency" sliders (Steering, SoP, etc.) still display the colored "Latency: XX ms" text above the slider.
+3.  **Check:** Verifiy alignment is correct (Label on left, Slider+Text on right).
+
+#### Test 1.2: Unified Interaction Check
+1.  **Action:** Hover over "Steering Shaft Smoothing" (previously a manual control).
+2.  **Action:** Press Left/Right Arrow keys.
+3.  **Expectation:** The slider value changes. (This proves the unified logic is active, as many manual controls previously *lacked* this feature).
+4.  **Action:** Verify Tooltip appears.
+
+### 6.4. Phase 2 (Auto-Save) Preparation
+Once this refactoring is complete, Phase 2 becomes trivial: we simply add the `Config::Save(engine)` call into the *single* `FloatSetting` lambda, and it automatically applies to every slider in the application, including the complex ones.
+
+## 7. Implementation Roadmap (Updated)
+
+1.  **Phase 1: Refactoring**
+    - [ ] Update `FloatSetting` lambda signature to accept `std::function<void()>`.
+    - [ ] Refactor "Steering Shaft Smoothing" to use new helper.
+    - [ ] Refactor "Yaw Kick Smoothing".
+    - [ ] Refactor "Gyro Smoothing".
+    - [ ] Refactor "SoP Smoothing".
+    - [ ] Refactor "Slip Angle Smoothing".
+    - [ ] Refactor "Chassis Inertia".
+    - [ ] Verify functionality (Tests 1.1, 1.2).
+
+2.  **Phase 2: Auto-Save Implementation**
+    - [ ] Add `ImGui::IsItemDeactivatedAfterEdit()` check to `FloatSetting`.
+    - [ ] Add `ImGui::IsItemDeactivatedAfterEdit()` check to `BoolSetting` and `IntSetting`.
+    - [ ] Implement saving for Top Bar items (Always on Top).
+    - [ ] Run Persistence Tests.
