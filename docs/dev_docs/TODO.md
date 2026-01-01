@@ -124,9 +124,11 @@ Make it so that the FFB is standardized, so we can do direct comparisons between
 implement fixed based on users reports.
 fix: " Slide Rumble, is a just noise and better left off or very very low but its an almost constant effect even driving straight."
 fix: "Scrub drag, does not work unless Road details is enabled."
+fix: "road texture, no matter how high i set it cant really feel the road at all"
 fix: "Bottoming Logic does not work at all. I dropped the car too the floor and tried everything but never anything shows up."
 fix: " I am trying to adjust the filters, so I can feel the point at which the car starts to understeer through vibrations in the FFB. I have been experimenting with the slide scrub and understeer values, but I am currently unable to feel the exact point when the (LMP) car starts to understeer through clear vibration or weight changes. There are plenty of vibrations in general, but they seem random or connected to road noise. Any advice?" (user Vito)
 
+in the readmes, troubleshooting section, add an entry for game baseline vibrations, and which settings can be tweaked to reduce/remove them (steering rack smoothing, static notch filter, dynamic notch filter).
 
 additionally, in the ini file, the settings should be saved in the same order as they are displayed in the GUI. This makes it easier to find them in the ini, and to compare the ini with the Gui.
 
