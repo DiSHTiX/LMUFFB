@@ -99,6 +99,28 @@ next effects to add:
 * grip loss effect different calculation, using derivative. Keep exiting method too, but add a drop down to select which method to use.
 * option to "invert" mechanism for understerr grip loss: wheel gets heavier instead of lighter. Consider inverting the "weight" feel of also some of the oversteer effects (eg. wheel gets heaverier instead of lighter, and viceversa).
 
+Compare formulas with those used in Marvin's app.
+Checklists for completedness for LMU before porting to other sims:
+* stable settings, found optimal settings for each car (GT3, LMP2, LMP3, HY, GTE) and wheel type (gear, belt, direct drive, direct drive >20 bit encoder).
+* autotune option, ..based on the car. Should adjust to optimize the use of dynamic range.
+* basic mode implemented
+* all effects sorted out, clarified the optimal window for each to work. Clarified how to "decouple" and multiply them appropriately based on each car forces, weight, and other properties.
+
+Next sims to implement (drop down menu to choose game):
+* rf2
+* ACE
+* AC1
+* ACC
+* AMS2
+* Raceroom
+* AMS1
+* AC rally?
+* PMR?
+* Rennsport?
+* LFS?
+* F1 series?
+Make it so that the FFB is standardized, so we can do direct comparisons between sims.
+
 implement fixed based on users reports.
 
 additionally, in the ini file, the settings should be saved in the same order as they are displayed in the GUI. This makes it easier to find them in the ini, and to compare the ini with the Gui.
