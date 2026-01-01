@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.30] - 2026-01-01
+### Changed
+- **T300 Preset Refinement**:
+  - Decoupled the "T300" preset from the hardcoded "Default" preset. The T300 preset now uses specific optimized values for improved force feedback fidelity on T300 wheelbases.
+  - Optimized default parameters for T300: reduced latency (`steering_shaft_smoothing=0`), specific notch filter settings (`notch_q=2`), and adjusted effects gains (`understeer=0.5`, `sop=0.425`).
+- **User Experience**:
+  - Removed the persistent console success message `[Config] Saved to config.ini` to reduce console spam during auto-save operations.
+
 ## [0.6.29] - 2025-12-31
 ### Added
 - **Config File Structure Reordering**:

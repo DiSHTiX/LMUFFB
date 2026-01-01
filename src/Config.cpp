@@ -29,8 +29,67 @@ void Config::LoadPresets() {
     // 1. Default (T300) - Uses Preset struct defaults from Config.h (Single Source of Truth)
     presets.push_back(Preset("Default (T300)", true));
     
-    // 2. T300 (Explicit name for clarity) - Same as Default
-    presets.push_back(Preset("T300", true));
+    // 2. T300 (Custom optimized)
+    {
+        Preset p("T300", true);
+        p.invert_force = true;
+        p.gain = 1.0f;
+        p.max_torque_ref = 100.1f;
+        p.min_force = 0.01f;
+        p.steering_shaft_gain = 1.0f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 0.5f;
+        p.base_force_mode = 0;
+        p.flatspot_suppression = false;
+        p.notch_q = 2.0f;
+        p.flatspot_strength = 1.0f;
+        p.static_notch_enabled = false;
+        p.static_notch_freq = 11.0f;
+        p.static_notch_width = 2.0f;
+        p.oversteer_boost = 2.40336f;
+        p.sop = 0.425003f;
+        p.rear_align_effect = 0.966383f;
+        p.sop_yaw_gain = 0.386555f;
+        p.yaw_kick_threshold = 1.68f;
+        p.yaw_smoothing = 0.005f;
+        p.gyro_gain = 0.0336134f;
+        p.gyro_smoothing = 0.0f;
+        p.sop_smoothing = 1.0f;
+        p.sop_scale = 1.0f;
+        p.understeer_affects_sop = false;
+        p.slip_smoothing = 0.0f;
+        p.chassis_smoothing = 0.0f;
+        p.optimal_slip_angle = 0.06f;
+        p.optimal_slip_ratio = 0.12f;
+        p.lockup_enabled = true;
+        p.lockup_gain = 2.0f;
+        p.brake_load_cap = 10.0f;
+        p.lockup_freq_scale = 1.02f;
+        p.lockup_gamma = 0.1f;
+        p.lockup_start_pct = 1.0f;
+        p.lockup_full_pct = 5.0f;
+        p.lockup_prediction_sens = 10.0f;
+        p.lockup_bump_reject = 0.1f;
+        p.lockup_rear_boost = 10.0f;
+        p.abs_pulse_enabled = true;
+        p.abs_gain = 2.0f;
+        p.abs_freq = 20.0f;
+        p.texture_load_cap = 1.96f;
+        p.slide_enabled = true;
+        p.slide_gain = 0.235294f;
+        p.slide_freq = 1.0f;
+        p.road_enabled = true;
+        p.road_gain = 2.0f;
+        p.road_fallback_scale = 0.05f;
+        p.spin_enabled = true;
+        p.spin_gain = 0.5f;
+        p.spin_freq_scale = 1.0f;
+        p.scrub_drag_gain = 0.0462185f;
+        p.bottoming_method = 0;
+        p.speed_gate_lower = 0.0f;
+        p.speed_gate_upper = 0.277778f;
+        presets.push_back(p);
+    }
     
     // 3. Test: Game Base FFB Only
     presets.push_back(Preset("Test: Game Base FFB Only", true)
@@ -571,7 +630,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         }
         
         file.close();
-        std::cout << "[Config] Saved to " << final_path << std::endl;
+
     } else {
         std::cerr << "[Config] Failed to save to " << final_path << std::endl;
     }
