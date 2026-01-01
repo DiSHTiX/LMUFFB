@@ -1889,32 +1889,33 @@ static void test_universal_bottoming() {
 }
 
 static void test_preset_initialization() {
-    std::cout << "\nTest: Preset Initialization (v0.4.5 Regression)" << std::endl;
+    std::cout << "\nTest: Built-in Preset Fidelity (v0.6.30 Refinement)" << std::endl;
     
-    // REGRESSION TEST: Verify all built-in presets properly initialize v0.4.5 fields
-    // 
-    // BUG HISTORY: Initially, all 5 built-in presets were missing initialization
-    // for new v0.6.20 frequency fields (abs_freq, lockup_freq_scale, spin_freq_scale),
-    // causing undefined behavior when users selected any built-in preset.
-    //
-    // This test ensures all presets have proper initialization for these fields.
+    // REGRESSION TEST: Verify all built-in presets properly initialize tuning fields.
+    // v0.6.30: T300 preset is now specialized with optimized values.
     
     Config::LoadPresets();
     
-    // Expected default values for new fields
+    // Expected default values for generic presets
     const float expected_abs_freq = 20.0f;
     const float expected_lockup_freq_scale = 1.0f;
     const float expected_spin_freq_scale = 1.0f;
     const int expected_bottoming_method = 0;
-    // v0.5.12: All presets now inherit default scrub_drag_gain via member initializers
-    // v0.6.0: Read the actual default value instead of hardcoding it (resilient to changes)
-    Preset reference_defaults;
-    const float expected_scrub_drag_gain = reference_defaults.scrub_drag_gain;
     
-    // Test all 9 built-in presets (Added T300)
+    Preset ref_defaults;
+    const float expected_scrub_drag_gain = ref_defaults.scrub_drag_gain;
+    
+    // Specialized T300 Expectation (v0.6.30)
+    const float t300_lockup_freq = 1.02f;
+    const float t300_scrub_gain = 0.0462185f;
+    const float t300_understeer = 0.5f;
+    const float t300_sop = 0.425003f;
+    const float t300_shaft_smooth = 0.0f;
+    const float t300_notch_q = 2.0f;
+    
     const char* preset_names[] = {
         "Default (T300)",
-        "T300", // New v0.4.30
+        "T300",
         "Test: Game Base FFB Only",
         "Test: SoP Only",
         "Test: Understeer Only",
@@ -1943,18 +1944,29 @@ static void test_preset_initialization() {
             continue;
         }
         
-        // Verify v0.4.5 fields are properly initialized
         bool fields_ok = true;
         
-        if (preset.abs_freq != expected_abs_freq) {
-            std::cout << "[FAIL] " << preset.name << ": abs_freq = " 
-                      << preset.abs_freq << ", expected " << expected_abs_freq << std::endl;
+        // Determine expectations based on whether it's the specialized T300 preset
+        bool is_specialized_t300 = (preset.name == "T300");
+        float exp_lockup_f = is_specialized_t300 ? t300_lockup_freq : expected_lockup_freq_scale;
+        float exp_scrub = is_specialized_t300 ? t300_scrub_gain : expected_scrub_drag_gain;
+        
+        if (std::abs(preset.lockup_freq_scale - exp_lockup_f) > 0.001f) {
+             std::cout << "[FAIL] " << preset.name << ": lockup_freq_scale = " 
+                      << preset.lockup_freq_scale << ", expected " << exp_lockup_f << std::endl;
             fields_ok = false;
         }
 
-        if (preset.lockup_freq_scale != expected_lockup_freq_scale) {
-             std::cout << "[FAIL] " << preset.name << ": lockup_freq_scale = " 
-                      << preset.lockup_freq_scale << ", expected " << expected_lockup_freq_scale << std::endl;
+        if (std::abs(preset.scrub_drag_gain - exp_scrub) > 0.001f) {
+            std::cout << "[FAIL] " << preset.name << ": scrub_drag_gain = " 
+                      << preset.scrub_drag_gain << ", expected " << exp_scrub << std::endl;
+            fields_ok = false;
+        }
+
+        // Generic checks for all presets
+        if (preset.abs_freq != expected_abs_freq) {
+            std::cout << "[FAIL] " << preset.name << ": abs_freq = " 
+                      << preset.abs_freq << ", expected " << expected_abs_freq << std::endl;
             fields_ok = false;
         }
 
@@ -1970,15 +1982,28 @@ static void test_preset_initialization() {
             fields_ok = false;
         }
         
-        // v0.5.12: All presets have T300 scrub_drag_gain default
-        if (std::abs(preset.scrub_drag_gain - expected_scrub_drag_gain) > 0.0001f) {
-            std::cout << "[FAIL] " << preset.name << ": scrub_drag_gain = " 
-                      << preset.scrub_drag_gain << ", expected " << expected_scrub_drag_gain << std::endl;
-            fields_ok = false;
+        // v0.6.30 Specialization Verification
+        if (is_specialized_t300) {
+            if (std::abs(preset.understeer - t300_understeer) > 0.001f) {
+                std::cout << "[FAIL] T300: Optimized understeer (" << preset.understeer << ") != " << t300_understeer << std::endl;
+                fields_ok = false;
+            }
+            if (std::abs(preset.sop - t300_sop) > 0.001f) {
+                std::cout << "[FAIL] T300: Optimized SoP (" << preset.sop << ") != " << t300_sop << std::endl;
+                fields_ok = false;
+            }
+            if (preset.steering_shaft_smoothing != t300_shaft_smooth) {
+                std::cout << "[FAIL] T300: Optimized shaft smoothing (" << preset.steering_shaft_smoothing << ") != " << t300_shaft_smooth << std::endl;
+                fields_ok = false;
+            }
+            if (preset.notch_q != t300_notch_q) {
+                std::cout << "[FAIL] T300: Optimized notch_q (" << preset.notch_q << ") != " << t300_notch_q << std::endl;
+                fields_ok = false;
+            }
         }
         
         if (fields_ok) {
-            std::cout << "[PASS] " << preset.name << ": new tuning fields initialized correctly" << std::endl;
+            std::cout << "[PASS] " << preset.name << ": fields verified correctly" << (is_specialized_t300 ? " (Including v0.6.30 optimizations)" : "") << std::endl;
             g_tests_passed++;
         } else {
             all_passed = false;
@@ -1986,12 +2011,11 @@ static void test_preset_initialization() {
         }
     }
     
-    // Overall summary
     if (all_passed) {
-        std::cout << "[PASS] All 9 built-in presets have correct v0.4.5 field initialization" << std::endl;
+        std::cout << "[PASS] All 9 built-in presets have correct field initialization" << std::endl;
         g_tests_passed++;
     } else {
-        std::cout << "[FAIL] Some presets have incorrect v0.4.5 field initialization" << std::endl;
+        std::cout << "[FAIL] Some presets have incorrect specialization or defaults" << std::endl;
         g_tests_failed++;
     }
 }

@@ -685,26 +685,29 @@ static void test_single_source_of_truth_t300_defaults() {
         std::cout << "    Default (T300) preset matches reference" << std::endl;
     }
     
-    // Test 4: Verify "T300" preset matches "Default (T300)"
+    // Test 4: Verify "T300" preset has specialized values (v0.6.30 Decoupling)
     {
-        std::cout << "  Test 4: T300 preset matches Default..." << std::endl;
+        std::cout << "  Test 4: T300 specialized preset verification..." << std::endl;
         
         // Second preset should be "T300"
         ASSERT_TRUE(Config::presets.size() > 1);
         ASSERT_TRUE(Config::presets[1].name == "T300");
         
-        // Verify both presets have identical values
+        // Verify specialized values for T300
         const Preset& default_preset = Config::presets[0];
         const Preset& t300_preset = Config::presets[1];
         
-        ASSERT_TRUE(default_preset.understeer == t300_preset.understeer);
-        ASSERT_TRUE(default_preset.sop == t300_preset.sop);
-        ASSERT_TRUE(default_preset.oversteer_boost == t300_preset.oversteer_boost);
-        ASSERT_TRUE(default_preset.lockup_gain == t300_preset.lockup_gain);
-        ASSERT_TRUE(default_preset.slide_gain == t300_preset.slide_gain);
-        ASSERT_TRUE(default_preset.scrub_drag_gain == t300_preset.scrub_drag_gain);
+        // Optimized values from v0.6.30 changelog
+        ASSERT_TRUE(t300_preset.understeer == 0.5f);
+        ASSERT_TRUE(abs(t300_preset.sop - 0.425003f) < 0.0001f);
+        ASSERT_TRUE(t300_preset.lockup_freq_scale == 1.02f);
+        ASSERT_TRUE(t300_preset.scrub_drag_gain == 0.0462185f);
         
-        std::cout << "    T300 preset matches Default (T300)" << std::endl;
+        // Verify it is DIFFERENT from Default (T300) for key decoupled fields
+        ASSERT_TRUE(default_preset.understeer != t300_preset.understeer);
+        ASSERT_TRUE(default_preset.sop != t300_preset.sop);
+        
+        std::cout << "    T300 preset specialization verified (Decoupled from Defaults)" << std::endl;
     }
     
     // Test 5: Verify applying preset produces same result as ApplyDefaultsToEngine()
