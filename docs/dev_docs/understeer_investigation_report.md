@@ -10,6 +10,22 @@ Findings from more testing: the Understeer Effect seems to be working. In fact, 
 
 ### User 2:
 With regards to the understeer effect I have to say that it is not working for me (Fanatec CLS DD). I tried the "test understeer only" preset and if I set the understeer effect to anything from 1 to 200 I can't feel anything, no FFB. Only below 1 there is some weight in the FFB when turning. When I turn more than I should and the front tires lose grip, I expect the wheel to go light, but that is not the case. The wheel stays just as heavy. So I cannot feel the point of the front tires losing grip. I tried GT3 and LMP2, same result.
+### Additional information from the developer
+Further info:
+when I set the value to 0.84, it was 0.84 out of 200.0 . So this is a tiny value for the setting (in fact, the lowest value above zero that I could set with the slider). So why even this low setting causes large force reductions?
+
+Let's clarify: the zero grip from the game (mGripFrac) is expected for this game (LMU) for all cars. So the "fallback mechanism" to calculate tire grip is the de facto default.
+Please review the implementation, verify if there are any issues.
+Of course we don't want to set grip to 0.2 (20%) if the game returns 0 for mGripFrac), since the game always does that. We want to appropriately calculate the grip level based on the alternative formula that approximates it from other telemetry physics value.
+
+I was under the impression that the optimal slip angle is 0.06 for LMP2/prototypes/hypercars, and 0.10 for GP3. Isn't this the case?
+
+I want the user to dynamically feel the loss of grip, and be able to prevent it, and just approach. I don't want a "reactive" effect, that gives information to the user when it is too late. (it seems you have already removed it).
+
+## References
+
+* src\FFBEngine.h
+* docs\dev_docs\FFB_formulas.md
 
 ## The "Physics vs. Algorithm" Conflict
 
