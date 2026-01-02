@@ -181,8 +181,55 @@ The 0-200 range is confusing. Consider either:
 - Adding a "%" format string showing `value / 2.0` as percentage
 - Adding documentation clarifying the non-linear impact
 
-### 4. Add Low-Speed Grip Floor
-Currently the grip floor is 0.2 (20%). Consider making this configurable or increasing it to 0.3 to prevent total force loss scenarios.
+---
+
+## Why "Refine the Drop-Off Curve" Was Not Recommended
+
+The original report (v1.0) proposed changing the grip drop-off formula from:
+```cpp
+result.value = 1.0 / (1.0 + excess * 2.0);  // Original: Steeper curve
+```
+to:
+```cpp
+result.value = 1.0 / (1.0 + excess);         // Proposed: Gentler curve
+```
+
+**This recommendation was removed because:**
+
+1. **The Real Problem is the Threshold, Not the Curve Shape**
+   
+   The user's issue (User 1: "too light") is not caused by the curve being too steep — it's caused by the `optimal_slip_angle` being set too low (0.06 rad). When you're already at the peak grip angle, *any* drop-off feels premature.
+   
+   With the threshold corrected to 0.10 rad, the existing `2.0` multiplier provides a **predictive, proactive feel** — exactly what the developer requested:
+   > "I want the user to dynamically feel the loss of grip, and be able to prevent it, and just approach."
+
+2. **The Current Curve is Already Progressive**
+   
+   Let's compare the grip values at various excess slip levels:
+
+   | Excess | Current (`* 2.0`) | Proposed (`* 1.0`) |
+   | --- | --- | --- |
+   | 0.1 | 0.833 (17% loss) | 0.909 (9% loss) |
+   | 0.2 | 0.714 (29% loss) | 0.833 (17% loss) |
+   | 0.3 | 0.625 (38% loss) | 0.769 (23% loss) |
+   | 0.5 | 0.500 (50% loss) | 0.667 (33% loss) |
+   | 1.0 | 0.333 (67% loss) | 0.500 (50% loss) |
+   
+   The current formula already provides a smooth, continuous drop-off — not a "cliff" as the original report claimed. The `2.0` multiplier simply makes the transition happen over a shorter range (more predictive).
+
+3. **Changing the Curve Would Break Existing Tuning**
+   
+   Users who have calibrated their `understeer_effect` slider based on the current curve behavior would experience different feel with the same settings. This is a breaking change with marginal benefit.
+
+4. **The Adjustment is Already User-Tunable**
+   
+   If a user wants a gentler curve, they can:
+   - Increase `optimal_slip_angle` to delay the onset
+   - Decrease `understeer_effect` to reduce the force reduction
+   
+   These controls already exist and are exposed in the GUI.
+
+**Conclusion**: The curve shape is correct for predictive feedback. The problem was the threshold value, which is addressed by Recommendation #1.
 
 ---
 
@@ -277,8 +324,130 @@ $$
 
 ---
 
+## Implementation Code Snippets
+
+The following code changes implement the recommendations above.
+
+### Change 1: Update T300 Preset Default (Config.cpp)
+
+**File**: `src/Config.cpp`  
+**Location**: Line 62 (inside LoadPresets(), T300 preset block)
+
+```cpp
+// BEFORE (line 62):
+p.optimal_slip_angle = 0.06f;
+
+// AFTER:
+p.optimal_slip_angle = 0.10f;
+```
+
+**Full context** (lines 33-63):
+```cpp
+    // 2. T300 (Custom optimized)
+    {
+        Preset p("T300", true);
+        p.invert_force = true;
+        p.gain = 1.0f;
+        p.max_torque_ref = 100.1f;
+        p.min_force = 0.01f;
+        p.steering_shaft_gain = 1.0f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 0.5f;
+        p.base_force_mode = 0;
+        // ... other settings ...
+        p.optimal_slip_angle = 0.10f;   // CHANGED from 0.06f
+        p.optimal_slip_ratio = 0.12f;
+        // ... rest of preset ...
+    }
+```
+
+---
+
+### Change 2: Improve Tooltip Clarity (GuiLayer.cpp)
+
+**File**: `src/GuiLayer.cpp`  
+**Location**: Lines 1068-1072 (Optimal Slip Angle setting)
+
+```cpp
+// BEFORE:
+FloatSetting("Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad", 
+    "The slip angle (radians) where the tire generates peak grip.\nTuning parameter for the Grip Estimator.\nMatch this to the car's physics (GT3 ~0.10, LMDh ~0.06).\n"
+    "Lower = Earlier understeer warning.\n"
+    "Higher = Later warning.\n"
+    "Affects: Understeer Effect, Lateral G Boost (Slide), Slide Texture.");
+
+// AFTER:
+FloatSetting("Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad", 
+    "The slip angle THRESHOLD above which grip loss begins.\n"
+    "Set this HIGHER than the car's physical peak slip angle.\n"
+    "Recommended: 0.10 for LMDh/LMP2, 0.12 for GT3.\n\n"
+    "Lower = More sensitive (force drops earlier).\n"
+    "Higher = More buffer zone before force drops.\n\n"
+    "NOTE: If the wheel feels too light at the limit, INCREASE this value.\n"
+    "Affects: Understeer Effect, Lateral G Boost (Slide), Slide Texture.");
+```
+
+---
+
+### Change 3: Rescale Understeer Effect Display (GuiLayer.cpp) [Optional]
+
+**File**: `src/GuiLayer.cpp`  
+**Location**: Line 961 (Understeer Effect setting)
+
+This change adds a percentage-based display format while keeping the internal 0-200 range for backward compatibility.
+
+```cpp
+// BEFORE:
+FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 200.0f, "%.2f", 
+    "Reduces the strength of the Steering Shaft Torque when front tires lose grip (Understeer).\n"
+    "Helps you feel the limit of adhesion.\n"
+    "0% = No feeling.\n"
+    "High = Wheel goes light immediately upon sliding. "
+    "Note: grip is calculated based on the Optimal Slip Angle setting.");
+
+// AFTER:
+// Create a custom format that shows percentage
+auto understeer_fmt = [&]() {
+    static char buf[32];
+    snprintf(buf, 32, "%.1f%% (%.1f)", 
+             engine.m_understeer_effect / 2.0f,  // Show as 0-100%
+             engine.m_understeer_effect);         // Also show raw value
+    return (const char*)buf;
+};
+
+FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 200.0f, understeer_fmt(), 
+    "Reduces the strength of the Steering Shaft Torque when front tires lose grip.\n\n"
+    "Scale: 0-100% (displayed), 0-200 (internal).\n"
+    "  - 0% = Effect disabled.\n"
+    "  - 50% (100 internal) = Moderate effect.\n"
+    "  - 100% (200 internal) = Maximum sensitivity.\n\n"
+    "If the wheel goes TOO light, reduce this value.\n"
+    "If you can't feel understeer, increase this value.\n\n"
+    "Tip: Start at 25% (50) and adjust based on feel.\n"
+    "Interacts with: Optimal Slip Angle setting.");
+```
+
+**Alternative (Simpler)**: Just update the tooltip without changing the format:
+
+```cpp
+FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 200.0f, "%.1f", 
+    "Reduces steering force when front tires lose grip.\n\n"
+    "SCALE GUIDE:\n"
+    "  0-10: Subtle effect (recommended for aggressive driving)\n"
+    "  10-50: Moderate effect (good starting point)\n"
+    "  50-100: Strong effect\n"
+    "  100-200: Extreme (will go fully light on any slide)\n\n"
+    "If the wheel feels too light at the limit:\n"
+    "  1. First, INCREASE 'Optimal Slip Angle' above.\n"
+    "  2. If still too light, DECREASE this value.\n\n"
+    "Note: The effect is multiplied by calculated grip loss.");
+```
+
+---
+
 ## Document History
 | Version | Date | Author | Notes |
 | --- | --- | --- | --- |
 | 1.0 (Draft) | 2026-01-02 | Antigravity | Initial analysis based on user reports |
 | 2.0 (Revised) | 2026-01-02 | Antigravity | Full code review, formula verification, corrected recommendations |
+| 2.1 | 2026-01-02 | Antigravity | Added implementation snippets, explained curve recommendation removal |
