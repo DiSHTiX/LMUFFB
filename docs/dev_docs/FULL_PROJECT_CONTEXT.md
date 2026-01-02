@@ -16777,76 +16777,128 @@ presets.push_back({ "Test: My Effect",
 
 # File: docs\dev_docs\understeer_investigation_report.md
 ```markdown
-# Understeer Effect Investigation Report
+# Understeer Investigation Report (Final)
 
 ## Executive Summary
-Users reported issues with the "Understeer Effect" where the steering wheel becomes too light (User 1) or completely loses Force Feedback (User 2) when the setting is adjusted. Investigation into the `FFBEngine.h` and `Config.cpp` files reveals that the mathematical implementation of the effect combined with an excessively large allowable range (0-200) causes the FFB output to be clamped to zero under common driving conditions.
+The "Understeer Effect" issues (lightness/signal loss) are caused by a misunderstanding of the `optimal_slip_angle` setting in the context of the Fallback Estimator. While **0.06 rad (3.4°)** is a physically accurate peak slip angle for LMP2/Hypercars, using it as the **cutoff threshold** for the FFB effect causes the system to punish the driver for merely reaching the limit of adhesion, rather than exceeding it.
+## User reports
+Below are the reports by two users about an issue with the understeer effect. These report were the reason for the present investgation and report document.
 
-## User Reports Analysis
+### User 1:
+Findings from more testing: the Understeer Effect seems to be working. In fact, with the LMP2 it is even too sensitive and makes the wheel too light. I had to set the understeer effect slider to 0.84, and even then it was too strong.
 
-### User 1 (Unwanted Lightness)
-> "In fact, with the LMP2 it is even too sensitive and makes the wheel too light. I had to set the understeer effect slider to 0.84, and even then it was too strong."
+### User 2:
+With regards to the understeer effect I have to say that it is not working for me (Fanatec CLS DD). I tried the "test understeer only" preset and if I set the understeer effect to anything from 1 to 200 I can't feel anything, no FFB. Only below 1 there is some weight in the FFB when turning. When I turn more than I should and the front tires lose grip, I expect the wheel to go light, but that is not the case. The wheel stays just as heavy. So I cannot feel the point of the front tires losing grip. I tried GT3 and LMP2, same result.
+### Additional information from the developer
+Further info:
+when I set the value to 0.84, it was 0.84 out of 200.0 . So this is a tiny value for the setting (in fact, the lowest value above zero that I could set with the slider). So why even this low setting causes large force reductions?
 
-This user is experiencing the effect of the reduction formula applied to "normal" driving conditions. If the game reports any grip value less than perfect (1.0) — for example, 0.90 while cornering — a setting of `0.84` results in a significant force reduction, which the user perceives as an overly "light" wheel.
+Let's clarify: the zero grip from the game (mGripFrac) is expected for this game (LMU) for all cars. So the "fallback mechanism" to calculate tire grip is the de facto default.
+Please review the implementation, verify if there are any issues.
+Of course we don't want to set grip to 0.2 (20%) if the game returns 0 for mGripFrac), since the game always does that. We want to appropriately calculate the grip level based on the alternative formula that approximates it from other telemetry physics value.
 
-### User 2 (Total Signal Loss)
-> "If I set the understeer effect to anything from 1 to 200 I can't feel anything, no FFB. Only below 1 there is some weight..."
+I was under the impression that the optimal slip angle is 0.06 for LMP2/prototypes/hypercars, and 0.10 for GP3. Isn't this the case?
 
-This confirms that values greater than 1.0 are catastrophic for the FFB signal. With a setting of `200`, a microscopic grip drop of just **0.5%** (`0.995` grip) is sufficient to reduce the force by 100% (`0.005 * 200 = 1.0`), resulting in zero torque output.
+I want the user to dynamically feel the loss of grip, and be able to prevent it, and just approach. I don't want a "reactive" effect, that gives information to the user when it is too late. (it seems you have already removed it).
 
-## Technical Analysis
+## References
 
-### The Logic (`FFBEngine.h`)
-The understeer effect is calculated in `FFBEngine::calculate_force` (approx. line 1064):
+* src\FFBEngine.h
+* docs\dev_docs\FFB_formulas.md
 
-```cpp
-// grip_factor: 1.0 = full force, 0.0 = no force (full understeer)
-// m_understeer_effect: 0.0 = disabled, 1.0 = full effect
-double grip_loss = (1.0 - avg_grip) * m_understeer_effect;
-double grip_factor = 1.0 - grip_loss;
+## The "Physics vs. Algorithm" Conflict
 
-// FIX: Clamp to 0.0 to prevent negative force (inversion) if effect > 1.0
-grip_factor = (std::max)(0.0, grip_factor);
+### 1. The Physical Reality
+User 1 is correct: LMP2 and Hypercars have very stiff tires with peak grip occurring around **0.06 - 0.08 radians (3.4° - 4.5°)**.
 
-// ...
+### 2. The Algorithmic Flaw
+The application uses this value not as the "Peak", but as the **Penalty Start Line**.
+*   **Rule:** `If Current_Slip > Optimal_Slip, Reduce_Force`.
+*   **Result:** If `Optimal_Slip` is set to 0.06:
+    *   The moment the driver reaches optimal grip (0.06), the FFB begins to cut.
+    *   This creates a "Hole" in the FFB exactly where the steering should feel heaviest (maximum load/alignment torque).
+    *   *Symptom:* "The wheel makes the steering too light" (User 1).
 
-// Apply Gain and Grip Modulation
-double output_force = (base_input * (double)m_steering_shaft_gain) * grip_factor;
-```
+### 3. Why the Default must be Higher
+To provide useful Force Feedback, the "Understeer Effect" should only reduce force when the user **exceeds** the optimal slip angle significantly (i.e., when they are actually scrubbing/wasting grip), not when they are utilizing it.
+*   **Proposed Default:** **0.10 radians (5.7°)**.
+*   **Logic:** This creates a "buffer zone" (0.06 to 0.10) where the driver can lean on the tire and feel full weight. The force only drops when the slip becomes excessive (true understeer), creating a *dynamic* feeling of loss as the limit is exceeded.
 
-**The Flaw:**
-The formula linearly scales the "grip loss" (`1.0 - avg_grip`).
-*   If `m_understeer_effect` is **2.0** and Grip is **0.5** (heavy slide), `grip_loss` = 0.5 * 2.0 = 1.0. `grip_factor` = 0.0. (Correct behavior for excessive slide).
-*   If `m_understeer_effect` is **200.0** and Grip is **0.995** (tiny hesitation/noise), `grip_loss` = 0.005 * 200.0 = 1.0. `grip_factor` = 0.0. (Catastrophic behavior).
+## Detailed Failure Cases
 
-Technically, `mGripFract` from the telemetry is rarely a steady 1.0. It fluctuates, especially in rFactor 2 / LMU physics. Any value above `1.0` in the multiplier makes the system extremely volatile.
+### Case A: The "False Understeer" (User 1)
+*   **Car:** LMP2 (Stiff).
+*   **Setting:** `Optimal = 0.06`.
+*   **Action:** Driver takes Porsche Curves at the limit (Slip = 0.065).
+*   **Algorithm:** "Slip (0.065) > Optimal (0.06). Grip reduced."
+*   **Result:** Steering goes light.
+*   **Driver Perception:** "I lost grip!" (False).
+*   **Reality:** The car is gripping perfectly; the FFB logic is too aggressive.
 
-### The Range (`Config.cpp`)
-The configuration allows a maximum value of **200.0**:
-
-```cpp
-if (engine.m_understeer_effect < 0.0f || engine.m_understeer_effect > 200.0f) {
-    engine.m_understeer_effect = (std::max)(0.0f, (std::min)(200.0f, engine.m_understeer_effect));
-}
-```
-
-This range appears to be intended for a "Percentage" style input (0-200%), but the code treats it as a raw multiplier. 
+### Case B: The "Signal Collapse" (User 2)
+*   **Car:** GT3.
+*   **Setting:** `Optimal = 0.06` (T300 Preset).
+*   **Action:** Driver pushes hard (Slip = 0.09 / 5°).
+*   **Algorithm:** "Slip (0.09) is 150% of Optimal (0.06). HUGE PENALTY."
+*   **Grip Calc:** Drops to near limit (0.2).
+*   **Effect Multiplier:** User sets `Understeer Gain = 2.0`.
+*   **Math:** `Force = Base * (1.0 - (0.8 * 2.0)) = Base * -0.6`.
+*   **Result:** Force clamped to 0. Total FFB loss.
 
 ## Recommendations
 
-1.  **Correct the Scale**: If the UI is displaying percentages (e.g., "100%"), the code should likely divide by 100 before applying it as a multiplier. Alternatively, cap the raw multiplier to a reasonable physics-based range (e.g., 0.0 to 2.0). 
-    *   *Immediate Fix:* Interpret user input `X` as `X / 100.0` or limit the slider to `2.0`.
+### 1. Renaming / Re-tooltiping
+The parameter name `m_optimal_slip_angle` is scientifically accurate but practically misleading for tuning.
+*   **Concept:** It acts as an **"Understeer Tolerance"** or **"Punishment Threshold"**.
+*   **New Tooltip Definition:** "The slip angle limit above which the force begins to drop. Set this **higher** than the physical peak (e.g., 0.10 for LMP2) to allow driving at the limit without force loss."
 
-2.  **Add Thresholding**: Implement a "Threshold" for the understeer effect so that it only kicks in when grip drops below a certain point (e.g., 0.90), preventing noise or minor scrubbing from killing the force.
-    ```cpp
-    if (avg_grip < 0.9) {
-        // apply effect
-    }
-    ```
+### 2. Update Configuration Defaults
+*   **T300/Default Presets:** Change `optimal_slip_angle` from **0.06** to **0.10**.
+*   **Rationale:** 0.10 provides a safe buffer. It is high enough that "Peak Grip" (0.06) feels fully weighted, but low enough that a "Slide" (0.12+) will still cause a noticeable drop in tension. This restores the dynamic communication of the tire limit.
 
-3.  **Non-Linear Response**: Instead of a linear reduction which hits zero abruptly, consider a curve that preserves some weight unless grip is totally lost.
+### 3. Refine the Drop-Off Curve
+The current penalty curve `1.0 / (1.0 + Excess * 2.0)` is effectively a "Cliff".
+*   **Issue:** Once the threshold is crossed, grip plummets too fast, causing the "On/Off" feeling reported by User 2.
+*   **Solution:** Change formula to `1.0 / (1.0 + Excess)`.
+*   **Benefit:** This creates a progressive fade-out of force as the slide worsens, allowing the driver to feel the *approach* of the limit and catch the slide, rather than incorrectly feeling that the slide has already happened.
 
-4.  **UI Updates**: Update the tooltip or UI label to explain that "1.0" (or 100%) means "1:1 mapping of grip loss to force loss", and higher values will exaggerate the loss.
+### 4. Range Safety
+*   **Slider Cap:** Limit `understeer_effect` to **2.0** (or 200%).
+*   **Fallback Safety:** clamp the effect internally so that a single calculation cannot invert the force.
+
+## Automated Regression Tests
+
+The following tests should be added to `tests/test_ffb_engine.cpp` to verify the fix and prevent regression:
+
+**Test 1: `test_optimal_slip_buffer_zone`**
+*   **Goal:** Verify that driving at the physical tire peak (0.06) does NOT trigger force reduction when using the new default (0.10).
+*   **Setup:**
+    *   `m_optimal_slip_angle` = 0.10
+    *   `m_understeer_effect` = 1.0
+    *   Simulate Telemetry: `LateralVelocity` consistent with 0.06 rad slip.
+*   **Expect:** `GripFactor` should be 1.0 (or > 0.99). Force should equal Base Torque.
+*   **Why:** Ensures User 1's issue (lightness in corners) is solved.
+
+**Test 2: `test_progressive_loss_dynamic`**
+*   **Goal:** Verify force drops smoothly as slip exceeds the threshold, not instantly.
+*   **Setup:**
+    *   `m_optimal_slip_angle` = 0.10
+    *   Step `Slip` from 0.08 -> 0.10 -> 0.12 -> 0.14.
+*   **Expect:**
+    *   At 0.08: No Drop.
+    *   At 0.10: Minimal Drop.
+    *   At 0.12: Moderate Drop.
+    *   At 0.14: Significant Drop.
+*   **Why:** Ensures dynamic feel is preserved and the "Cliff" is removed.
+
+**Test 3: `test_understeer_clipping_safety`**
+*   **Goal:** Verify that maximum settings do not cause math errors or zero-force on minor slips.
+*   **Setup:**
+    *   `m_optimal_slip_angle` = 0.10
+    *   `m_understeer_effect` = 2.0 (Max)
+    *   `Slip` = 0.11 (Minor overshoot).
+*   **Expect:** Force should be reduced but POSITIVE and perceptible (> 0.0).
+*   **Why:** Ensures User 2's issue (total signal loss) is protected against.
 
 ```
 
