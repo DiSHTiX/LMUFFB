@@ -137,6 +137,15 @@ check max torque ref: why 100 Nm seems to be ideal? Is some scale off? What it m
 additionally, in the ini file, the settings should be saved in the same order as they are displayed in the GUI. This makes it easier to find them in the ini, and to compare the ini with the Gui.
 
 
+User feedback: "Lateral G, Lateral G Boost, SoP Self-Align and SoP Scale: These settings really dictate the weight of the wheel and how much you can feel the car do what it does, getting a good balance here makes all the difference together with 0.0rads Yawkick." Find a good balance in default settings. See if there are optimal "ratio"s between these settings, so that in auto tune mode, we adjust a single slider and keep these settings in balance.
+
+Yaw Kick: new reports confirm that this need to be split in 2:  (1) A setting used for road or genera FFB details, with low rad/s^2. Also see if other acceleration physics data can be used as a source of road / ffb details. (2) a settings for yaw kick proper, above a certain speed in rad/s^2. This still needs investigation to see if it is implemented properly, if it is actually any useful.
+
+user report: "Yaw kick: I'm not sure what the intention of Yaw Kick is.. from my experience there's no need effects such as a 'kick' for under steer because you already feel it through the ffb. Thats why ffb works best with rad/s = 0 and YawKick around 8Nm which sends full signal through to ffb.
+* If disabled, you cannot feel the car hitting a bump eg, drive over a curb you cannot feel the initial impact of suspension compressing. You only get the feeling from the car landing through the base SoP.
+* If enabled, but activation threshold on 0.0 rads you feel all ffb as intended(y)
+* If enabled, with rads set higher then it feels ffb is missing (like disabled) until rad/s threshold is crossed. The kicker doesnt feel good at all, or perhaps specifically with direct drive ffb."
+
 renaming each setting to be fully descriptive, backward compatibility, loading values from version 06.24.
 Preset and confix fix: saving new sliders values to the ini file, adding app version, 
 -> about this, expand prompt about updating the ini format (if it needs to be updated)
