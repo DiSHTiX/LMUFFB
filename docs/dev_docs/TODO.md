@@ -132,6 +132,8 @@ in the readmes, troubleshooting section, add an entry for game baseline vibratio
 
 check max torque ref: why 100 Nm seems to be ideal? Is some scale off? What it means that it represents the peak torque of the car? 100 Nm is still too much. Which aspects of the car can produce 100 Nm? The steering rack is max about 25 Nm even in indy cars. Also try if we can keep it to a normal value, and adjust other settings, like main gain.
 
+(add more variations of current tests, for a broader , more rdiverse range of settings. Eg. include the current default settings).
+
 additionally, in the ini file, the settings should be saved in the same order as they are displayed in the GUI. This makes it easier to find them in the ini, and to compare the ini with the Gui.
 
 
