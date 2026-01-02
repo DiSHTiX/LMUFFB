@@ -341,6 +341,67 @@ void Config::LoadPresets() {
         .SetBaseMode(2) // Muted: Feel only the resistance to movement
     );
 
+    // 18. DD 15 Nm
+    {
+        Preset p("DD 15 Nm (Simagic Alpha)", true);
+        p.gain = 1.0f;
+        p.max_torque_ref = 100.0f;
+        p.min_force = 0.0f;
+        p.steering_shaft_gain = 1.0f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 0.75f;
+        p.base_force_mode = 0;
+        p.flatspot_suppression = false;
+        p.notch_q = 2.0f;
+        p.flatspot_strength = 1.0f;
+        p.static_notch_enabled = false;
+        p.static_notch_freq = 11.0f;
+        p.static_notch_width = 2.0f;
+        p.oversteer_boost = 2.52101f;
+        p.sop = 1.666f;
+        p.rear_align_effect = 0.666f;
+        p.sop_yaw_gain = 0.333f;
+        p.yaw_kick_threshold = 0.0f;
+        p.yaw_smoothing = 0.001f;
+        p.gyro_gain = 0.0f;
+        p.gyro_smoothing = 0.0f;
+        p.sop_smoothing = 0.99f;
+        p.sop_scale = 1.98f;
+        p.understeer_affects_sop = false;
+        p.slip_smoothing = 0.002f;
+        p.chassis_smoothing = 0.012f;
+        p.optimal_slip_angle = 0.12f;
+        p.optimal_slip_ratio = 0.12f;
+        p.lockup_enabled = true;
+        p.lockup_gain = 0.37479f;
+        p.brake_load_cap = 2.0f;
+        p.lockup_freq_scale = 1.0f;
+        p.lockup_gamma = 1.0f;
+        p.lockup_start_pct = 1.0f;
+        p.lockup_full_pct = 7.5f;
+        p.lockup_prediction_sens = 10.0f;
+        p.lockup_bump_reject = 0.1f;
+        p.lockup_rear_boost = 1.0f;
+        p.abs_pulse_enabled = false;
+        p.abs_gain = 2.1f;
+        p.abs_freq = 25.5f;
+        p.texture_load_cap = 1.5f;
+        p.slide_enabled = false;
+        p.slide_gain = 0.226562f;
+        p.slide_freq = 1.47f;
+        p.road_enabled = true;
+        p.road_gain = 0.0f;
+        p.road_fallback_scale = 0.05f;
+        p.spin_enabled = true;
+        p.spin_gain = 0.462185f;
+        p.spin_freq_scale = 1.8f;
+        p.scrub_drag_gain = 0.333f;
+        p.bottoming_method = 1;
+        p.speed_gate_lower = 1.0f;
+        p.speed_gate_upper = 5.0f;
+        presets.push_back(p);
+    }
+
     // --- Parse User Presets from config.ini ---
     // (Keep the existing parsing logic below, it works fine for file I/O)
     std::ifstream file(m_config_path);
