@@ -16,49 +16,49 @@ struct Preset {
     // - "Reset Defaults" button in GUI
    float gain = 1.0f;
     float understeer = 1.0f;  // New scale: 0.0-2.0, where 1.0 = proportional
-    float sop = 1.5f;
+    float sop = 1.666f;
     float sop_scale = 1.0f;
     float sop_smoothing = 1.0f;
     float slip_smoothing = 0.002f;
     float min_force = 0.0f;
-    float oversteer_boost = 2.0f;
+    float oversteer_boost = 2.52101f;
     
     bool lockup_enabled = true;
-    float lockup_gain = 2.0f;
+    float lockup_gain = 0.37479f;
     float lockup_start_pct = 1.0f;  // New v0.5.11
     float lockup_full_pct = 5.0f;  // New v0.5.11
-    float lockup_rear_boost = 3.0f; // New v0.5.11
-    float lockup_gamma = 0.5f;           // New v0.6.0
-    float lockup_prediction_sens = 20.0f; // New v0.6.0
+    float lockup_rear_boost = 10.0f; // New v0.5.11
+    float lockup_gamma = 0.1f;           // New v0.6.0
+    float lockup_prediction_sens = 10.0f; // New v0.6.0
     float lockup_bump_reject = 0.1f;     // New v0.6.0
-    float brake_load_cap = 3.0f;    // New v0.5.11
+    float brake_load_cap = 2.0f;    // New v0.5.11
     float texture_load_cap = 1.5f;  // NEW v0.6.25
     
-    bool abs_pulse_enabled = true;       // New v0.6.0
+    bool abs_pulse_enabled = false;       // New v0.6.0
     float abs_gain = 2.0f;               // New v0.6.0
-    float abs_freq = 20.0f;              // New v0.6.20
+    float abs_freq = 25.5f;              // New v0.6.20
     
-    bool spin_enabled = false;
+    bool spin_enabled = true;
     float spin_gain = 0.5f;
     float spin_freq_scale = 1.0f;        // New v0.6.20
     
-    bool slide_enabled = true;
-    float slide_gain = 0.39f;
+    bool slide_enabled = false;
+    float slide_gain = 0.226562f;
     float slide_freq = 1.0f;
     
     bool road_enabled = true;
-    float road_gain = 0.5f;
+    float road_gain = 0.0f;
     
     bool invert_force = true;
     float max_torque_ref = 100.0f; // T300 Calibrated
     
-    float lockup_freq_scale = 1.0f;      // New v0.6.20
+    float lockup_freq_scale = 1.02f;      // New v0.6.20
     int bottoming_method = 0;
     float scrub_drag_gain = 0.0f;
     
-    float rear_align_effect = 1.0084f;
-    float sop_yaw_gain = 0.0504202f;
-    float gyro_gain = 0.0336134f;
+    float rear_align_effect = 0.666f;
+    float sop_yaw_gain = 0.333f;
+    float gyro_gain = 0.0f;
     
     float steering_shaft_gain = 1.0f;
     int base_force_mode = 0; // 0=Native
@@ -70,7 +70,7 @@ struct Preset {
     
     // NEW: Advanced Smoothing (v0.5.8)
     float gyro_smoothing = 0.0f;
-    float yaw_smoothing = 0.015f;
+    float yaw_smoothing = 0.001f;
     float chassis_smoothing = 0.0f;
 
     // v0.4.41: Signal Filtering
@@ -81,7 +81,7 @@ struct Preset {
     bool static_notch_enabled = false;
     float static_notch_freq = 11.0f;
     float static_notch_width = 2.0f; // New v0.6.10
-    float yaw_kick_threshold = 0.2f; // New v0.6.10
+    float yaw_kick_threshold = 0.0f; // New v0.6.10
 
     // v0.6.23 New Settings with HIGHER DEFAULTS
     float speed_gate_lower = 1.0f; // 3.6 km/h
