@@ -428,7 +428,218 @@ Add to `CHANGELOG.md`:
 
 ---
 
+## UI Tooltips Reference
+
+This section contains the **exact tooltip text** for all Yaw Kick-related UI settings, both current and planned. These tooltips should be informative, explain the physics, and guide users toward optimal settings.
+
+### Current Implementation (v0.6.36)
+
+#### 1. Yaw Kick (Gain Slider)
+**Variable**: `m_sop_yaw_gain`  
+**Range**: 0.0 - 1.0
+
+```
+Yaw Kick Gain
+
+The earliest warning for rear stepping out. Provides a sharp, 
+momentary torque impulse when the car begins to rotate unexpectedly.
+
+Based on Yaw Acceleration (rotational acceleration around the 
+vertical axis). This is a LEADING indicator - it fires before 
+the car has significantly rotated, giving you maximum reaction time.
+
+  0.0 = Disabled
+  0.3 = Subtle cue (recommended for most users)
+  1.0 = Maximum intensity
+
+Tip: If you feel kicks during normal driving, increase the 
+Activation Threshold or Response Curve (Gamma) below.
+```
+
+#### 2. Activation Threshold
+**Variable**: `m_yaw_kick_threshold`  
+**Range**: 0.0 - 10.0 rad/s²
+
+```
+Activation Threshold (Noise Gate)
+
+Minimum yaw acceleration required to trigger a kick.
+Acts as a hard cutoff - signals below this value are ignored.
+
+  0.0 = No filtering (feel everything, including noise)
+  0.2 = Default (filters sensor jitter only)
+  1.0 = Moderate (filters road bumps and micro-corrections)
+  2.0 = Aggressive (only significant slides trigger kicks)
+
+Use this to eliminate unwanted kicks from:
+  • Engine vibration at idle
+  • Small road imperfections
+  • Driver micro-corrections
+
+For a softer transition, use Response Curve (Gamma) instead.
+```
+
+#### 3. Response Curve (Gamma) – NEW v0.6.36
+**Variable**: `m_yaw_kick_gamma`  
+**Range**: 0.1 - 3.0
+
+```
+Response Curve (Gamma)
+
+Shapes how yaw acceleration is converted to force.
+Unlike Activation Threshold (hard cutoff), this provides a 
+smooth, organic transition between small and large signals.
+
+  < 1.0 = BOOST low range (more road detail/texture feel)
+  = 1.0 = LINEAR (standard, no shaping)
+  > 1.0 = SUPPRESS low range (focus on slide kicks only)
+
+Research recommends: γ ≈ 1.8 for optimal balance.
+
+Physics: Low values (e.g., 0.5) amplify small yaw movements, 
+making the wheel feel more "alive" but potentially noisier.
+High values (e.g., 2.0) create a "soft deadzone" that ignores 
+micro-corrections while reacting strongly to actual slides.
+
+Latency: ZERO. This is pure math, no filtering delay.
+```
+
+#### 4. Kick Response (Smooth)
+**Variable**: `m_yaw_accel_smoothing`  
+**Range**: 0.000 - 0.050 seconds
+
+```
+Kick Response (Low-Pass Filter)
+
+Smooths the yaw acceleration signal to reduce noise and jitter.
+Higher values = smoother but slower response.
+
+  0.000s = ZERO latency (raw signal, may have noise)
+  0.010s = Fast (10ms, ~16 Hz cutoff)
+  0.016s = Research optimal (16ms, ~10 Hz cutoff)
+  0.050s = Smooth (50ms, may feel sluggish)
+
+The research recommends ~10 Hz cutoff (0.016s) because:
+  • Slide events occur at 1-10 Hz (low frequency)
+  • Road texture occurs at 20-100 Hz (high frequency)
+  • A 10 Hz filter passes slides, blocks texture noise
+
+For competitive racing where reaction time is critical:
+  Set to 0.000s for zero latency (accept some noise).
+
+Latency: Displayed below slider (Green ≤15ms, Red >15ms).
+```
+
+---
+
+### Future Enhancements (Planned Tooltips)
+
+#### 5. Adaptive Smoothing (Toggle) – Future
+**Variable**: `m_yaw_adaptive_smoothing_enabled`  
+**Type**: Checkbox
+
+```
+Adaptive Smoothing
+
+When enabled, the filter automatically adjusts based on 
+signal magnitude:
+  • Small signals (road noise): Heavy smoothing (50ms)
+  • Large signals (slides): Use your Kick Response setting
+
+This provides road texture feel without noise, while 
+preserving instant response for catching slides.
+
+⚠️ Introduces minimum 50ms latency for small signals.
+Disable this if you need absolute minimum latency.
+
+Default: OFF (preserves zero-latency option)
+```
+
+#### 6. Adaptive Gain (Weber's Law) – Future
+**Variable**: `m_yaw_weber_scaling_enabled`  
+**Type**: Checkbox
+
+```
+Adaptive Gain (Weber's Law)
+
+When enabled, the kick strength automatically scales with 
+the current FFB load to maintain perceptibility.
+
+Physics: Human perception follows Weber's Law - you only 
+notice a force change if it's at least 10% of the current 
+force you're already feeling.
+
+Example:
+  • Wheel loaded with 5 Nm cornering force:
+    Kick must be ≥0.5 Nm to be felt
+  • Wheel loaded with 15 Nm (high downforce):
+    Kick must be ≥1.5 Nm to be felt
+
+Without this, kicks may feel strong at low speed but 
+imperceptible at high speed under heavy cornering load.
+
+Default: OFF (manual gain control)
+```
+
+#### 7. Sustained Acceleration Gate – Future
+**Variable**: `m_yaw_sustained_gate_enabled`  
+**Type**: Checkbox
+
+```
+Sustained Acceleration Gate
+
+When enabled, a kick only triggers if yaw acceleration 
+stays above threshold for 2-3 consecutive frames (50-75ms).
+
+Purpose: Eliminates false positives from:
+  • Aggressive turn-in (peaks and falls quickly)
+  • Curb strikes (instantaneous spike)
+
+A true slide produces sustained acceleration as the car 
+continues to rotate. This filter catches the difference.
+
+Latency: Adds 50-75ms delay to kick trigger.
+Benefit: Significantly reduces unwanted kicks.
+
+Default: OFF (instant response)
+```
+
+---
+
+### Dynamic Status Indicators
+
+The following dynamic indicators should be displayed below relevant sliders:
+
+#### Latency Indicator (for Kick Response)
+```cpp
+int ms = (int)(engine.m_yaw_accel_smoothing * 1000.0f + 0.5f);
+ImVec4 color = (ms <= 15) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+ImGui::TextColored(color, "Latency: %d ms", ms);
+```
+- **Green**: ≤ 15ms (good for competitive racing)
+- **Red**: > 15ms (may feel sluggish)
+
+#### Frequency Indicator (optional, for advanced users)
+```cpp
+if (engine.m_yaw_accel_smoothing > 0.0001f) {
+    float fc = 1.0f / (2.0f * 3.14159f * engine.m_yaw_accel_smoothing);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(~%.0f Hz cutoff)", fc);
+}
+```
+
+#### Gamma Curve Visual (optional, future)
+Consider adding a small visual preview of the gamma curve shape:
+```
+γ = 0.5: ╱  (boost low end)
+γ = 1.0: ╱  (linear)
+γ = 2.0: _╱ (suppress low end, soft deadzone)
+```
+
+---
+
 ## Future Enhancements (Research-Suggested)
+
 
 Based on the deep research, the following enhancements are recommended for future versions:
 
