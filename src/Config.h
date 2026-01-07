@@ -9,11 +9,19 @@ struct Preset {
     std::string name;
     bool is_builtin = false; // NEW: Track if this is hardcoded or user-created
     
-    // 1. SINGLE SOURCE OF TRUTH: T300 Default Values
+    // 1. SINGLE SOURCE OF TRUTH: Default Preset Values
     // These defaults are used by:
     // - FFBEngine constructor (via ApplyDefaultsToEngine)
     // - "Default" preset in LoadPresets()
     // - "Reset Defaults" button in GUI
+    // - Test presets that don't explicitly set these values
+    //
+    // ⚠️ IMPORTANT: When changing these defaults, you MUST also update:
+    // 1. SetAdvancedBraking() default parameters below (abs_f, lockup_f)
+    // 2. test_ffb_engine.cpp: expected_abs_freq and expected_lockup_freq_scale
+    // 3. Any test presets in Config.cpp that rely on these defaults
+    //
+    // Current defaults match: GT3 DD 15 Nm (Simagic Alpha) - v0.6.35
    float gain = 1.0f;
     float understeer = 1.0f;  // New scale: 0.0-2.0, where 1.0 = proportional
     float sop = 1.666f;
@@ -167,7 +175,10 @@ struct Preset {
     Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
     
     // Advanced Braking (v0.6.0)
-    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g, float abs_f = 20.0f, float lockup_f = 1.0f) {
+    // ⚠️ IMPORTANT: Default parameters (abs_f, lockup_f) must match Config.h defaults!
+    // When changing Config.h defaults, update these values to match.
+    // Current: abs_f=25.5, lockup_f=1.02 (GT3 DD 15 Nm defaults - v0.6.35)
+    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g, float abs_f = 25.5f, float lockup_f = 1.02f) {
         lockup_gamma = gamma;
         lockup_prediction_sens = sens;
         lockup_bump_reject = bump;

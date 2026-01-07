@@ -689,7 +689,9 @@ static void test_single_source_of_truth_t300_defaults() {
     {
         std::cout << "  Test 4: T300 specialized preset verification..." << std::endl;
         
-        // Second preset should be "T300"
+        // ⚠️ IMPORTANT: T300 preset index depends on Config.cpp LoadPresets() order!
+        // Current order: 0=Default, 1=T300, 2=GT3, 3=LMPx/HY, 4=GM, 5=GM+Yaw, 6+=Test presets
+        // If presets are added/removed BEFORE T300 in Config.cpp, update this index!
         ASSERT_TRUE(Config::presets.size() > 1);
         ASSERT_TRUE(Config::presets[1].name == "T300");
         
