@@ -883,3 +883,73 @@ The application of dynamic range compression—a technique typically used in hig
 # Deep research Report in answer from the Query
 
 docs\dev_docs\yaw_kick_deep_reasearch_report.md
+
+---
+
+## Appendix: Research Query – Gated Algorithm Latency Analysis
+
+The following query can be used with a deep research tool to investigate the latency implications of combining yaw acceleration with rear slip angle for slide detection.
+
+---
+
+### Deep Research Query: Temporal Relationship Between Yaw Acceleration and Rear Slip Angle
+
+**Context:**
+I am developing a Force Feedback (FFB) application for racing simulators (Le Mans Ultimate / rFactor 2). The application provides a "Yaw Kick" effect based on yaw acceleration (`mLocalRotAccel.y`) to alert drivers when the rear of the car begins to slide.
+
+A proposed enhancement is a "Gated Algorithm" that only triggers the yaw kick when **BOTH** conditions are met:
+- **Condition A**: Rear slip angle > 4° (rear tires saturated)
+- **Condition B**: Yaw acceleration > 2.0 rad/s² (car rotating rapidly)
+
+The goal is to reduce false positives (e.g., aggressive turn-in that produces high yaw acceleration but is intentional and stable).
+
+**The Concern:**
+Yaw acceleration is a **leading indicator** - it detects the moment imbalance at the instant of grip loss. Rear slip angle is a **lagging indicator** - it only becomes significant after the car has already started rotating.
+
+If we gate on rear slip angle, we may be introducing latency that negates the benefit of using yaw acceleration as an early warning.
+
+**Research Objectives:**
+
+1. **Temporal Lag Quantification:**
+   - In a typical snap oversteer event (e.g., GT3 car at 120 km/h corner entry):
+     - How many milliseconds after the yaw acceleration spike does the rear slip angle exceed 4°?
+     - What is the typical lag between these two indicators?
+   - Is this lag consistent, or does it vary significantly based on:
+     - Vehicle speed?
+     - Tire compound / temperature?
+     - Weight distribution?
+     - Aerodynamic downforce?
+
+2. **Telemetry Analysis:**
+   - Are there published telemetry traces from real race cars or high-fidelity simulators showing the time-series relationship between yaw acceleration and slip angle during oversteer events?
+   - What is the typical phase relationship between these signals?
+
+3. **ESC / Stability Control Systems:**
+   - How do real Electronic Stability Control (ESC) systems handle this trade-off?
+   - Do ESC systems use yaw acceleration as a primary trigger with slip angle as a secondary confirmation?
+   - What latency budgets do automotive ESC systems work with?
+
+4. **Human Reaction Time Consideration:**
+   - Human reaction time for corrective steering is approximately 150-300ms.
+   - If the gated algorithm introduces 50-100ms of latency, is this significant relative to human reaction time?
+   - At what point does the latency become "too late" for the driver to benefit from the warning?
+
+5. **Alternative Gating Strategies:**
+   - Instead of slip angle, would sustained yaw acceleration (2-3 frames / 50-75ms) be a better gating metric?
+   - Could we use yaw acceleration sign vs. steering input direction as a gate (i.e., only trigger if they're aligned, indicating the driver is NOT already countersteering)?
+   - Are there other leading indicators that could replace slip angle for false positive reduction?
+
+6. **Causal Chain Timing:**
+   For the sequence: Tire Saturation → Yaw Acceleration → Yaw Rate Increase → Slip Angle Increase
+   - What are typical time constants for each transition in this chain?
+   - Are these measurable in simulation telemetry (rFactor 2 / iRacing / Assetto Corsa)?
+
+**Desired Output:**
+- Quantified latency estimates (in milliseconds) between yaw acceleration spike and slip angle threshold crossing.
+- Analysis of whether the gated algorithm introduces "unacceptable" delay for competitive racing.
+- Recommended alternative approaches if the slip angle gate is found to introduce too much latency.
+- Any academic papers, motorsport engineering documents, or ESC patents that discuss the temporal relationship between these metrics.
+
+---
+
+*Query created: 2026-01-07*
