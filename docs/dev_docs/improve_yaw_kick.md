@@ -330,3 +330,57 @@ Add to `CHANGELOG.md`:
 5. **In-Game**: Test with LMU:
    - Gamma 0.5: Road bumps should feel more pronounced in yaw.
    - Gamma 2.0: Only big slides should trigger noticeable yaw kicks.
+
+---
+
+## Appendix: Research Query
+
+The following query can be used with a deep research tool to validate the physics assumptions and gather additional insights:
+
+---
+
+### Deep Research Query: Yaw Acceleration in Racing Simulation FFB
+
+**Context:**
+I am developing a Force Feedback (FFB) application for racing simulators (specifically Le Mans Ultimate / rFactor 2). The application processes telemetry data including yaw acceleration (`mLocalRotAccel.y` in rad/s²) to provide a "Yaw Kick" effect through the steering wheel. This effect is designed to alert drivers when the rear of the car begins to slide (oversteer onset).
+
+**Research Objectives:**
+
+1. **Validate Amplitude Ranges:**
+   - What are typical yaw acceleration magnitudes experienced by a GT3 or prototype race car during:
+     - Normal cornering on a smooth track surface?
+     - Driving over road imperfections (curbs, bumps, surface texture variations)?
+     - The onset of oversteer / rear slide initiation (before full spin)?
+     - A full spin or loss of control?
+   - I have estimated:
+     - **Road Details / Micro-corrections**: 0.2 to 1.0 rad/s²
+     - **Slide Initiation**: > 2.0 rad/s²
+   - Are these estimates reasonable? What ranges would you suggest based on vehicle dynamics literature or telemetry data?
+
+2. **Signal Characteristics:**
+   - How can yaw acceleration signals from "road texture" (high-frequency, low-amplitude) be distinguished from "slide onset" (impulsive, high-amplitude) in real-time signal processing?
+   - Are there frequency-domain characteristics that differentiate these? (e.g., road texture at 20-100Hz vs. slide onset at 1-5Hz?)
+   - Would a gamma/power-law transformation be an effective method to separate these signals, or are there better approaches (e.g., band-pass filtering, envelope detection, derivative analysis)?
+
+3. **Best Practices for Yaw-to-FFB Mapping:**
+   - In professional racing simulators or commercial FFB systems (Simucube, Fanatec, Logitech TrueForce), how is yaw information typically used in the FFB signal?
+   - Are there published papers or patents on yaw-based FFB effects in driving simulators?
+   - What human perception thresholds exist for rotational acceleration cues through a steering wheel? (i.e., what is the minimum perceptible yaw-induced torque?)
+
+4. **Reference Values:**
+   - What is a reasonable "maximum reference" yaw acceleration for normalizing the signal? I am using 10.0 rad/s² as the maximum expected value for a car at the limit. Is this appropriate for GT3/LMP cars?
+   - Are there SAE, ISO, or academic standards for yaw rate/acceleration in vehicle dynamics that could inform these thresholds?
+
+5. **Related Concepts:**
+   - How does yaw acceleration relate to other oversteer indicators (sideslip angle, yaw rate vs. steering angle, rear tire slip angle)?
+   - Could combining yaw acceleration with rear slip angle provide a more robust "slide detection" algorithm?
+
+**Desired Output:**
+- Specific numerical ranges for yaw acceleration in different driving conditions (with sources if available).
+- Recommendations for real-time signal processing techniques to separate road texture from slide events.
+- Any academic papers, industry whitepapers, or simulator documentation discussing yaw-based FFB effects.
+- Suggested improvements to my gamma-curve approach, or alternative algorithms.
+
+---
+
+*Query created: 2026-01-07*
