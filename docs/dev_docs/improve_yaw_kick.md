@@ -481,3 +481,11 @@ I recommend implementing this **Adaptive Smoothing** instead of the hard "Activa
 *   **New Behavior:** Signal < Threshold = Smoothed. (Detailed but calm).
 
 Do you want me to generate the code changes to replace the hard threshold with this adaptive logic?
+
+# dynamic range compression
+
+The application of dynamic range compression—a technique typically used in high-fidelity audio—to provide a more nuanced alternative to standard power-law curves.  By using this logic, I can think through how to amplify the subtle, informative textures of the road surface while simultaneously preventing high-amplitude rotational events from exceeding the mechanical limits of the hardware. This ensures that the driver maintains a clear sense of the car's state without the feedback becoming harsh or lossy during extreme maneuvers.
+
+# Deep research Report in answer from the Query
+
+docs\dev_docs\yaw_kick_deep_reasearch_report.md
