@@ -103,4 +103,4 @@ In this case the implementation plan, in the tests section, must include one or 
 
 TODO: add a list of planned features that contributors can choose from for things to implement.
 
-TODO: Branching strategy: Should contributors create feature branches? What branch should they target for merge requests?
+TODO: clarify the branching strategy. Any guidelines regarding the creation of feature branches? Which branch should they target for merge requests?
