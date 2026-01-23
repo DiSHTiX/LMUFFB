@@ -56,7 +56,7 @@ I open a new chat in Antigravity, and ask Sonnet 4.5 to do a code review of the 
 
 Make sure the app version number is updated and there is a new entry in changelog.md file. 
 
-Note that all markdown files produces in this process (eg. deep research, implementation plan, code review), must be included in the commit / merge request. This is to facilitate / speed up the review on my side before I can accept the merge request.
+Note that all markdown files produced in this process (eg. deep research, implementation plan, code review), must be included in the commit / merge request. This is to facilitate / speed up the review on my side before I can accept the merge request.
 
 At this point the changes should be ready for commit and making a new release.
 
