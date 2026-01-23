@@ -81,6 +81,8 @@ If I want to investigate a bug, or some issue that a user reported, and need sug
 * **Ask Google AI Studio:** Paste the whole codebase into Google AI Studio (update and use docs\dev_docs\FULL_PROJECT_CONTEXT.md as described above), and ask Gemini 3 to investigate the bug. I then use "copy as markdown" and paste the plan into a new .md file in the project.
 * **Ask in the IDE (Antigravity):** I will use one of the best models (Opus 4.5 or Gemini 3 Pro) to investigate the bug and create a markdown report about it. 
 
+If I'm persuaded of the suggested cause and proposed solution to the issue, I will go ahead and produce an implementation plan as described above, and follow all subsequent steps (implement the implementation plan, do a code review, etc.). In this case the implementation plan must include one or more regression tests (a description of the test and some code snippets) that check that the sme issue we are fixing is not reintroduced in the future. 
+
 ## Simple use case: add a FFB preset to the app
 
 * In Antigravity, Cursor, or other IDE, paste the portion of the ini file with your preset settings in the AI chat, and ask to create a new preset.
