@@ -21,7 +21,7 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 * After I have the report from the deep research, I will produce an implementation plan for the feature I want to implement, as a separate markdown file. To create the file, I will either:
    * Ask Opus 4.5 or Gemini 3 Pro to create it, based on the deep research report and a description of what I want to implement
    * Paste the whole codebase into Google AI Studio, and ask Gemini 3 Pro to create it. I then use "copy as markdown" and paste the plan into a new .md file in the project.
-       * To create a markdown file that contains the whole codebase of the project (code, documents, and tests), I run the script that is here: "scripts\create_context.py". This updates the file docs\dev_docs\FULL_PROJECT_CONTEXT.md, which then I can paste into Google AI studio.
+       * To create a markdown file that contains the whole codebase of the project (code, documents, and tests), I run the Python script that is here: "scripts\create_context.py". This updates the file docs\dev_docs\FULL_PROJECT_CONTEXT.md, which then I can paste into Google AI studio.
 
        * I often use Google AI studio in this way, not just to create implementation file, but also to investigate bugs (ask what might be wrong with the code), or ask any kind of questions and suggestions. This is also free with generous rate limits.
 
