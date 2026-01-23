@@ -11,13 +11,13 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 
 * The use Google AI Studio and Gemini Deep Research is also recommended.
 
-## Deep Research (optional, needed for complex features that require expertise information)
+## Step 0: Deep Research (optional, needed for complex features that require expertise information)
 
 * If it's a complex new feature that requires expertise information (like how to implement a particular effects), use Gemini Deep Research to gather the information that there is out there (eg. how TC control systems in cars use certain formulas to determine when the rear is stepping out).
 
 * After that, the Deep Research Report needs to be exported into markdown format and saved to the project, so that AI coding agents can read it. To export a Gemini Deep Research report into markdown, you can first export it to Google docs, and from Google docs (if you have enable markdown) you can do "copy as markdown" of the whole document, and then paste it into a new file in the lmuFFB project.
 
-## Implementation plan
+## Step 1: Implementation plan
 * After you have the report from the deep research, you need to produce an implementation plan for the feature you want to implement, as a separate markdown file. To create the file, you could either:
    * Ask Opus 4.5 or Gemini 3 Pro to create it, based on the deep research report and a description of what you want to implement.
    * Paste the whole codebase into Google AI Studio, and ask Gemini 3 Pro to create it. You can then use "copy as markdown" and paste the plan into a new .md file in the project.
@@ -31,7 +31,7 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 
 * Review the implementation plan to make sure it is aligned with the  requirements and that there are no issues that require further investigation or refinement.
 
-## Implementation
+## Step 2: Implementation
 
 Use a slightly less capable model in Antigravity (Gemini 3 flash or Sonnet 4.5) and ask it to implement the plan, and to increase the app version number and add an entry to the changelog.
 
@@ -44,7 +44,7 @@ Use a slightly less capable model in Antigravity (Gemini 3 flash or Sonnet 4.5) 
 
 * The first time you try to compile the app you need the additional commands (from the same file, build_commands.txt) to download Imgui in the vendor directory.
 
-## Code review
+## Step 3: Code review
 
 Open a new chat in Antigravity, and ask Sonnet 4.5 to do a code review of the changes, producing a markdown file with a detailed code review and recommended things to improve.
 
@@ -52,7 +52,7 @@ Open a new chat in Antigravity, and ask Sonnet 4.5 to do a code review of the ch
 
 * After all the recommended improvements are implemented, make sure again that the app and test compile, and that all tests pass.
 
-## Commit and release
+## Step 4: Commit and release
 
 Make sure the app version number is updated and there is a new entry in changelog.md file. 
 
