@@ -7,7 +7,7 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 
 ## IDE and other tools
 
-* As IDE, I am using both Cursor and Antigravity. But I suggest Antigravity in this case, because it is basically free, and you can use Opus 4.5 for free (which is usually very expensive but sometimes necessary for more complex things when other models fail).
+* As IDE, I suggest Antigravity in this case, because it is basically free, and you can use Opus 4.5 for free (which is usually very expensive but sometimes necessary for more complex things when other models fail).
 
 * I also use Google AI Studio and Gemini Deep Research.
 
@@ -58,7 +58,7 @@ Make sure the app version number is updated and there is a new entry in changelo
 
 Note that all markdown files produces in this process (eg. deep research, implementation plan, code review), must be included in the commit / merge request. This is to facilitate / speed up the review on my side before I can accept the merge request.
 
-Finally I commit the changes and make a new release.
+At this point the changes should be ready for commit and making a new release.
 
 # Contributing manually written code
 
