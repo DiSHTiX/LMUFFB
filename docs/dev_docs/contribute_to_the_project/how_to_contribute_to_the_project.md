@@ -11,7 +11,7 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 
 * I also use Google AI Studio and Gemini Deep Research.
 
-## Deep Research (optional for complex features that require expertise information)
+## Deep Research (optional, needed for complex features that require expertise information)
 
 * If it's a complex new feature that requires expertise information (like how to implement a particular effects), I will use Gemini Deep Research to gather the information that there is out there (eg. how TC control systems in cars use certain formulas to determine when the rear is stepping out).
 
