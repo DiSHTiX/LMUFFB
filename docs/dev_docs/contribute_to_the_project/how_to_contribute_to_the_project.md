@@ -91,7 +91,7 @@ In this case the implementation plan, in the tests section, must include one or 
 
 ## Simple use case: add a FFB preset to the app
 
-* In Antigravity, Cursor, or other IDE, paste the portion of the ini file with your preset settings in the AI chat, and ask to create a new preset.
+* In Antigravity, Cursor, or other IDE, paste the portion of the ini file with your preset settings in the AI chat, and ask to create a new preset in the app.
 
 * When the model is finished, double check the diff and the git changes in the IDE to make sure no other files or presets were changed.
 
