@@ -101,6 +101,6 @@ In this case the implementation plan, in the tests section, must include one or 
 
 # TODOs 
 
-TODO: add a list of planned feature that contributors can choose from for things to implement.
+TODO: add a list of planned features that contributors can choose from for things to implement.
 
 TODO: Branching strategy: Should contributors create feature branches? What branch should they target for merge requests?
