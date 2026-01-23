@@ -7,29 +7,29 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 
 ## IDE and other tools
 
-* As IDE, I suggest Antigravity in this case, because it is basically free, and you can use Opus 4.5 for free (which is usually very expensive but sometimes necessary for more complex things when other models fail).
+* As IDE, Antigravity is recommended in this case, because it is basically free, and you can use Opus 4.5 for free (which is usually very expensive but sometimes necessary for more complex things when other models fail).
 
-* I also use Google AI Studio and Gemini Deep Research.
+* The use Google AI Studio and Gemini Deep Research is also recommended.
 
 ## Deep Research (optional, needed for complex features that require expertise information)
 
-* If it's a complex new feature that requires expertise information (like how to implement a particular effects), I will use Gemini Deep Research to gather the information that there is out there (eg. how TC control systems in cars use certain formulas to determine when the rear is stepping out).
+* If it's a complex new feature that requires expertise information (like how to implement a particular effects), use Gemini Deep Research to gather the information that there is out there (eg. how TC control systems in cars use certain formulas to determine when the rear is stepping out).
 
-* I will then export the report to Google docs, and from Google docs (having enabled markdown) I will use copy as markdown of the whole document and paste it into a new file in the project, so that AI coding agents can read it.
+* After that, the Deep Research Report needs to be exported into markdown format and saved to the project, so that AI coding agents can read it. To export a Gemini Deep Research report into markdown, you can first export it to Google docs, and from Google docs (if you have enable markdown) you can do "copy as markdown" of the whole document, and then paste it into a new file in the lmuFFB project.
 
 ## Implementation plan
-* After I have the report from the deep research, I will produce an implementation plan for the feature I want to implement, as a separate markdown file. To create the file, I will either:
-   * Ask Opus 4.5 or Gemini 3 Pro to create it, based on the deep research report and a description of what I want to implement
-   * Paste the whole codebase into Google AI Studio, and ask Gemini 3 Pro to create it. I then use "copy as markdown" and paste the plan into a new .md file in the project.
-       * To create a markdown file that contains the whole codebase of the project (code, documents, and tests), I run the Python script that is here: "scripts\create_context.py". This updates the file docs\dev_docs\FULL_PROJECT_CONTEXT.md, which then I can paste into Google AI studio.
+* After you have the report from the deep research, you need to produce an implementation plan for the feature you want to implement, as a separate markdown file. To create the file, you could either:
+   * Ask Opus 4.5 or Gemini 3 Pro to create it, based on the deep research report and a description of what you want to implement.
+   * Paste the whole codebase into Google AI Studio, and ask Gemini 3 Pro to create it. You can then use "copy as markdown" and paste the plan into a new .md file in the project.
+       * To create a markdown file that contains the whole codebase of the project (code, documents, and tests), you can run the Python script that is here: "scripts\create_context.py". This updates the file docs\dev_docs\FULL_PROJECT_CONTEXT.md, which then you can paste into Google AI studio.
 
-       * I often use Google AI studio in this way, not just to create implementation file, but also to investigate bugs (ask what might be wrong with the code), or ask any kind of questions and suggestions. This is also free with generous rate limits.
+       * Google AI studio can be used in this way for many more things, not just to create implementation file, but also to investigate bugs (ask what might be wrong with the code), or ask any kind of questions and suggestions. This is also free with generous rate limits.
 
-* When I ask to create an implementation plan, I always ask to also: 
-    * include tests (the test description and some code snippets) that comprehensively cover the new features and changes,
-    * include instruction to update the documentation in the project.
+* When you ask AI to create an implementation plan, always ask also: 
+    * to include in the plan instruction to create additional automated tests (the plan should include a test description and some code snippets) that comprehensively cover the new features and changes;
+    * to include instruction to update the documentation in the project. The project has many documents, and it is better to keep them up to date as the code evolve.
 
-* I review the implementation plan to make sure it is aligned with what I want and that that there are no issues that require further investigation or refinement.
+* Review the implementation plan to make sure it is aligned with what I want and that that there are no issues that require further investigation or refinement.
 
 ## Implementation
 
