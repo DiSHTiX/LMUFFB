@@ -44,8 +44,38 @@ In other words: To achieve strict "Session Isolation"—where the "Reviewer" has
     2.  Address any critical feedback from the review.
     3.  Merge to main/master (or create PR).
 
+
 ---
 *Note: This workflow ensures that every automated contribution remains traceable, documented, and verified to the same (or higher) standard as manual contributions.*
+
+---
+
+## 🎮 The Orchestrator Pattern
+
+To ensure high-quality automation without manual overhead, the primary Gemini CLI agent acts as the **Orchestrator (Project Manager)**.
+
+### How Orchestration is Automated:
+1.  **State Management**: The Orchestrator uses the local environment to manage branches and verify that artifacts (Plans, Reviews) are correctly produced before triggering the next phase.
+2.  **Delegated Execution**: The Orchestrator does not perform complex implementation or review logic itself. Instead, it uses the `start_new_jules_task` tool to spawn fresh, isolated "worker" agents for Phase 2 and 3.
+3.  **Handoff Protocols**: 
+    *   The Orchestrator provides the worker agent with a strict "Statement of Work" (e.g., "Implement ONLY the changes defined in plan X").
+    *   The worker agent signals completion by committing its changes to Git.
+    *   The Orchestrator verifies the commit before initiating the next isolated worker.
+
+### Why this is safer:
+By acting as the Orchestrator, the primary CLI agent maintains the high-level project goal while ensuring that the "Implementer" and "Reviewer" sessions remain completely ignorant of each other's chat histories, preventing "context leakage" or biased reviews.
+
+## 🚀 Level 3: Full Automation via Polling Supervisor
+
+To overcome the "wait bottleneck" (where the CLI waits for a human to confirm a Jules task is done), the Orchestrator implements an **Active Polling Loop**.
+
+**The Process:**
+1.  **Launch**: Orchestrator triggers `start_new_jules_task` for Phase 2 (Implementation).
+2.  **Monitor**: Orchestrator enters a loop, executing `git fetch origin [branch_name]` every 60 seconds.
+3.  **Detect**: When the commit history changes (indicating Jules has pushed the implementation), the Orchestrator breaks the loop.
+4.  **Verify & Proceed**: Orchestrator immediately pulls the changes, runs local verification, and if successful, triggers Phase 3 (Review).
+
+*Requirement*: The terminal session must remain open during the polling phase.
 
 ---
 
