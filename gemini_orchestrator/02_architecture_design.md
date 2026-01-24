@@ -10,21 +10,28 @@ graph TD
     Orch -->|Reads| Config[Workflow Config (JSON)]
     Orch -->|Manages| State[State Manager]
     
-    Orch -->|Spawns| P1[Process 1: Architect]
-    Orch -->|Spawns| P2[Process 2: Developer]
-    Orch -->|Spawns| P3[Process 3: Auditor]
+    Orch -->|Spawns| P0[Phase 0: Researcher]
+    Orch -->|Spawns| P1[Phase A.1: Architect]
+    Orch -->|Spawns| P2[Phase A.2: Lead Architect]
+    Orch -->|Spawns| P3[Phase B: Developer]
+    Orch -->|Spawns| P4[Phase C: Auditor]
     
     subgraph "Isolation Boundary"
-        P1 -- Writes --> Art1[Plan Artifact (.md)]
+        P0 -- Writes --> Art0[Research Report]
+        P1 -- Reads --> Art0
+        P1 -- Writes --> Art1[Plan Artifact]
         P2 -- Reads --> Art1
-        P2 -- Commits --> Git[Git Repository]
+        P2 -- Verdict --> Orch
         P3 -- Reads --> Art1
-        P3 -- Reads --> Git
+        P3 -- Commits --> Git[Git Repository]
+        P4 -- Reads --> Art1
+        P4 -- Reads --> Git
+        P4 -- Verdict --> Orch
     end
-    
-    P1 -.->|JSON| Orch
-    P2 -.->|JSON| Orch
-    P3 -.->|JSON| Orch
+
+    %% Feedback Loops
+    Orch -.->|Reject| P1
+    Orch -.->|Fail| P3
 ```
 
 ## 2. Component Design
@@ -57,41 +64,56 @@ Responsible for extracting structured data from the unstructured LLM output.
 ### 2.4 The `WorkflowEngine` Class
 The main state machine.
 *   **State:**
-    *   `current_step`: (enum: PLAN, CODE, REVIEW)
+    *   `current_step`: (enum: RESEARCH, PLAN, PLAN_REVIEW, CODE, CODE_REVIEW)
     *   `workspace_root`: Path to repo.
-    *   `artifacts`: Dictionary of paths (`{'plan': '...', 'review': '...'}`).
+    *   `artifacts`: Dictionary of paths.
 *   **Transitions:**
-    *   `PLAN` -> `CODE` (if Plan file exists).
-    *   `CODE` -> `REVIEW` (if Git Commit made).
-    *   `REVIEW` -> `MERGE` (if verdict is PASS).
-    *   `REVIEW` -> `CODE` (if verdict is FAIL, passing feedback loop).
+    *   `RESEARCH` -> `PLAN`
+    *   `PLAN` -> `PLAN_REVIEW`
+    *   `PLAN_REVIEW` -> `CODE` (if Approved)
+    *   `PLAN_REVIEW` -> `PLAN` (if Rejected - Feedback Loop)
+    *   `CODE` -> `CODE_REVIEW` (if Git Commit made)
+    *   `CODE_REVIEW` -> `MERGE` (if Pass)
+    *   `CODE_REVIEW` -> `CODE` (if Fail - Feedback Loop)
 
 ## 3. Data Flow
 
-### Step 1: Planning
-1.  **Orchestrator** receives task: "Implement Feature X".
-2.  **Orchestrator** creates branch `feature/X`.
-3.  **Orchestrator** spawns **Agent (Architect)**.
-4.  **Agent** researches and writes `docs/plans/feature_X.md`.
-5.  **Agent** prints JSON: `{"plan_path": "docs/plans/feature_X.md"}`.
-6.  **Orchestrator** parses JSON, verifies file existence, saves path to state.
+### Phase 0: Research (Optional)
+1.  **Orchestrator** checks if `--research` flag is on.
+2.  **Orchestrator** spawns **Researcher**.
+3.  **Agent** produces `docs/dev_docs/research/report_X.md`.
 
-### Step 2: Implementation
-1.  **Orchestrator** reads `plan_path` from state.
-2.  **Orchestrator** spawns **Agent (Developer)**.
-    *   *Prompt Injection:* "Read file {plan_path}..."
+### Phase A: Planning
+1.  **Orchestrator** spawns **Architect**.
+    *   *Input:* User Request + Research Report (if any).
+2.  **Agent** writes `docs/dev_docs/plans/feature_X.md`.
+3.  **Orchestrator** spawns **Lead Architect (Plan Reviewer)**.
+    *   *Input:* The Plan File.
+4.  **Agent** outputs JSON: `{"verdict": "APPROVE"}` or `{"verdict": "REJECT", "feedback": "..."}`.
+    *   *If REJECT:* Loop back to Architect with feedback.
+
+### Phase B: Implementation
+1.  **Orchestrator** reads Approved Plan.
+2.  **Orchestrator** spawns **Developer**.
 3.  **Agent** modifies code, runs tests.
 4.  **Agent** commits changes to git.
 5.  **Agent** prints JSON: `{"commit_hash": "abc1234", "tests_passed": true}`.
 
-### Step 3: Review
-1.  **Orchestrator** spawns **Agent (Auditor)**.
-    *   *Prompt Injection:* "Review changes in commit {commit_hash} against plan {plan_path}..."
-2.  **Agent** writes `docs/reviews/review_X.md`.
-3.  **Agent** prints JSON: `{"verdict": "PASS", "report_path": "..."}`.
+### Phase C: Review
+1.  **Orchestrator** spawns **Auditor**.
+    *   *Input:* Plan + Commit Hash.
+2.  **Agent** writes `docs/dev_docs/reviews/review_X.md`.
+3.  **Agent** prints JSON: `{"verdict": "PASS"}` or `{"verdict": "FAIL"}`.
+    *   *If FAIL:* Loop back to Developer with Review Report.
+
+### Phase D: Finalization
+1.  **Orchestrator** merges branch.
+2.  **Orchestrator** moves artifacts to `docs/dev_docs/archived/`.
 
 ## 4. Key Decisions & Trade-offs
 
 *   **No "Memory" by default:** We explicitly choose NOT to pass the chat history. If the Developer needs to know *why* the Architect made a decision, they must read the Plan document. This forces better documentation.
 *   **Polling vs. Blocking:** Since we wrap the process, we use **Blocking** calls (waiting for the subprocess to finish) rather than Polling. The Agent script itself is responsible for the "Loop" of running tests until they pass.
 *   **Error Handling:** If the Agent fails to output JSON, the Orchestrator will assume failure and ask the user for manual intervention or a retry.
+
+

@@ -74,6 +74,17 @@ The system MUST enforce a structured lifecycle for all generated documents:
     *   `docs/dev_docs/archived/reviews/`
     *   (Optionally prefixed with date/feature-name)
 
+### 3.6 Artifact Interface Definition
+The following table defines the exact Inputs and Deliverables for each phase.
+
+| Phase | Agent | Input Artifacts (Provided via Prompt) | Output Deliverables (Must be Created/Updated) | Output JSON Payload |
+| :--- | :--- | :--- | :--- | :--- |
+| **0** | **Researcher** | • User Request String | • `docs/dev_docs/research/report_[feat].md` | `{"report_path": "..."}` |
+| **A.1** | **Architect** | • User Request String<br>• Research Report Path (Optional) | • `docs/dev_docs/plans/plan_[feat].md` | `{"plan_path": "..."}` |
+| **A.2** | **Plan Reviewer** | • User Request String<br>• Plan File Path | • `docs/dev_docs/reviews/plan_review_[feat].md` (Optional, usually just feedback) | `{"verdict": "APPROVE"}`<br>OR<br>`{"verdict": "REJECT", "feedback": "..."}` |
+| **B** | **Developer** | • Approved Plan File Path | • **Source Code Changes**<br>• **Test Files** | `{"commit_hash": "...", "status": "success"}` |
+| **C** | **Auditor** | • Plan File Path<br>• Git Diff (via `git diff master...HEAD`) | • `docs/dev_docs/reviews/code_review_[feat].md` | `{"verdict": "PASS", "review_path": "..."}`<br>OR<br>`{"verdict": "FAIL", "review_path": "..."}` |
+
 ## 4. Non-Functional Requirements
 *   **Resilience:** The system MUST handle CLI timeouts, crashes, or malformed JSON outputs gracefully (e.g., by retrying the step or alerting the user).
 *   **Observability:** The system MUST log all agent interactions (prompts and raw responses) to a local file for debugging.

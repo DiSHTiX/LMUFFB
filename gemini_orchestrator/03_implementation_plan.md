@@ -40,15 +40,19 @@ This project will not be built in a single "Big Bang". Instead, we will build a 
 
 ### Task 2.2: Prompt Templates
 *   Create `templates/` directory.
+*   `researcher_prompt.txt`: Instructions for deep research.
 *   `architect_prompt.txt`: Instructions for planning.
+*   `plan_reviewer_prompt.txt`: Instructions for validating the plan.
 *   `developer_prompt.txt`: Instructions for coding (includes JSON schema).
-*   `auditor_prompt.txt`: Instructions for reviewing.
+*   `auditor_prompt.txt`: Instructions for reviewing code.
 
 ### Task 2.3: The Pipeline Loop
 *   Update `orchestrator.py` to chain the steps:
-    1.  `Plan = run_step(Architect)`
-    2.  `Result = run_step(Developer, input=Plan)`
-    3.  `Verdict = run_step(Auditor, input=Result)`
+    0.  `Research = run_step(Researcher)` (Optional)
+    1.  `Plan = run_step(Architect, input=Research)`
+    2.  `PlanVerdict = run_step(PlanReviewer, input=Plan)` -> Loop if Rejected.
+    3.  `Result = run_step(Developer, input=Plan)`
+    4.  `CodeVerdict = run_step(Auditor, input=Result)` -> Loop if Failed.
 
 ## Phase 3: Robustness (Day 3)
 **Goal:** Error handling and Git integration.
@@ -57,7 +61,12 @@ This project will not be built in a single "Big Bang". Instead, we will build a 
 *   Create `src/git_utils.py`.
 *   Implement `create_branch`, `get_diff`, `commit_exists`.
 
-### Task 3.2: Retry Logic
+### Task 3.2: Document Archiver
+*   Create `src/archiver.py`.
+*   Implement `archive_artifacts(feature_name: str)`.
+*   Ensure it moves files from `docs/dev_docs/plans/` to `docs/dev_docs/archived/plans/`.
+
+### Task 3.3: Retry Logic
 *   Wrap `run_gemini_command` in a retry loop.
 *   If JSON parsing fails, feed the error back to the agent: "You failed to output JSON. Please try again."
 
