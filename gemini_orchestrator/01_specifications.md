@@ -184,5 +184,24 @@ We will adopt an **Iterative "Dogfooding" Approach**:
 1.  **Prototype:** Build a minimal `v0.1` Orchestrator.
 2.  **Test:** Use this `v0.1` to implement a very simple, real feature in the LMUFFB project.
 3.  **Evaluate:** Observe the friction points (e.g., "Did the agent get confused?", "Was the polling too slow?").
-4.  **Refine:** Update the Orchestrator code based on this real-world usage before adding complex features like "Retry Logic" or "Git Integration".
+## 8. Future Considerations / TODOs (Backlog)
+
+### 8.1 Structured Feedback Channel
+*   **Concept:** Every agent response JSON should include a `feedback` object (separate from the main result).
+*   **Goal:** Allow "Workers" to flag issues up the chain without failing the task.
+*   **Use Case:** A Developer notices a vague requirement in the Plan. They implement it anyway (to pass the task) but flag it in `feedback`: "The plan for 'UserAuth' was ambiguous; I assumed JWT." The Lead Architect can then decide to update the documentation later.
+
+### 8.2 Persistent Agent Memory (`AGENT_MEMORY.md`)
+*   **Concept:** A shared, append-only Markdown file that persists across steps (and potentially across tasks).
+*   **Goal:** Solve the "Amnesia" problem where Phase B forgets what Phase A discovered about a quirky library.
+*   **Workflow:**
+    *   Any agent can request to *write* a "Lesson Learned" to Memory.
+    *   The Orchestrator *injects* relevant sections of Memory into the context of future agents.
+
+### 8.3 Dynamic Skill Curation
+*   **Concept:** Leverage the **Gemini CLI Skills** system (https://geminicli.com/docs/cli/skills/).
+*   **Goal:** Turn repeated solutions into reusable tools.
+*   **Workflow:**
+    *   If the Integration Specialist solves a tricky git conflict, the Orchestrator could prompt: "Should this resolution strategy be saved as a named Skill?"
+    *   If yes, the system generates a Skill definition (instructions) for future agents to use, effectively "learning" from its own success.
 
