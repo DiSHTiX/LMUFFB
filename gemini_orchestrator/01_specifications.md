@@ -184,12 +184,15 @@ We will adopt an **Iterative "Dogfooding" Approach**:
 1.  **Prototype:** Build a minimal `v0.1` Orchestrator.
 2.  **Test:** Use this `v0.1` to implement a very simple, real feature in the LMUFFB project.
 3.  **Evaluate:** Observe the friction points (e.g., "Did the agent get confused?", "Was the polling too slow?").
+
 ## 8. Future Considerations / TODOs (Backlog)
 
 ### 8.1 Structured Feedback Channel
-*   **Concept:** Every agent response JSON should include a `feedback` object (separate from the main result).
+*   **Concept:** Every agent response JSON should include an optional `feedback` object (separate from the main result).
 *   **Goal:** Allow "Workers" to flag issues up the chain without failing the task.
 *   **Use Case:** A Developer notices a vague requirement in the Plan. They implement it anyway (to pass the task) but flag it in `feedback`: "The plan for 'UserAuth' was ambiguous; I assumed JWT." The Lead Architect can then decide to update the documentation later.
+*   **Caveat (Honesty vs. Feedback):** The Orchestrator MUST ensure agents do not use the feedback field to hide failures. A `status: success` MUST NOT be accepted if the feedback contains reports of crashes or unresolvable errors.
+*   **Note:** This channel is ideal for flagging **Technical Debt** or documentation gaps identified during implementation.
 
 ### 8.2 Persistent Agent Memory (`AGENT_MEMORY.md`)
 *   **Concept:** A shared, append-only Markdown file that persists across steps (and potentially across tasks).
