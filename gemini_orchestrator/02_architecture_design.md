@@ -75,7 +75,16 @@ Sits between the `AgentWrapper` and the OS.
         *   **Allowed:** `git status`, `git add`, `git commit`, `git diff`, `ls`, `cat`, `grep`.
     *   Raises `SecurityException` if a violation is detected, preventing execution.
 
-### 2.3 The `PromptBuilder` Module
+### 2.3 The `WorktreeManager` (Isolation Layer)
+Responsible for physical file-system isolation.
+*   **Concept:** Instead of running in the user's main directory, each Task runs in a dedicated Git Worktree.
+*   **Location:** `../.gemini_worktrees/[task_id]/` (Outside the main repo folder to avoid recursion).
+*   **Lifecycle:**
+    *   `setup_task(branch_name)`: Runs `git worktree add ...`.
+    *   `cleanup_task()`: Runs `git worktree remove ...`.
+*   **Benefit:** The Agent cannot accidentally modify uncommitted files in the user's main working copy.
+
+### 2.4 The `PromptBuilder` Module
 Responsible for assembling the final prompt string sent to the agent.
 *   **Logic:** `Base Prompt` + `Task Context` + `Input Artifacts` + `Output Instructions`.
 *   **Example:**

@@ -22,8 +22,8 @@ By managing the Gemini CLI as an atomic subprocess, this orchestrator enforces s
 The system MUST support the following distinct phases in a linear or looping pipeline:
 
 0.  **Phase Init: Initialization**
-    *   **Action:** The Orchestrator immediately creates and switches to a new feature branch (e.g., `feature/task-name`) based on the user request.
-    *   **Goal:** Ensure all subsequent artifacts and changes are isolated.
+    *   **Action:** The Orchestrator creates a new feature branch AND checks it out into a **dedicated Git Worktree** (e.g., `../.worktrees/task-xyz`).
+    *   **Goal:** Ensure physical file-system isolation. The Agent operates in a separate folder, protecting the user's main working directory and uncommitted changes.
 
 1.  **Phase 0: Analysis Strategy (Dynamic Entry)**
     *   **Modes:**
