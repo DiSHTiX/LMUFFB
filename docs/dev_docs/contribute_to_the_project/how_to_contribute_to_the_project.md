@@ -93,7 +93,7 @@ In this case the implementation plan must include, in the tests section, one or 
 
 * In Antigravity, Cursor, or other IDE, paste the portion of the ini file with your preset settings in the AI chat, and ask to create a new preset in the app.
 
-* Also add an entry to the changelog and update the app version (either manually or with AI)
+* Also add an entry to the changelog and update the app version (either manually or with AI).
 
 * When the model is finished, double check the diff and the git changes in the IDE to make sure no other files or presets were changed.
 
