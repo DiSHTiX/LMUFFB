@@ -211,3 +211,9 @@ We will adopt an **Iterative "Dogfooding" Approach**:
     *   If yes, the system generates a Skill definition (instructions) for future agents to use, effectively "learning" from its own success.
 *   **Feasibility Note:** **High Complexity.** Requires deep integration with the Gemini CLI's Skills API, a mechanism to validate generated skills, and Human-in-the-Loop approval to prevent "hallucinated tools" from entering the system. Best for v1.0+.
 
+### 8.4 Asynchronous Human Review Layer (Human-in-the-Loop)
+*   **Concept:** A dedicated Markdown file (e.g., `docs/dev_docs/HUMAN_REVIEW.md`) where a human can asynchronously leave notes, corrections, or guidance for the agents.
+*   **Goal:** Provide a non-blocking way for the project owner to steer the system without being present during every step of execution.
+*   **Workflow:** (To be determined) Future iterations will determine how agents should ingest these notes (e.g., as part of the Phase Init or context injection).
+*   **Feasibility Note:** **Trivial.** Requires no code changes today; only the manual creation and maintenance of the file by the human.
+
