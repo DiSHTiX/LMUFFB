@@ -64,9 +64,18 @@ The system MUST support the following distinct phases in a linear or looping pip
     *   **Input:** Path to Implementation Plan file and Git Diff.
     *   **Goal:** Critique changes against project standards.
     *   **Verdict:**
-        *   **PASS:** Trigger Merge.
+        *   **PASS:** Trigger Phase D.
         *   **FAIL:** Return to **Phase B** (Developer) with the Review Report as new input.
     *   **(Orchestrator commits review report)**
+
+6.  **Phase D: Integration & Delivery**
+    *   **Goal:** Ensure the feature branch is up-to-date with `main` and conflict-free.
+    *   **Step 1:** Orchestrator attempts to merge `main` into `feature_branch`.
+    *   **Step 2 (Conditional):** If conflicts arise, spawn **Integration Specialist**.
+        *   **Input:** Conflict Markers + Implementation Plan.
+        *   **Action:** Resolve conflicts, run tests to verify integrity.
+        *   **Output:** Clean Merge Commit.
+    *   **Step 3:** Orchestrator pushes branch and creates a Pull Request / Merge Request.
 
 ### 3.3 Structured Communication
 *   **JSON Enforcement:** The Orchestrator MUST instruct the agent to output key results (status, file paths) in a strict JSON format at the end of its response.
@@ -78,7 +87,10 @@ The system MUST support the following distinct phases in a linear or looping pip
     *   For documentation phases (Investigation, Planning, Review), the Orchestrator commits the generated files.
     *   For the Implementation phase, the Developer agent creates the commits.
     *   This provides a granular "undo" history and crash recovery checkpoints.
-*   **Merge Management:** The Orchestrator handles the final merge after Auditor approval.
+*   **Merge & Conflict Management:** 
+    *   Before final delivery, the Orchestrator MUST try to merge `main` into the current branch to check for conflicts.
+    *   If the merge fails, the **Integration Specialist** agent is spawned to resolve conflicts and commit the fix.
+    *   Finally, the Orchestrator creates a **Pull Request** (or local equivalent) rather than pushing directly to `main`.
 
 ### 3.5 Document Management
 The system MUST enforce a structured lifecycle for all generated documents:
@@ -104,6 +116,7 @@ The following table defines the exact Inputs and Deliverables for each phase.
 | **A.2** | **Plan Reviewer** | • User Request String<br>• Plan File Path<br>• Reports from Phase 0 (Optional) | • `docs/dev_docs/reviews/plan_review_[feat]_v[N].md` (Optional, usually just feedback) | `{"verdict": "APPROVE"}`<br>OR<br>`{"verdict": "REJECT", "feedback": "..."}` |
 | **B** | **Developer** | • Approved Implementation Plan File Path<br>• Code Review Report Path (Optional/Loop) | • **Source Code Changes**<br>• **Test Files**<br>• **Updated Documentation**<br>• **Updated VERSION & CHANGELOG**<br>• **Verification Report** (Checked-off list) | `{"commit_hash": "...", "status": "success"}` |
 | **C** | **Auditor** | • Implementation Plan File Path<br>• Git Diff (via `git diff master...HEAD`)<br>• Previous Code Review Report (Optional/Loop) | • `docs/dev_docs/reviews/code_review_[feat]_v[N].md` | `{"verdict": "PASS", "review_path": "..."}`<br>OR<br>`{"verdict": "FAIL", "review_path": "..."}` |
+| **D** | **Integration Specialist** | • Conflict Markers (Git Output)<br>• Implementation Plan | • **Resolved Conflicts**<br>• **Merge Commit** | `{"status": "success", "commit_hash": "..."}` |
 
 *> **Universal Output:** All agents may optionally include `"backlog_items": ["Idea 1", "Idea 2"]` in their JSON payload. The Orchestrator will automatically capture these.*
 

@@ -17,6 +17,7 @@ graph TD
     Orch -->|Spawns| P2[P A.2: Lead Architect]
     Orch -->|Spawns| P3[P B: Developer]
     Orch -->|Spawns| P4[P C: Auditor]
+    Orch -->|Spawns| P5[P D: Integration Specialist]
     
     subgraph "Isolation Boundary"
         P0A -- Writes --> Art0[Diagnostic Report]
@@ -34,6 +35,8 @@ graph TD
         P4 -- Reads --> Art1
         P4 -- Reads --> Git
         P4 -- Verdict --> Orch
+        P5 -- Reads --> Git
+        P5 -- Resolves --> Git
     end
 
     %% Feedback Loops
@@ -41,6 +44,7 @@ graph TD
     Orch -.->|Escalate| P0B
     Orch -.->|Reject| P1
     Orch -.->|Fail| P3
+    Orch -.->|Conflict| P5
 ```
 
 ## 2. Component Design
@@ -125,9 +129,13 @@ The main state machine.
 4.  **Agent** prints JSON: `{"verdict": "PASS"}` or `{"verdict": "FAIL"}`.
     *   *If FAIL:* Loop back to Developer with Review Report.
 
-### Phase D: Finalization
-1.  **Orchestrator** merges branch.
-2.  **Orchestrator** moves artifacts to `docs/dev_docs/archived/`.
+### Phase D: Integration & Delivery
+1.  **Orchestrator** attempts `git merge main` into current branch.
+    *   *If Conflict:* **Orchestrator** spawns **Integration Specialist**.
+    *   **Agent** resolves conflicts and commits.
+2.  **Orchestrator** pushes branch to remote.
+3.  **Orchestrator** creates Pull Request (via API or prints URL).
+4.  **Orchestrator** moves artifacts to `docs/dev_docs/archived/`.
 
 ## 4. Key Decisions & Trade-offs
 

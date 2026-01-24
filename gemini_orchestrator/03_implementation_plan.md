@@ -48,7 +48,11 @@ This project will not be built in a single "Big Bang". Instead, we will build a 
 *   `developer_prompt.txt`: Instructions for coding (includes JSON schema).
 *   `auditor_prompt.txt`: Instructions for reviewing code.
 
-### Task 2.3: The Pipeline Loop
+### Task 2.4: Integration Specialist
+*   Create `integration_specialist_prompt.txt`: Instructions for resolving git merge conflicts.
+*   "You are an expert at resolving git conflicts. Keep the feature changes unless they break core logic."
+
+### Task 2.5: The Pipeline Loop
 *   Update `orchestrator.py` to chain the steps:
     -1. **Initialization:** `create_branch("task/...")`
     0.  **Phase 0 (Dynamic):**
@@ -59,6 +63,10 @@ This project will not be built in a single "Big Bang". Instead, we will build a 
     2.  `PlanVerdict = run_step(PlanReviewer, input=Plan)` -> `git_commit(PlanVerdict)` -> Loop if Rejected.
     3.  `Result = run_step(Developer, input=Plan)` (Developer commits code)
     4.  `CodeVerdict = run_step(Auditor, input=Result)` -> `git_commit(CodeVerdict)` -> Loop if Failed.
+    5.  **Phase D:**
+        *   `git merge main`
+        *   If conflict: `run_step(IntegrationSpecialist)` -> Commit.
+        *   `git push` -> Create PR.
 
 ## Phase 3: Robustness (Day 3)
 **Goal:** Error handling and Git integration.
@@ -93,4 +101,4 @@ The system is ready when I can run:
 2.  Creates a plan (and commits it).
 3.  Implements the code (and commits it).
 4.  Reviews the code (and commits the report).
-5.  Stops and asks me to Merge.
+5.  Creates a Pull Request / Merge Request.
