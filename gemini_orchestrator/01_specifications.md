@@ -193,6 +193,7 @@ We will adopt an **Iterative "Dogfooding" Approach**:
 *   **Use Case:** A Developer notices a vague requirement in the Plan. They implement it anyway (to pass the task) but flag it in `feedback`: "The plan for 'UserAuth' was ambiguous; I assumed JWT." The Lead Architect can then decide to update the documentation later.
 *   **Caveat (Honesty vs. Feedback):** The Orchestrator MUST ensure agents do not use the feedback field to hide failures. A `status: success` MUST NOT be accepted if the feedback contains reports of crashes or unresolvable errors.
 *   **Note:** This channel is ideal for flagging **Technical Debt** or documentation gaps identified during implementation.
+*   **Feasibility Note:** **Low Complexity.** Requires only a schema update (adding an optional field) and prompt tweaking. Easily integrated into v0.1 or v0.2.
 
 ### 8.2 Persistent Agent Memory (`AGENT_MEMORY.md`)
 *   **Concept:** A shared, append-only Markdown file that persists across steps (and potentially across tasks).
@@ -200,6 +201,7 @@ We will adopt an **Iterative "Dogfooding" Approach**:
 *   **Workflow:**
     *   Any agent can request to *write* a "Lesson Learned" to Memory.
     *   The Orchestrator *injects* relevant sections of Memory into the context of future agents.
+*   **Feasibility Note:** **Medium Complexity.** Requires a "Memory Manager" module to read/write safely to the shared file and logic to decide *what* to inject into the context window to avoid token bloat.
 
 ### 8.3 Dynamic Skill Curation
 *   **Concept:** Leverage the **Gemini CLI Skills** system (https://geminicli.com/docs/cli/skills/).
@@ -207,4 +209,5 @@ We will adopt an **Iterative "Dogfooding" Approach**:
 *   **Workflow:**
     *   If the Integration Specialist solves a tricky git conflict, the Orchestrator could prompt: "Should this resolution strategy be saved as a named Skill?"
     *   If yes, the system generates a Skill definition (instructions) for future agents to use, effectively "learning" from its own success.
+*   **Feasibility Note:** **High Complexity.** Requires deep integration with the Gemini CLI's Skills API, a mechanism to validate generated skills, and Human-in-the-Loop approval to prevent "hallucinated tools" from entering the system. Best for v1.0+.
 
