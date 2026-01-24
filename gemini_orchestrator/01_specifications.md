@@ -20,19 +20,25 @@ By managing the Gemini CLI as an atomic subprocess, this orchestrator enforces s
 ### 3.2 Workflow Orchestration
 The system MUST support the following distinct phases in a linear or looping pipeline:
 
+0.  **Phase 0: Researcher (Deep Research) - Optional**
+    *   **Trigger:** Activated via user flag (e.g., `--research`).
+    *   **Input:** High-level user request.
+    *   **Goal:** Perform deep internet research and codebase analysis to understand complex domains or requirements.
+    *   **Output:** Path to Research Report (Markdown).
+
 1.  **Phase A: Architect (Planning)**
-    *   **Input:** High-level user request (e.g., "Fix bug #123").
-    *   **Goal:** Research codebase/web and produce a Markdown implementation plan.
-    *   **Output:** Path to the generated Plan file.
+    *   **Input:** High-level user request (and optional Research Report from Phase 0).
+    *   **Goal:** Analyze requirements and produce a Markdown implementation plan.
+    *   **Output:** Path to the generated Implementation Plan file.
 
 2.  **Phase B: Developer (Implementation)**
-    *   **Input:** Path to the Plan file.
+    *   **Input:** Path to the Implementation Plan file.
     *   **Goal:** Write code, run tests, fix errors until tests pass.
     *   **Constraint:** Must work on a specific Git branch.
     *   **Output:** Git Commit Hash or "Success" status.
 
 3.  **Phase C: Auditor (Review)**
-    *   **Input:** Path to Plan file and Git Diff.
+    *   **Input:** Path to Implementation Plan file and Git Diff.
     *   **Goal:** Critique changes against project standards.
     *   **Output:** Pass/Fail verdict and Path to Review Report.
 
@@ -52,7 +58,7 @@ The system MUST support the following distinct phases in a linear or looping pip
 *   **Configurability:** Workflow steps and system prompts MUST be defined in configuration files (JSON/YAML) to allow easy tuning without code changes.
 
 ## 5. User Interface
-*   **CLI Entry Point:** The user runs the tool via `python orchestrator.py --task "description"`.
+*   **CLI Entry Point:** The user runs the tool via `python orchestrator.py --task "description" [--research]`.
 *   **Progress Feedback:** The tool displays real-time status of the pipeline (e.g., "[PLANNING]... Done", "[IMPLEMENTING]... In Progress").
 
 ## 6. Example Use Case: "Add a Dark Mode Toggle"
@@ -66,7 +72,7 @@ python orchestrator.py --task "Add a simple Dark Mode toggle to the main setting
 **Orchestrator Output:**
 ```text
 [11:00:00] ORCHESTRATOR: Task Received. Spawning ARCHITECT...
-[11:00:45] ARCHITECT: Plan created at 'docs/plans/dark_mode_plan.md'.
+[11:00:45] ARCHITECT: Implementation Plan created at 'docs/plans/dark_mode_plan.md'.
 [11:00:46] ORCHESTRATOR: Verifying plan... OK.
 [11:00:46] ORCHESTRATOR: Creating branch 'feature/dark-mode-toggle'.
 [11:00:48] ORCHESTRATOR: Spawning DEVELOPER...
