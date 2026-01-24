@@ -85,6 +85,14 @@ The following table defines the exact Inputs and Deliverables for each phase.
 | **B** | **Developer** | • Approved Implementation Plan File Path<br>• Code Review Report Path (Optional/Loop) | • **Source Code Changes**<br>• **Test Files**<br>• **Updated Documentation**<br>• **Updated VERSION & CHANGELOG** | `{"commit_hash": "...", "status": "success"}` |
 | **C** | **Auditor** | • Implementation Plan File Path<br>• Git Diff (via `git diff master...HEAD`)<br>• Previous Code Review Report (Optional/Loop) | • `docs/dev_docs/reviews/code_review_[feat].md` | `{"verdict": "PASS", "review_path": "..."}`<br>OR<br>`{"verdict": "FAIL", "review_path": "..."}` |
 
+*> **Universal Output:** All agents may optionally include `"backlog_items": ["Idea 1", "Idea 2"]` in their JSON payload. The Orchestrator will automatically capture these.*
+
+### 3.7 Backlog Management
+Any agent in the pipeline MUST be able to capture ideas for future enhancements or research topics without derailing the current task.
+*   **Mechanism:** Agents can include a `backlog_items` list in their JSON output.
+*   **Orchestrator Action:** The Orchestrator extracts these items and appends them to a central `docs/dev_docs/backlog.md` file (or creates it if missing).
+*   **Format:** Each item should be a concise description of the potential feature or research topic.
+
 ## 4. Non-Functional Requirements
 *   **Resilience:** The system MUST handle CLI timeouts, crashes, or malformed JSON outputs gracefully (e.g., by retrying the step or alerting the user).
 *   **Observability:** The system MUST log all agent interactions (prompts and raw responses) to a local file for debugging.
