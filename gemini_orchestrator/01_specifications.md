@@ -9,6 +9,7 @@ By managing the Gemini CLI as an atomic subprocess, this orchestrator enforces s
 *   **Pipeline over Chat:** The system treats software development as a series of discrete steps (Plan -> Implement -> Review), not a continuous conversation.
 *   **Artifact-Driven Handover:** State is passed between steps exclusively via file paths (e.g., "Review the plan at `docs/plans/feature_A.md`"), not via chat history.
 *   **Supervisor Authority:** The Python script is the absolute source of truth for the workflow state. The AI Agent is a "worker" that executes specific tasks on demand.
+*   **Strict Role Separation:** Roles are immutable within a task. If the Auditor finds a bug, they *must* reject the task and send it back to the Developer. The Auditor never touches the code.
 
 ## 3. Functional Requirements
 
@@ -26,21 +27,30 @@ The system MUST support the following distinct phases in a linear or looping pip
     *   **Goal:** Perform deep internet research and codebase analysis to understand complex domains or requirements.
     *   **Output:** Path to Research Report (Markdown).
 
-1.  **Phase A: Architect (Planning)**
+1.  **Phase A.1: Architect (Planning)**
     *   **Input:** High-level user request (and optional Research Report from Phase 0).
     *   **Goal:** Analyze requirements and produce a Markdown implementation plan.
     *   **Output:** Path to the generated Implementation Plan file.
 
-2.  **Phase B: Developer (Implementation)**
-    *   **Input:** Path to the Implementation Plan file.
+2.  **Phase A.2: Lead Architect (Plan Review)**
+    *   **Input:** The Original Request and the Implementation Plan.
+    *   **Goal:** Verify the plan matches the requirements and is technically sound.
+    *   **Verdict:**
+        *   **APPROVE:** Proceed to Implementation.
+        *   **REJECT:** Return to **Phase A.1** with feedback.
+
+3.  **Phase B: Developer (Implementation)**
+    *   **Input:** Path to the Approved Implementation Plan file.
     *   **Goal:** Write code, run tests, fix errors until tests pass.
     *   **Constraint:** Must work on a specific Git branch.
     *   **Output:** Git Commit Hash or "Success" status.
 
-3.  **Phase C: Auditor (Review)**
+4.  **Phase C: Auditor (Code Review)**
     *   **Input:** Path to Implementation Plan file and Git Diff.
     *   **Goal:** Critique changes against project standards.
-    *   **Output:** Pass/Fail verdict and Path to Review Report.
+    *   **Verdict:**
+        *   **PASS:** Trigger Merge.
+        *   **FAIL:** Return to **Phase B** (Developer) with the Review Report as new input.
 
 ### 3.3 Structured Communication
 *   **JSON Enforcement:** The Orchestrator MUST instruct the agent to output key results (status, file paths) in a strict JSON format at the end of its response.
@@ -51,6 +61,18 @@ The system MUST support the following distinct phases in a linear or looping pip
     *   Creating feature branches before the Developer starts.
     *   Merging branches after the Auditor approves.
     *   Resetting/Cleaning the workspace between runs.
+
+### 3.5 Document Management
+The system MUST enforce a structured lifecycle for all generated documents:
+
+*   **Active Documents:** Stored in active subfolders during the feature lifecycle.
+    *   `docs/dev_docs/research/`
+    *   `docs/dev_docs/plans/`
+    *   `docs/dev_docs/reviews/`
+*   **Archiving:** Upon successful completion (Merge), the Orchestrator MUST move all related artifacts to an archive folder to keep the active directories clean.
+    *   `docs/dev_docs/archived/plans/`
+    *   `docs/dev_docs/archived/reviews/`
+    *   (Optionally prefixed with date/feature-name)
 
 ## 4. Non-Functional Requirements
 *   **Resilience:** The system MUST handle CLI timeouts, crashes, or malformed JSON outputs gracefully (e.g., by retrying the step or alerting the user).
