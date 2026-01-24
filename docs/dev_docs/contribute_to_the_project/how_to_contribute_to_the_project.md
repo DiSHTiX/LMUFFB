@@ -19,7 +19,7 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 
 ## Step 1: Implementation plan
 * After you have the report from the deep research, you need to produce an implementation plan for the feature you want to implement, as a separate markdown file. To create the file, you could either:
-   * Ask Opus 4.5 or Gemini 3 Pro to create it, based on the deep research report and a description of what you want to implement.
+   * In Antigravity: Ask Opus 4.5 or Gemini 3 Pro to create it, based on the deep research report and a description of what you want to implement.
    * Paste the whole codebase into Google AI Studio, and ask Gemini 3 Pro to create it. You can then use "copy as markdown" and paste the plan into a new .md file in the project.
        * In order to have the whole project as context in AI Studio, you need to create a markdown file that contains the whole codebase of the project (code, documents, and tests), by running the Python script that is here: "scripts\create_context.py". This updates the file docs\dev_docs\FULL_PROJECT_CONTEXT.md, which then you can paste into Google AI studio.
 
