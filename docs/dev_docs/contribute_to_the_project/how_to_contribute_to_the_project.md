@@ -9,7 +9,7 @@ Note: some of the steps of the workflow are suggestions, meaning that you might 
 
 * As IDE, Antigravity is recommended in this case, because it is basically free, and you can use Opus 4.5 for free (which is usually very expensive but sometimes necessary for more complex things when other models fail).
 
-* The use Google AI Studio and Gemini Deep Research is also recommended.
+* The use of Google AI Studio and Gemini Deep Research is also recommended.
 
 ## Step 0: Deep Research (optional, needed for complex features that require expertise information)
 
