@@ -33,8 +33,14 @@ The refactoring aimed for exact mathematical equivalence with the original code,
 -   **Snapshot Consistency:** The `FFBSnapshot` logic was updated to use `ctx.sop_unboosted_force` for `snap.sop_force` and derive the boost amount dynamically. This preserves the semantic meaning of the debug graph channels (separating base lateral force from the added boost).
 
 ### 4. Code Cleanup
--   **Standardization:** Replaced Windows-specific `strcpy_s` with standard `strncpy` in test files for better cross-platform compatibility.
+-   **Standardization:** Replaced Windows-specific `strcpy_s` with cross-platform string copy (using `#ifdef _MSC_VER` to select `strncpy_s` on Windows, `strncpy` elsewhere).
 -   **Thread Safety:** Maintained `std::lock_guard` usage for thread-safe access to the debug buffer.
+
+### 5. Additional Improvements (v0.6.36 Code Review Follow-up)
+-   **`calculate_wheel_slip_ratio` Helper:** Extracted duplicated lambda (`get_slip`) from `calculate_lockup_vibration` and `calculate_wheel_spin` into a unified public helper method. This reduces code duplication and improves testability.
+-   **`apply_signal_conditioning` Method:** Extracted ~70 lines of signal conditioning logic (idle smoothing, frequency estimation, dynamic/static notch filters) from `calculate_force` into a dedicated private helper. This improves readability and makes the main method a cleaner high-level pipeline.
+-   **Unconditional State Update Fix:** Moved `m_prev_vert_accel` update from inside `calculate_road_texture` (conditional) to the unconditional state updates section at the end of `calculate_force`. This prevents stale data issues if road texture is disabled but other effects depend on vertical acceleration history.
+-   **Build Warning Fixes:** Fixed MSVC warnings C4996 (strncpy unsafe) and C4305 (double-to-float truncation) in test files.
 
 ## Justification
 This modular architecture allows developers to:

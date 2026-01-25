@@ -16,6 +16,13 @@ All notable changes to this project will be documented in this file.
   - **Restored Behavior**: Snapshots now correctly report the unboosted lateral force for `sop_force` and the boost delta for `oversteer_boost`, enabling accurate debugging of the SoP pipeline.
 - **ABS Pulse Summation**: Fixed a logic error where the ABS pulse force was not being added to the final FFB sum in some scenarios.
 
+### Code Review Follow-up (Additional Improvements)
+- **`calculate_wheel_slip_ratio` Helper**: Extracted duplicated `get_slip` lambda from `calculate_lockup_vibration` and `calculate_wheel_spin` into a unified public helper method. Reduces code duplication and improves testability.
+- **`apply_signal_conditioning` Method**: Extracted ~70 lines of signal conditioning logic (idle smoothing, frequency estimation, dynamic/static notch filters) into a dedicated public helper method. Makes the main `calculate_force` method a cleaner high-level pipeline.
+- **Unconditional State Update Fix**: Moved `m_prev_vert_accel` update from inside `calculate_road_texture` (conditional) to the unconditional state updates section at the end of `calculate_force`. Prevents stale data issues when road texture is disabled.
+- **Build Warning Fixes**: Fixed MSVC warnings C4996 (strncpy unsafe) and C4305 (double-to-float truncation) in test files.
+- **New Tests**: Added 8 new regression tests for the extracted helper methods (483 total tests, 0 failures).
+
 ## [0.6.35] - 2026-01-04
 ### Added
 - **Three New DD Presets**:

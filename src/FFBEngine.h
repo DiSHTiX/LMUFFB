@@ -757,6 +757,15 @@ public:
         return (wheel_vel - car_speed_ms) / denom;
     }
 
+    // Helper: Calculate Slip Ratio from wheel (v0.6.36 - Extracted from lambdas)
+    // Unified slip ratio calculation for lockup and spin detection.
+    // Returns the ratio of longitudinal slip: (PatchVel - GroundVel) / GroundVel
+    double calculate_wheel_slip_ratio(const TelemWheelV01& w) {
+        double v_long = std::abs(w.mLongitudinalGroundVel);
+        if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
+        return w.mLongitudinalPatchVel / v_long;
+    }
+
     // Refactored calculate_force
     double calculate_force(const TelemInfoV01* data) {
         if (!data) return 0.0;
@@ -926,11 +935,6 @@ public:
         ctx.speed_gate = (ctx.car_speed - (double)m_speed_gate_lower) / speed_gate_range;
         ctx.speed_gate = (std::max)(0.0, (std::min)(1.0, ctx.speed_gate));
 
-        // Frequency Estimator & Dynamic Notch
-        // ... (Keep existing logic or extract to helper if complex)
-        // Ideally extract: update_signal_filters(game_force, data, ctx);
-        // For now, let's keep the core flow.
-
         // --- 5. EFFECT CALCULATIONS ---
 
         // A. Understeer (Base Torque + Grip Loss)
@@ -939,16 +943,162 @@ public:
         GripResult front_grip_res = calculate_grip(fl, fr, ctx.avg_load, m_warned_grip,
                                                    m_prev_slip_angle[0], m_prev_slip_angle[1], ctx.car_speed, ctx.dt, data->mVehicleName);
         ctx.avg_grip = front_grip_res.value;
-        // ... update diag ...
         m_grip_diag.front_original = front_grip_res.original;
         m_grip_diag.front_approximated = front_grip_res.approximated;
         m_grip_diag.front_slip_angle = front_grip_res.slip_angle;
         if (front_grip_res.approximated) ctx.frame_warn_grip = true;
 
-        // 2. Base Force Processing (Smoothing, Notch, Speed Gate)
-        // ... (Logic from original calculate_force)
-        // Let's process the base force here.
-        double game_force_proc = data->mSteeringShaftTorque;
+        // 2. Signal Conditioning (Smoothing, Notch Filters)
+        double game_force_proc = apply_signal_conditioning(data->mSteeringShaftTorque, data, ctx);
+
+        // Base Force Mode
+        double base_input = 0.0;
+        if (m_base_force_mode == 0) {
+            base_input = game_force_proc;
+        } else if (m_base_force_mode == 1) {
+            if (std::abs(game_force_proc) > SYNTHETIC_MODE_DEADZONE_NM) {
+                double sign = (game_force_proc > 0.0) ? 1.0 : -1.0;
+                base_input = sign * (double)m_max_torque_ref;
+            }
+        }
+        
+        // Apply Grip Modulation
+        double grip_loss = (1.0 - ctx.avg_grip) * m_understeer_effect;
+        ctx.grip_factor = (std::max)(0.0, 1.0 - grip_loss);
+        
+        double output_force = (base_input * (double)m_steering_shaft_gain) * ctx.grip_factor;
+        output_force *= ctx.speed_gate;
+        
+        // B. SoP Lateral (Oversteer)
+        calculate_sop_lateral(data, ctx);
+        
+        // C. Gyro Damping
+        calculate_gyro_damping(data, ctx);
+        
+        // D. Effects
+        calculate_abs_pulse(data, ctx);
+        calculate_lockup_vibration(data, ctx);
+        calculate_wheel_spin(data, ctx);
+        calculate_slide_texture(data, ctx);
+        calculate_road_texture(data, ctx);
+        calculate_suspension_bottoming(data, ctx);
+        
+        // --- 6. SUMMATION ---
+        // Split into Structural (Attenuated by Spin) and Texture (Raw) groups
+        double structural_sum = output_force + ctx.sop_base_force + ctx.rear_torque + ctx.yaw_force + ctx.gyro_force +
+                                ctx.abs_pulse_force + ctx.lockup_rumble + ctx.scrub_drag_force;
+
+        // Apply Torque Drop (from Spin/Traction Loss) only to structural physics
+        structural_sum *= ctx.gain_reduction_factor;
+        
+        double texture_sum = ctx.road_noise + ctx.slide_noise + ctx.spin_rumble + ctx.bottoming_crunch;
+
+        double total_sum = structural_sum + texture_sum;
+
+        // --- 7. OUTPUT SCALING ---
+        double norm_force = total_sum / max_torque_safe;
+        norm_force *= m_gain;
+
+        // Min Force
+        if (std::abs(norm_force) > 0.0001 && std::abs(norm_force) < m_min_force) {
+            double sign = (norm_force > 0.0) ? 1.0 : -1.0;
+            norm_force = sign * m_min_force;
+        }
+
+        if (m_invert_force) {
+            norm_force *= -1.0;
+        }
+
+        // --- 8. STATE UPDATES (POST-CALC) ---
+        // CRITICAL: These updates must run UNCONDITIONALLY every frame to prevent
+        // stale state issues when effects are toggled on/off.
+        for (int i = 0; i < 4; i++) {
+            m_prev_vert_deflection[i] = data->mWheel[i].mVerticalTireDeflection;
+            m_prev_rotation[i] = data->mWheel[i].mRotation;
+            m_prev_brake_pressure[i] = data->mWheel[i].mBrakePressure;
+        }
+        m_prev_susp_force[0] = fl.mSuspForce;
+        m_prev_susp_force[1] = fr.mSuspForce;
+        
+        // v0.6.36 FIX: Move m_prev_vert_accel to unconditional section
+        // Previously only updated inside calculate_road_texture when enabled.
+        // Now always updated to prevent stale data if other effects use it.
+        m_prev_vert_accel = data->mLocalAccel.y;
+
+        // --- 9. SNAPSHOT ---
+        {
+            std::lock_guard<std::mutex> lock(m_debug_mutex);
+            if (m_debug_buffer.size() < 100) {
+                FFBSnapshot snap;
+                snap.total_output = (float)norm_force;
+                snap.base_force = (float)base_input;
+                snap.sop_force = (float)ctx.sop_unboosted_force; // Use unboosted for snapshot
+                snap.understeer_drop = (float)((base_input * m_steering_shaft_gain) * (1.0 - ctx.grip_factor));
+                snap.oversteer_boost = (float)(ctx.sop_base_force - ctx.sop_unboosted_force); // Exact boost amount
+
+                snap.ffb_rear_torque = (float)ctx.rear_torque;
+                snap.ffb_scrub_drag = (float)ctx.scrub_drag_force;
+                snap.ffb_yaw_kick = (float)ctx.yaw_force;
+                snap.ffb_gyro_damping = (float)ctx.gyro_force;
+                snap.texture_road = (float)ctx.road_noise;
+                snap.texture_slide = (float)ctx.slide_noise;
+                snap.texture_lockup = (float)ctx.lockup_rumble;
+                snap.texture_spin = (float)ctx.spin_rumble;
+                snap.texture_bottoming = (float)ctx.bottoming_crunch;
+                snap.clipping = (std::abs(norm_force) > 0.99f) ? 1.0f : 0.0f;
+
+                // Physics
+                snap.calc_front_load = (float)ctx.avg_load;
+                snap.calc_rear_load = (float)ctx.avg_rear_load;
+                snap.calc_rear_lat_force = (float)ctx.calc_rear_lat_force;
+                snap.calc_front_grip = (float)ctx.avg_grip;
+                snap.calc_rear_grip = (float)ctx.avg_rear_grip;
+                snap.calc_front_slip_angle_smoothed = (float)m_grip_diag.front_slip_angle;
+                snap.calc_rear_slip_angle_smoothed = (float)m_grip_diag.rear_slip_angle;
+
+                snap.raw_front_slip_angle = (float)calculate_raw_slip_angle_pair(fl, fr);
+                snap.raw_rear_slip_angle = (float)calculate_raw_slip_angle_pair(data->mWheel[2], data->mWheel[3]);
+
+                // Telemetry
+                snap.steer_force = (float)raw_torque;
+                snap.raw_input_steering = (float)data->mUnfilteredSteering;
+                snap.raw_front_tire_load = (float)raw_load;
+                snap.raw_front_grip_fract = (float)raw_grip;
+                snap.raw_rear_grip = (float)((data->mWheel[2].mGripFract + data->mWheel[3].mGripFract) / 2.0);
+                snap.raw_front_susp_force = (float)((fl.mSuspForce + fr.mSuspForce) / 2.0);
+                snap.raw_front_ride_height = (float)((std::min)(fl.mRideHeight, fr.mRideHeight));
+                snap.raw_rear_lat_force = (float)((data->mWheel[2].mLateralForce + data->mWheel[3].mLateralForce) / 2.0);
+                snap.raw_car_speed = (float)ctx.car_speed_long;
+                snap.raw_input_throttle = (float)data->mUnfilteredThrottle;
+                snap.raw_input_brake = (float)data->mUnfilteredBrake;
+                snap.accel_x = (float)data->mLocalAccel.x;
+                snap.raw_front_lat_patch_vel = (float)((std::abs(fl.mLateralPatchVel) + std::abs(fr.mLateralPatchVel)) / 2.0);
+                snap.raw_front_deflection = (float)((fl.mVerticalTireDeflection + fr.mVerticalTireDeflection) / 2.0);
+                snap.raw_front_long_patch_vel = (float)((fl.mLongitudinalPatchVel + fr.mLongitudinalPatchVel) / 2.0);
+                snap.raw_rear_lat_patch_vel = (float)((std::abs(data->mWheel[2].mLateralPatchVel) + std::abs(data->mWheel[3].mLateralPatchVel)) / 2.0);
+                snap.raw_rear_long_patch_vel = (float)((data->mWheel[2].mLongitudinalPatchVel + data->mWheel[3].mLongitudinalPatchVel) / 2.0);
+
+                snap.warn_load = ctx.frame_warn_load;
+                snap.warn_grip = ctx.frame_warn_grip || ctx.frame_warn_rear_grip;
+                snap.warn_dt = ctx.frame_warn_dt;
+                snap.debug_freq = (float)m_debug_freq;
+                snap.tire_radius = (float)fl.mStaticUndeflectedRadius / 100.0f;
+
+                m_debug_buffer.push_back(snap);
+            }
+        }
+        
+        return (std::max)(-1.0, (std::min)(1.0, norm_force));
+    }
+
+    // ========================================
+    // Helper Methods (v0.6.36 Refactoring) - PUBLIC for testability
+    // ========================================
+
+    // Signal Conditioning: Applies idle smoothing and notch filters to raw torque
+    // Returns the conditioned force value ready for effect processing
+    double apply_signal_conditioning(double raw_torque, const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        double game_force_proc = raw_torque;
 
         // Idle Smoothing
         double effective_shaft_smoothing = (double)m_steering_shaft_smoothing;
@@ -1018,141 +1168,11 @@ public:
              m_static_notch_filter.Reset();
         }
 
-        // Base Force Mode
-        double base_input = 0.0;
-        if (m_base_force_mode == 0) {
-            base_input = game_force_proc;
-        } else if (m_base_force_mode == 1) {
-            if (std::abs(game_force_proc) > SYNTHETIC_MODE_DEADZONE_NM) {
-                double sign = (game_force_proc > 0.0) ? 1.0 : -1.0;
-                base_input = sign * (double)m_max_torque_ref;
-            }
-        }
-        
-        // Apply Grip Modulation
-        double grip_loss = (1.0 - ctx.avg_grip) * m_understeer_effect;
-        ctx.grip_factor = (std::max)(0.0, 1.0 - grip_loss);
-        
-        double output_force = (base_input * (double)m_steering_shaft_gain) * ctx.grip_factor;
-        output_force *= ctx.speed_gate;
-        
-        // B. SoP Lateral (Oversteer)
-        calculate_sop_lateral(data, ctx);
-        
-        // C. Gyro Damping
-        calculate_gyro_damping(data, ctx);
-        
-        // D. Effects
-        calculate_abs_pulse(data, ctx);
-        calculate_lockup_vibration(data, ctx);
-        calculate_wheel_spin(data, ctx);
-        calculate_slide_texture(data, ctx);
-        calculate_road_texture(data, ctx);
-        calculate_suspension_bottoming(data, ctx);
-        
-        // --- 6. SUMMATION ---
-        // Split into Structural (Attenuated by Spin) and Texture (Raw) groups
-        double structural_sum = output_force + ctx.sop_base_force + ctx.rear_torque + ctx.yaw_force + ctx.gyro_force +
-                                ctx.abs_pulse_force + ctx.lockup_rumble + ctx.scrub_drag_force;
-
-        // Apply Torque Drop (from Spin/Traction Loss) only to structural physics
-        structural_sum *= ctx.gain_reduction_factor;
-        
-        double texture_sum = ctx.road_noise + ctx.slide_noise + ctx.spin_rumble + ctx.bottoming_crunch;
-
-        double total_sum = structural_sum + texture_sum;
-
-        // --- 7. OUTPUT SCALING ---
-        double norm_force = total_sum / max_torque_safe;
-        norm_force *= m_gain;
-
-        // Min Force
-        if (std::abs(norm_force) > 0.0001 && std::abs(norm_force) < m_min_force) {
-            double sign = (norm_force > 0.0) ? 1.0 : -1.0;
-            norm_force = sign * m_min_force;
-        }
-
-        if (m_invert_force) {
-            norm_force *= -1.0;
-        }
-
-        // --- 8. STATE UPDATES (POST-CALC) ---
-        for (int i = 0; i < 4; i++) {
-            m_prev_vert_deflection[i] = data->mWheel[i].mVerticalTireDeflection;
-            m_prev_rotation[i] = data->mWheel[i].mRotation;
-            m_prev_brake_pressure[i] = data->mWheel[i].mBrakePressure;
-        }
-        m_prev_susp_force[0] = fl.mSuspForce;
-        m_prev_susp_force[1] = fr.mSuspForce;
-
-        // --- 9. SNAPSHOT ---
-        {
-            std::lock_guard<std::mutex> lock(m_debug_mutex);
-            if (m_debug_buffer.size() < 100) {
-                FFBSnapshot snap;
-                snap.total_output = (float)norm_force;
-                snap.base_force = (float)base_input;
-                snap.sop_force = (float)ctx.sop_unboosted_force; // Use unboosted for snapshot
-                snap.understeer_drop = (float)((base_input * m_steering_shaft_gain) * (1.0 - ctx.grip_factor));
-                snap.oversteer_boost = (float)(ctx.sop_base_force - ctx.sop_unboosted_force); // Exact boost amount
-
-                snap.ffb_rear_torque = (float)ctx.rear_torque;
-                snap.ffb_scrub_drag = (float)ctx.scrub_drag_force;
-                snap.ffb_yaw_kick = (float)ctx.yaw_force;
-                snap.ffb_gyro_damping = (float)ctx.gyro_force;
-                snap.texture_road = (float)ctx.road_noise;
-                snap.texture_slide = (float)ctx.slide_noise;
-                snap.texture_lockup = (float)ctx.lockup_rumble;
-                snap.texture_spin = (float)ctx.spin_rumble;
-                snap.texture_bottoming = (float)ctx.bottoming_crunch;
-                snap.clipping = (std::abs(norm_force) > 0.99f) ? 1.0f : 0.0f;
-
-                // Physics
-                snap.calc_front_load = (float)ctx.avg_load;
-                snap.calc_rear_load = (float)ctx.avg_rear_load;
-                snap.calc_rear_lat_force = (float)ctx.calc_rear_lat_force;
-                snap.calc_front_grip = (float)ctx.avg_grip;
-                snap.calc_rear_grip = (float)ctx.avg_rear_grip;
-                snap.calc_front_slip_angle_smoothed = (float)m_grip_diag.front_slip_angle;
-                snap.calc_rear_slip_angle_smoothed = (float)m_grip_diag.rear_slip_angle;
-
-                snap.raw_front_slip_angle = (float)calculate_raw_slip_angle_pair(fl, fr);
-                snap.raw_rear_slip_angle = (float)calculate_raw_slip_angle_pair(data->mWheel[2], data->mWheel[3]);
-
-                // Telemetry
-                snap.steer_force = (float)raw_torque;
-                snap.raw_input_steering = (float)data->mUnfilteredSteering;
-                snap.raw_front_tire_load = (float)raw_load;
-                snap.raw_front_grip_fract = (float)raw_grip;
-                snap.raw_rear_grip = (float)((data->mWheel[2].mGripFract + data->mWheel[3].mGripFract) / 2.0);
-                snap.raw_front_susp_force = (float)((fl.mSuspForce + fr.mSuspForce) / 2.0);
-                snap.raw_front_ride_height = (float)((std::min)(fl.mRideHeight, fr.mRideHeight));
-                snap.raw_rear_lat_force = (float)((data->mWheel[2].mLateralForce + data->mWheel[3].mLateralForce) / 2.0);
-                snap.raw_car_speed = (float)ctx.car_speed_long;
-                snap.raw_input_throttle = (float)data->mUnfilteredThrottle;
-                snap.raw_input_brake = (float)data->mUnfilteredBrake;
-                snap.accel_x = (float)data->mLocalAccel.x;
-                snap.raw_front_lat_patch_vel = (float)((std::abs(fl.mLateralPatchVel) + std::abs(fr.mLateralPatchVel)) / 2.0);
-                snap.raw_front_deflection = (float)((fl.mVerticalTireDeflection + fr.mVerticalTireDeflection) / 2.0);
-                snap.raw_front_long_patch_vel = (float)((fl.mLongitudinalPatchVel + fr.mLongitudinalPatchVel) / 2.0);
-                snap.raw_rear_lat_patch_vel = (float)((std::abs(data->mWheel[2].mLateralPatchVel) + std::abs(data->mWheel[3].mLateralPatchVel)) / 2.0);
-                snap.raw_rear_long_patch_vel = (float)((data->mWheel[2].mLongitudinalPatchVel + data->mWheel[3].mLongitudinalPatchVel) / 2.0);
-
-                snap.warn_load = ctx.frame_warn_load;
-                snap.warn_grip = ctx.frame_warn_grip || ctx.frame_warn_rear_grip;
-                snap.warn_dt = ctx.frame_warn_dt;
-                snap.debug_freq = (float)m_debug_freq;
-                snap.tire_radius = (float)fl.mStaticUndeflectedRadius / 100.0f;
-
-                m_debug_buffer.push_back(snap);
-            }
-        }
-        
-        return (std::max)(-1.0, (std::min)(1.0, norm_force));
+        return game_force_proc;
     }
 
 private:
-    // Helper: Declare extracted methods
+    // Effect Helper Methods
 
     void calculate_sop_lateral(const TelemInfoV01* data, FFBCalculationContext& ctx) {
         // Lateral G
@@ -1259,19 +1279,15 @@ private:
         double chosen_freq_multiplier = 1.0;
         double chosen_pressure_factor = 0.0;
         
-        auto get_slip = [&](const TelemWheelV01& w) {
-             double v_long = std::abs(w.mLongitudinalGroundVel);
-             if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
-             return w.mLongitudinalPatchVel / v_long;
-        };
+        // v0.6.36: Use unified helper method instead of lambda
 
-        double slip_fl = get_slip(data->mWheel[0]);
-        double slip_fr = get_slip(data->mWheel[1]);
+        double slip_fl = calculate_wheel_slip_ratio(data->mWheel[0]);
+        double slip_fr = calculate_wheel_slip_ratio(data->mWheel[1]);
         double worst_front = (std::min)(slip_fl, slip_fr);
 
         for (int i = 0; i < 4; i++) {
             const auto& w = data->mWheel[i];
-            double slip = get_slip(w);
+            double slip = calculate_wheel_slip_ratio(w);
             double slip_abs = std::abs(slip);
             double wheel_accel = (w.mRotation - m_prev_rotation[i]) / ctx.dt;
             double radius = (double)w.mStaticUndeflectedRadius / 100.0;
@@ -1330,13 +1346,9 @@ private:
 
     void calculate_wheel_spin(const TelemInfoV01* data, FFBCalculationContext& ctx) {
         if (m_spin_enabled && data->mUnfilteredThrottle > 0.05) {
-            auto get_slip = [&](const TelemWheelV01& w) {
-                 double v_long = std::abs(w.mLongitudinalGroundVel);
-                 if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
-                 return w.mLongitudinalPatchVel / v_long;
-            };
-            double slip_rl = get_slip(data->mWheel[2]);
-            double slip_rr = get_slip(data->mWheel[3]);
+            // v0.6.36: Use unified helper method instead of lambda
+            double slip_rl = calculate_wheel_slip_ratio(data->mWheel[2]);
+            double slip_rr = calculate_wheel_slip_ratio(data->mWheel[3]);
             double max_slip = (std::max)(slip_rl, slip_rr);
             
             if (max_slip > 0.2) {
@@ -1404,12 +1416,12 @@ private:
         if (deflection_active || ctx.car_speed < 5.0) {
             road_noise_val = (delta_l + delta_r) * 50.0;
         } else {
+            // Fallback: Use Vertical Acceleration (Heave) for road feel
+            // m_prev_vert_accel is now updated unconditionally in STATE UPDATES section
             double vert_accel = data->mLocalAccel.y;
             double delta_accel = vert_accel - m_prev_vert_accel;
             road_noise_val = delta_accel * 0.05 * 50.0;
         }
-        // Existing "Technical Debt" Note: m_prev_vert_accel (used for road texture fallback) is only updated inside the calculate_road_texture helper when enabled. This preserves the behaviour of the original code, even if it's not ideal. It should be changed / fixed in the future
-        m_prev_vert_accel = data->mLocalAccel.y;
         
         ctx.road_noise = road_noise_val * m_road_texture_gain * ctx.decoupling_scale * ctx.texture_load_factor;
         ctx.road_noise *= ctx.speed_gate;

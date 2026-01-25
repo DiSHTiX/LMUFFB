@@ -128,6 +128,9 @@ static void test_refactor_abs_pulse(); // v0.6.36
 static void test_refactor_torque_drop(); // v0.6.36
 static void test_refactor_snapshot_sop(); // v0.6.36
 static void test_refactor_units(); // v0.6.36
+static void test_wheel_slip_ratio_helper(); // v0.6.36 - Code review recommendation 1
+static void test_signal_conditioning_helper(); // v0.6.36 - Code review recommendation 2
+static void test_unconditional_vert_accel_update(); // v0.6.36 - Code review recommendation 3
 
 // --- Test Helper Functions (v0.5.7) ---
 
@@ -5166,9 +5169,13 @@ static void test_missing_telemetry_warnings() {
     InitializeEngine(engine);
     TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
     
-    // Set Vehicle Name
+    // Set Vehicle Name (use platform-specific safe copy)
+#ifdef _MSC_VER
+    strncpy_s(data.mVehicleName, sizeof(data.mVehicleName), "TestCar_GT3", _TRUNCATE);
+#else
     strncpy(data.mVehicleName, "TestCar_GT3", sizeof(data.mVehicleName) - 1);
     data.mVehicleName[sizeof(data.mVehicleName) - 1] = '\0';
+#endif
 
     // Capture stdout
     std::stringstream buffer;
@@ -5784,6 +5791,11 @@ void Run() {
     test_refactor_torque_drop();
     test_refactor_snapshot_sop();
     test_refactor_units(); // v0.6.36
+    
+    // Code Review Recommendation Tests (v0.6.36)
+    test_wheel_slip_ratio_helper();
+    test_signal_conditioning_helper();
+    test_unconditional_vert_accel_update();
 
     std::cout << "\n--- Physics Engine Test Summary ---" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;
@@ -6211,7 +6223,7 @@ public:
         engine.m_prev_steering_angle = 0.0;
 
         engine.m_gyro_gain = 1.0;
-        engine.m_gyro_smoothing = 0.0001; // Instant
+        engine.m_gyro_smoothing = 0.0001f; // Instant (explicit float)
 
         engine.calculate_gyro_damping(&data, ctx);
 
@@ -6260,6 +6272,180 @@ static void test_refactor_units() {
     FFBEngineTestAccess::test_unit_sop_lateral();
     FFBEngineTestAccess::test_unit_gyro_damping();
     FFBEngineTestAccess::test_unit_abs_pulse();
+}
+
+// ========================================
+// Code Review Recommendation Tests (v0.6.36)
+// ========================================
+
+static void test_wheel_slip_ratio_helper() {
+    std::cout << "\nTest: calculate_wheel_slip_ratio Helper (v0.6.36)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    // Create test wheel data
+    TelemWheelV01 wheel;
+    std::memset(&wheel, 0, sizeof(wheel));
+    
+    // Case 1: Normal slip (20% slip)
+    wheel.mLongitudinalGroundVel = 20.0; // 20 m/s forward
+    wheel.mLongitudinalPatchVel = 4.0;   // 4 m/s slip (wheel moving 4 m/s faster)
+    
+    double slip = engine.calculate_wheel_slip_ratio(wheel);
+    double expected = 4.0 / 20.0; // 0.2 (20% overspin)
+    
+    if (std::abs(slip - expected) < 0.001) {
+        std::cout << "[PASS] Normal slip ratio: " << slip << " (expected: " << expected << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Normal slip ratio: " << slip << " (expected: " << expected << ")" << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Case 2: Lockup (negative slip)
+    wheel.mLongitudinalGroundVel = 20.0;
+    wheel.mLongitudinalPatchVel = -5.0; // Wheel slipping backwards (lockup)
+    
+    slip = engine.calculate_wheel_slip_ratio(wheel);
+    expected = -5.0 / 20.0; // -0.25 (25% lockup)
+    
+    if (std::abs(slip - expected) < 0.001) {
+        std::cout << "[PASS] Lockup slip ratio: " << slip << " (expected: " << expected << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Lockup slip ratio: " << slip << " (expected: " << expected << ")" << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Case 3: Low speed protection (prevents div-by-zero)
+    wheel.mLongitudinalGroundVel = 0.1; // Very low speed
+    wheel.mLongitudinalPatchVel = 1.0;  // Some slip
+    
+    slip = engine.calculate_wheel_slip_ratio(wheel);
+    // Should use MIN_SLIP_ANGLE_VELOCITY (0.5) as denominator
+    expected = 1.0 / 0.5; // 2.0
+    
+    if (std::abs(slip - expected) < 0.001) {
+        std::cout << "[PASS] Low speed protection: " << slip << " (expected: " << expected << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Low speed protection: " << slip << " (expected: " << expected << ")" << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_signal_conditioning_helper() {
+    std::cout << "\nTest: apply_signal_conditioning Helper (v0.6.36)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    FFBCalculationContext ctx;
+    ctx.dt = 0.01;
+    ctx.car_speed = 20.0;
+    
+    // Test 1: Basic passthrough (no smoothing, no filters)
+    engine.m_steering_shaft_smoothing = 0.0f;
+    engine.m_flatspot_suppression = false;
+    engine.m_static_notch_enabled = false;
+    
+    double raw_torque = 10.0;
+    double result = engine.apply_signal_conditioning(raw_torque, &data, ctx);
+    
+    // Without smoothing, should pass through nearly identical (within state update tolerance)
+    // First call sets m_steering_shaft_torque_smoothed, so output equals raw
+    if (std::abs(result - raw_torque) < 0.001) {
+        std::cout << "[PASS] Basic passthrough: " << result << " (expected: " << raw_torque << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Basic passthrough: " << result << " (expected: " << raw_torque << ")" << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test 2: Idle smoothing at low speed
+    ctx.car_speed = 2.0; // Below threshold
+    engine.m_steering_shaft_torque_smoothed = 0.0; // Reset state
+    engine.m_speed_gate_upper = 5.0f;
+    
+    result = engine.apply_signal_conditioning(raw_torque, &data, ctx);
+    
+    // At low speed, heavy smoothing is applied, so first call should be significantly lower than raw
+    // With 0.1s tau and 0.01s dt: alpha = 0.01 / (0.1 + 0.01) = 0.09
+    // Output = 0 + 0.09 * (10 - 0) = 0.9
+    if (result < raw_torque && result > 0.0) {
+        std::cout << "[PASS] Idle smoothing active: " << result << " < " << raw_torque << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Idle smoothing: " << result << " (should be < " << raw_torque << ")" << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Test 3: Static notch filter reduces center frequency
+    engine.m_static_notch_enabled = true;
+    engine.m_static_notch_freq = 50.0f;
+    engine.m_static_notch_width = 5.0f;
+    ctx.car_speed = 20.0;
+    ctx.dt = 0.0025; // 400Hz sample rate
+    engine.m_steering_shaft_smoothing = 0.0f; // Disable smoothing
+    engine.m_steering_shaft_torque_smoothed = 0.0;
+    
+    // Inject 50Hz signal over multiple samples
+    double max_output = 0.0;
+    for (int i = 0; i < 50; i++) {
+        double signal = std::sin(2.0 * PI * 50.0 * (i * ctx.dt)) * 10.0;
+        result = engine.apply_signal_conditioning(signal, &data, ctx);
+        if (i > 20) max_output = (std::max)(max_output, std::abs(result));
+    }
+    
+    // 50Hz should be heavily attenuated
+    if (max_output < 5.0) {
+        std::cout << "[PASS] Static notch attenuates center freq (max: " << max_output << ")" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Static notch not attenuating (max: " << max_output << ")" << std::endl;
+        g_tests_failed++;
+    }
+}
+
+static void test_unconditional_vert_accel_update() {
+    std::cout << "\nTest: Unconditional m_prev_vert_accel Update (v0.6.36)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    
+    // Disable road texture effect
+    engine.m_road_texture_enabled = false;
+    
+    // Set a known vertical acceleration
+    data.mLocalAccel.y = 5.5;
+    
+    // Reset the engine state
+    engine.m_prev_vert_accel = 0.0;
+    
+    // Run calculate_force
+    engine.calculate_force(&data);
+    
+    // Check that m_prev_vert_accel was updated EVEN THOUGH road_texture is disabled
+    if (std::abs(engine.m_prev_vert_accel - 5.5) < 0.01) {
+        std::cout << "[PASS] m_prev_vert_accel updated unconditionally: " << engine.m_prev_vert_accel << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] m_prev_vert_accel not updated. Got: " << engine.m_prev_vert_accel << " Expected: 5.5" << std::endl;
+        g_tests_failed++;
+    }
+    
+    // Verify the value changes on next frame
+    data.mLocalAccel.y = -3.2;
+    engine.calculate_force(&data);
+    
+    if (std::abs(engine.m_prev_vert_accel - (-3.2)) < 0.01) {
+        std::cout << "[PASS] m_prev_vert_accel tracks changes: " << engine.m_prev_vert_accel << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] m_prev_vert_accel not tracking. Got: " << engine.m_prev_vert_accel << " Expected: -3.2" << std::endl;
+        g_tests_failed++;
+    }
 }
 
 } // namespace FFBEngineTests
