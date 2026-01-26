@@ -224,3 +224,6 @@ We will adopt an **Iterative "Dogfooding" Approach**:
 *   **Workflow:** (To be determined) Future iterations will determine how agents should ingest these notes (e.g., as part of the Phase Init or context injection).
 *   **Feasibility Note:** **Trivial.** Requires no code changes today; only the manual creation and maintenance of the file by the human.
 
+## 9. References
+
+* https://www.youtube.com/watch?v=2EXyj_fHU48
