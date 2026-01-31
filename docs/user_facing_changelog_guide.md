@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document provides guidelines for creating entries in the **User-Facing Changelog** (currently `Version Releases (user facing changelog).md`). This changelog is designed for end users and emphasizes understandable, benefit-focused release notes, while the technical `CHANGELOG.md` serves developers and power users.
+This document provides guidelines for creating entries in the **User-Facing Changelog** (currently `USER_CHANGELOG.md`). This changelog is designed for end users and emphasizes understandable, benefit-focused release notes, while the technical `CHANGELOG_DEV.md` serves developers and power users.
 
 ## Core Principles
 
@@ -209,7 +209,7 @@ Before finalizing an entry, ask:
 
 ## Conversion Example: Technical → User-Facing
 
-**From CHANGELOG.md** (Technical):
+**From CHANGELOG_DEV.md** (Technical):
 ```markdown
 ### Refactored
 - **GameConnector Lifecycle**:

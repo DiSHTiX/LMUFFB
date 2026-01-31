@@ -43,7 +43,7 @@ void Disconnect() {
 
 ### 3. Documentation & Versioning
 - Bump version in `VERSION` file.
-- Add entry to `CHANGELOG.md`: "Added auto-connect feature: automatically detects LMU process and reconnects if the game is restarted."
+- Add entry to `CHANGELOG_DEV.md`: "Added auto-connect feature: automatically detects LMU process and reconnects if the game is restarted."
 
 ## Verification & Testing
 
@@ -67,7 +67,7 @@ void Disconnect() {
 - [x] Implement `std::mutex` and thread-safe locking in `GameConnector`.
 - [x] Refactor `IsConnected()` to call `Disconnect()` on process exit.
 - [x] Verify `GuiLayer.cpp` polling logic.
-- [x] Update `VERSION` and `CHANGELOG.md`.
+- [x] Update `VERSION` and `CHANGELOG_DEV.md`.
 - [x] Build and Manual Verify.
 
 ## Additional Optimizations (Implemented beyond PR #16)

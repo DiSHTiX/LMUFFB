@@ -34,5 +34,5 @@ Currently, the LMUFFB application uses the default Windows executable icon, whic
     -   **Implementation:** Add a test case in a new or existing test file (e.g., `tests/test_resources.cpp`) that checks for the existence of `lmuffb.ico` in the current working directory (or expected build output directory).
 
 ## 4. Documentation
--   **CHANGELOG.md:** Add an entry under the "Added" section for the new application icon.
+-   **CHANGELOG_DEV.md:** Add an entry under the "Added" section for the new application icon.
 -   **VERSION:** Increment the patch version (optional, depending on release cycle).

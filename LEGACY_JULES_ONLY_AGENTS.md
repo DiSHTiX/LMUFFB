@@ -21,7 +21,7 @@ This document provides the Standard Operating Procedures (SOP), context, and con
     *   **Why**: Documentation changes often reflect new features, API changes, architecture updates, or critical fixes. You must stay current with the project's evolving knowledge base.
     *   **Priority Files**: Pay special attention to changes in:
         *   `README.md` - User-facing features and setup
-        *   `CHANGELOG.md` - Recent changes and version history
+        *   `CHANGELOG_DEV.md` - Recent changes and version history
         *   `docs/dev_docs/telemetry_data_reference.md` - API source of truth
         *   `docs/dev_docs/FFB_formulas.md` - Physics and scaling constants
         *   `docs/architecture.md` - System design and components
@@ -67,14 +67,14 @@ This document provides the Standard Operating Procedures (SOP), context, and con
     *   `docs/` - User-facing documentation
     *   `docs/dev_docs/` - Developer and technical documentation
     *   `docs/bug_reports/` - Bug reports and troubleshooting
-    *   Root `.md` files - `README.md`, `CHANGELOG.md`, `AGENTS.md`, `AGENTS_MEMORY.md`
+    *   Root `.md` files - `README.md`, `CHANGELOG_DEV.md`, `AGENTS.md`, `AGENTS_MEMORY.md`
 *   **Critical**: Do NOT assume only one document needs updating. Your changes may affect multiple documents.
 
 ### 5. 📦 Versioning & Changelog
 *   **Update Version**: Increment the number in the `VERSION` file (root directory).
     *   *Patch (0.0.X)*: Bug fixes, tweaks, refactoring.
     *   *Minor (0.X.0)*: New features, new effects.
-*   **Update Changelog**: Add a concise entry to `CHANGELOG.md` under the new version number.
+*   **Update Changelog**: Add a concise entry to `CHANGELOG_DEV.md` under the new version number.
 
 ### 6. 🧠 Update Memory (Critical)
 *   **Action**: If you encountered a build error, a command failure, or learned something new about the code structure, append it to `AGENTS_MEMORY.md`.
@@ -91,7 +91,7 @@ This document provides the Standard Operating Procedures (SOP), context, and con
     *   [ ] **Documentation Scanned**: Did you scan all `.md` files and identify relevant docs?
     *   [ ] **Documentation Updated**: Did you update ALL relevant documentation (not just one file)?
     *   [ ] **Version Bumped**: Did you increment the number in `VERSION`?
-    *   [ ] **Changelog Updated**: Did you add a section in `CHANGELOG.md`?
+    *   [ ] **Changelog Updated**: Did you add a section in `CHANGELOG_DEV.md`?
     *   [ ] **Tests Passed**: Did you verify with `run_tests`?
 
 ---

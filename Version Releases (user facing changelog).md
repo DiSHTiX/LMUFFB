@@ -66,7 +66,7 @@ New release (v0.4.15+) https://github.com/coasting-nc/LMUFFB/releases
 This should fix the FFB instability issues (eg. intermittent inverse FFB).
 It also removes the messages and instructions about vJoy and the rFactor 2 shared memory dll, since vJoy is no longer needed, and there are no problems if you keep the shared memory dll in the game.
 
-Full changelogs: https://github.com/coasting-nc/LMUFFB/blob/main/CHANGELOG.md
+Full changelogs: https://github.com/coasting-nc/LMUFFB/blob/main/CHANGELOG_DEV.md
  
 ---
 
