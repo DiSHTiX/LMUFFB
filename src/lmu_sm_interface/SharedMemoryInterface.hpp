@@ -1,9 +1,5 @@
 #pragma once
 #include "InternalsPlugin.hpp"
-#include <optional>
-#include <utility> // For std::exchange, std::swap
-#include <cstdint> // For uint32_t, uint8_t
-#include <cstring> // For memcpy
 
 /*
 * Usage example:

@@ -8,7 +8,10 @@ All notable changes to this project will be documented in this file.
 - **@DiSHTiX** for the LMU Plugin update PR.
 
 ### Fixed
-- **LMU Plugin Update Build Break**: Fixed compilation errors in the updated `SharedMemoryInterface.hpp` by restoring missing standard library headers (`<optional>`, `<utility>`, `<cstdint>`, `<cstring>`). This ensures compatibility with the new 2025 plugin interface provided by Studio 397.
+- **LMU Plugin Update Build Break**: Fixed compilation errors in the updated `SharedMemoryInterface.hpp` by creating a header wrapper (`LmuSharedMemoryWrapper.h`).
+  - **Wrapper Approach**: Instead of editing the official vendor files provided by Studio 397, we now include the missing standard library headers (`<optional>`, `<utility>`, `<cstdint>`, `<cstring>`) in our wrapper file before including the official header.
+  - **Benefit**: This approach preserves the integrity of official source files, making future plugin updates easier to integrate and reducing maintenance burden.
+  - **Compatibility**: Ensures full compatibility with the new 2025 plugin interface (LMU 1.2/1.3 standards).
 
 ### Changed
 - **LMU Plugin Interface**: Updated `InternalsPlugin.hpp` and `PluginObjects.hpp` to the latest 2025 version, aligning with LMU 1.2/1.3 standards.

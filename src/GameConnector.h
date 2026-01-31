@@ -1,8 +1,7 @@
 #ifndef GAMECONNECTOR_H
 #define GAMECONNECTOR_H
 
-#include "lmu_sm_interface/SharedMemoryInterface.hpp"
-#include <optional>
+#include "lmu_sm_interface/LmuSharedMemoryWrapper.h"
 #include <windows.h>
 
 class GameConnector {

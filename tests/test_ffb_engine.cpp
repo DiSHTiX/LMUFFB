@@ -6,7 +6,7 @@
 #include <algorithm>
 #include "../src/FFBEngine.h"
 #include "../src/lmu_sm_interface/InternalsPlugin.hpp"
-#include "../src/lmu_sm_interface/SharedMemoryInterface.hpp" // Added for GameState testing
+#include "../src/lmu_sm_interface/LmuSharedMemoryWrapper.h" // Wrapper for GameState testing
 #include "../src/Config.h" // Added for Preset testing
 #include <fstream>
 #include <cstdio> // for remove()
