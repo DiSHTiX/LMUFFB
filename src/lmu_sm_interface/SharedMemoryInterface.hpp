@@ -1,5 +1,8 @@
 #pragma once
 #include "InternalsPlugin.hpp"
+#include <cstdint>
+#include <optional>
+#include <utility>
 
 /*
 * Usage example:
