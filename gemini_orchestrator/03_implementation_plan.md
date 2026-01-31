@@ -55,7 +55,7 @@ This project will not be built in a single "Big Bang". Instead, we will build a 
 *   `analyst_gatekeeper_prompt.txt`: Instructions for reviewing reports/escalating.
 *   `architect_prompt.txt`: Instructions for planning.
 *   `plan_reviewer_prompt.txt`: Instructions for validating the plan.
-*   `developer_prompt.txt`: Instructions for coding (includes JSON schema).
+*   `developer_prompt.txt`: Instructions for TDD-based coding (includes JSON schema).
 *   `auditor_prompt.txt`: Instructions for reviewing code.
 
 ### Task 2.4: Integration Specialist
@@ -71,7 +71,7 @@ This project will not be built in a single "Big Bang". Instead, we will build a 
         *   `Verdict = run_step(Gatekeeper, input=Report)` -> `git_commit(Verdict)` -> Loop/Escalate/Approve.
     1.  `Plan = run_step(Architect, input=Reports)` -> `git_commit(Plan)`
     2.  `PlanVerdict = run_step(PlanReviewer, input=Plan)` -> `git_commit(PlanVerdict)` -> Loop if Rejected.
-    3.  `Result = run_step(Developer, input=Plan)` (Developer commits code)
+    3.  `Result = run_step(Developer, input=Plan)` (Developer follows TDD: tests first, verify fail, implement, verify pass)
     4.  `CodeVerdict = run_step(Auditor, input=Result)` -> `git_commit(CodeVerdict)` -> Loop if Failed.
     5.  **Phase D:**
         *   `git merge main`

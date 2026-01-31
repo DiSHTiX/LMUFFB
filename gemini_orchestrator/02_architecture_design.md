@@ -147,10 +147,14 @@ The main state machine.
     *   *If REJECT:* Loop back to Architect with feedback.
 6.  **Orchestrator** commits the Review Verdict.
 
-### Phase B: Implementation
+### Phase B: Implementation (TDD)
 1.  **Orchestrator** reads Approved Plan.
 2.  **Orchestrator** spawns **Developer**.
-3.  **Agent** modifies code, runs tests.
+3.  **Agent** follows TDD:
+    *   Writes tests first (based on the Plan's Test Plan section).
+    *   Runs new tests to verify they fail (Red Phase).
+    *   Implements minimum code to make tests pass (Green Phase).
+    *   Runs full test suite to verify no regressions.
 4.  **Agent** commits changes to git.
 5.  **Agent** prints JSON: `{"commit_hash": "abc1234", "tests_passed": true}`.
 

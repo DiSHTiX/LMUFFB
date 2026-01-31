@@ -57,9 +57,13 @@ The system MUST support the following distinct phases in a linear or looping pip
         *   **REJECT:** Return to **Phase A.1** with feedback.
     *   **(Orchestrator commits review)**
 
-4.  **Phase B: Developer (Implementation)**
+4.  **Phase B: Developer (Implementation - TDD)**
     *   **Input:** Path to the Approved Implementation Plan file.
-    *   **Goal:** Write code, run tests, fix errors until tests pass.
+    *   **Goal:** Follow Test Driven Development (TDD):
+        1.  Write tests first, based on the Test Plan.
+        2.  Verify the new tests fail (Red Phase).
+        3.  Implement the minimum code to make tests pass (Green Phase).
+        4.  Run full test suite to verify no regressions.
     *   **Output:** Git Commit Hash or "Success" status. (Developer performs atomic commits).
 
 5.  **Phase C: Auditor (Code Review)**
