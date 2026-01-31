@@ -819,6 +819,36 @@ static void test_legacy_config_migration() {
     remove(test_file.c_str());
 }
 
+static void test_icon_presence() {
+    std::cout << "\nTest: Icon Presence (Build Artifact)" << std::endl;
+    
+    // The build system should copy lmuffb.ico to the binary directory
+    // or the test execution directory.
+    // For this test, we check if the file exists.
+    
+    const char* icon_filename = "lmuffb.ico";
+    std::ifstream f(icon_filename);
+    bool exists = f.good();
+    f.close();
+    
+    if (exists) {
+        std::cout << "  [PASS] Found " << icon_filename << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "  [FAIL] Missing " << icon_filename << " in current directory" << std::endl;
+        // Check relative to test executable if needed, but CMake usually copies to binary root
+        // and tests run from there or via CTest.
+        // Let's try one directory up just in case (if running from tests/)
+        std::ifstream f2(std::string("../") + icon_filename);
+        if (f2.good()) {
+             std::cout << "  [PASS] Found " << icon_filename << " in parent directory" << std::endl;
+             g_tests_passed++;
+        } else {
+             g_tests_failed++;
+        }
+    }
+}
+
 void Run() {
     std::cout << "=== Running Windows Platform Tests ===" << std::endl;
 
@@ -836,6 +866,7 @@ void Run() {
     test_single_source_of_truth_t300_defaults();  // NEW: v0.5.12
     test_config_persistence_braking_group(); // NEW: v0.5.13
     test_legacy_config_migration(); // NEW: v0.5.13
+    test_icon_presence(); // NEW: Icon check
 
     // Report results
     std::cout << "\n----------------" << std::endl;
