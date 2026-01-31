@@ -46,7 +46,7 @@ Your testing and feedback is greatly appreciated!
 ## December 11, 2025
 **Version v0.4.4b**
 
-New release: https://github.com/coasting-nc/LMUFFB/releases/tag/v0.4.4b
+**New release**: https://github.com/coasting-nc/LMUFFB/releases/tag/v0.4.4b
 
 Updates to install instructions:
 * vJoy might not be necessary, ignore the warning. Just set the ingame FFB to 0% and off.
@@ -61,7 +61,7 @@ You will see warnings about Missing Tire Load and Missing Grip Fraction data det
 ## December 15, 2025
 **Version v0.4.15+ - Major Stability Fix**
 
-New release (v0.4.15+) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.15+) https://github.com/coasting-nc/LMUFFB/releases
 
 This should fix the FFB instability issues (eg. intermittent inverse FFB).
 It also removes the messages and instructions about vJoy and the rFactor 2 shared memory dll, since vJoy is no longer needed, and there are no problems if you keep the shared memory dll in the game.
@@ -73,7 +73,7 @@ Full changelogs: https://github.com/coasting-nc/LMUFFB/blob/main/CHANGELOG_DEV.m
 ## December 15, 2025
 **Version v0.4.16 - Yaw Kick Effect**
 
-New release (v0.4.16) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.16) https://github.com/coasting-nc/LMUFFB/releases
 
 This introduces a new Yaw Kick effect within the Seat of Pants effect, that tells when the rear starts to step out. This should help catch early slides.
 
@@ -82,7 +82,7 @@ This introduces a new Yaw Kick effect within the Seat of Pants effect, that tell
 ## December 16, 2025
 **Version v0.4.18 - Gyroscopic Damping**
 
-New release (v0.4.18) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.18) https://github.com/coasting-nc/LMUFFB/releases
 
 Added Gyroscopic Damping (stabilization effect to prevent "tank slappers" during drifts), and smoothing to the Yaw Kick effect.
 
@@ -91,7 +91,7 @@ Added Gyroscopic Damping (stabilization effect to prevent "tank slappers" during
 ## December 16, 2025
 **Version v0.4.19 - Coordinate System Fix**
 
-New release (v0.4.19) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.19) https://github.com/coasting-nc/LMUFFB/releases
 
 This fixes a few bugs on the use of rF2 / LMU coordinate system. This should fix the issue of the broken slide rumble.
 
@@ -100,7 +100,7 @@ This fixes a few bugs on the use of rF2 / LMU coordinate system. This should fix
 ## December 19, 2025
 **Version v0.4.20 - Force Direction Fixes**
 
-New release (v0.4.20) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.20) https://github.com/coasting-nc/LMUFFB/releases
 
 Fixed two force direction inversions that were causing the wheel to pull in the direction of the turn/slide instead of resisting it, creating unstable positive feedback loops (Positive Feedback Loop in Scrub Drag and Yaw Kick).
 
@@ -111,7 +111,7 @@ Let me know if this new version fixes the issue with the slide rumble. If you st
 ## December 19, 2025
 **Version v0.4.24 - Guide Presets**
 
-New release (v0.4.24) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.24) https://github.com/coasting-nc/LMUFFB/releases
 
 Note: make sure to check you have in-game FFB disabled and strength set to 0%, since after an LMU update these values can get enabled again.
 
@@ -129,7 +129,7 @@ These presets allow users to quickly configure the app for the specific test sce
 ## December 20, 2025
 **Version v0.4.31 - T300 Preset**
 
-New release (v0.4.31) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.31) https://github.com/coasting-nc/LMUFFB/releases
 
 Fixed inverted SoP (Lateral G) effect, and added a new T300 preset that has working default values for understeer and oversteer / SoP effects.
 
@@ -138,7 +138,7 @@ Fixed inverted SoP (Lateral G) effect, and added a new T300 preset that has work
 ## December 20, 2025
 **Version v0.4.37 - Slide Texture Overhaul**
 
-New release (v0.4.37) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.37) https://github.com/coasting-nc/LMUFFB/releases
 
 Fixed Slide Rumble bug (due to "phase explosion" issue that caused massive constant force pulls during frame stutters).
 
@@ -151,7 +151,7 @@ Fixed Slide Rumble bug (due to "phase explosion" issue that caused massive const
 ## December 20, 2025
 **Version v0.4.38 - Frame Stutter Fixes**
 
-New release (v0.4.38) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.38) https://github.com/coasting-nc/LMUFFB/releases
 
 More fixes to ensure consistent FFB even in case of physics frames stuttering.
 
@@ -160,7 +160,7 @@ More fixes to ensure consistent FFB even in case of physics frames stuttering.
 ## December 20, 2025
 **Version v0.4.39 - Improved Tyre Physics**
 
-New release (v0.4.39) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.39) https://github.com/coasting-nc/LMUFFB/releases
 
 Implemented better approximations for tyre grip and load.
 
@@ -169,7 +169,7 @@ Implemented better approximations for tyre grip and load.
 ## December 21, 2025
 **Version v0.4.43 - Latency Reduction & Flatspot Suppression**
 
-New release (v0.4.43) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.43) https://github.com/coasting-nc/LMUFFB/releases
 
 Fixed "delay" in FFB: reduced latency to < 15ms due to SoP Smoothing and Slip Angle Smoothing
 
@@ -187,7 +187,7 @@ Fixes to Yaw Kick noise: Muted for low forces and low speeds.
 ## December 21, 2025
 **Version v0.4.44 - Focus Loss Diagnostics**
 
-New release (v0.4.44) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.44) https://github.com/coasting-nc/LMUFFB/releases
 
 Fixes and diagnostics for the wheel disconnecting when lmuffb app is not focused.
 
@@ -200,7 +200,7 @@ If you still get issues with the FFB disappearing or wheel disconnecting when lm
 ## December 23, 2025
 **Version v0.4.45 / v0.4.46 / v0.5.2 - GUI Improvements**
 
-New release (v0.4.45) https://github.com/coasting-nc/LMUFFB/releases
+**New release** (v0.4.45) https://github.com/coasting-nc/LMUFFB/releases
 
 * Added checkbox for **"Always on Top" Mode**
 * Fine adjustments to the sliders with keyboard keys (left and right arrows)
@@ -217,7 +217,7 @@ Version 0.5.2:
 ## December 24, 2025
 **Version 0.5.7 - New Sliders**
 
-New release (0.5.7): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.5.7): https://github.com/coasting-nc/LMUFFB/releases
 
 Added new sliders:
 * **optimal_slip_angle**: used to estimate grip, affects these effects: Understeer, Oversteer Boost, Slide Texture.
@@ -229,7 +229,7 @@ Added new sliders:
 ## December 24, 2025
 **Version 0.5.8 / 0.5.10 - Error Handling & Smoothing**
 
-New release (0.5.8): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.5.8): https://github.com/coasting-nc/LMUFFB/releases
 
 Improves Error Handling for no FFB when lmuFFB not on top.
 * Aggressive FFB Recovery: Implemented more robust DirectInput connection recovery. Try to re-acquire the wheel even when the error code is "unknown"
@@ -248,7 +248,7 @@ Added 3 additional sliders that expose three pre-existing smoothing settings:
 ## December 25, 2025
 **Version 0.5.14 - Error Logging**
 
-New release (0.5.14): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.5.14): https://github.com/coasting-nc/LMUFFB/releases
 
 * Improved more informative error logs on the console to diagnose FFB lost or wheel disconnected.
 
@@ -257,7 +257,7 @@ New release (0.5.14): https://github.com/coasting-nc/LMUFFB/releases
 ## December 25, 2025
 **Version 0.6.1 - Advanced Braking & Lockup Effects**
 
-New release (0.6.1): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.1): https://github.com/coasting-nc/LMUFFB/releases
 
 Added new section of settings for **Advanced Braking & Lockup effects** adjustments:
 
@@ -288,7 +288,7 @@ Added sliders to adjust some of the main gating mechanisms:
 ## December 25, 2025
 **Version 0.6.2 - DirectInput Recovery**
 
-New release (0.6.2): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.2): https://github.com/coasting-nc/LMUFFB/releases
 
 * Improved mechanism to **reacquire the wheel device from DirectInput** if LMU regains exclusive control to send FFB.
 
@@ -297,7 +297,7 @@ New release (0.6.2): https://github.com/coasting-nc/LMUFFB/releases
 ## December 27, 2025
 **Version 0.6.20 - Tooltip Overhaul**
 
-New release (0.6.20): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.20): https://github.com/coasting-nc/LMUFFB/releases
 
 Changes since v. 0.6.2:
 * Overhauled all tooltips
@@ -316,7 +316,7 @@ Changes since v. 0.6.2:
 ## December 28, 2025
 **Version 0.6.22 - Vibration Fixes**
 
-New release (0.6.22): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.22): https://github.com/coasting-nc/LMUFFB/releases
 
 Fixed vibrations when car still / in the pits:
 * Disabled vibration effects when speed below a certain threashold (ramp from 0.0 vibrations at < 0.5 m/s to 1.0 vibrations at > 2.0 m/s).
@@ -330,7 +330,7 @@ Fixed vibrations when car still / in the pits:
 ## December 28, 2025
 **Version 0.6.23 - Smoothing Adjustments**
 
-New release (0.6.23): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.23): https://github.com/coasting-nc/LMUFFB/releases
 
 * Increased default max speed for smoothing of steering torque from 10km/h to 18/km (you should get no more engine / clutch vibrations below 18 km/h).
 * Added slider to the GUI to adjust this value (It's a new  Advanced Settings at the bottom of the GUI, below the Tactile Textures section).
@@ -344,7 +344,7 @@ If you still get the issue of vibrations at low speed, please post a screenshot 
 ## January 1, 2026
 **Version 0.6.30 - Low-Speed Fixes**
 
-New release (0.6.30): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.30): https://github.com/coasting-nc/LMUFFB/releases
 
 * Fixed Remaining Vibrations at Low-Speed and when in Pits: applied muting and smoothing also to SoP (including Self Aligning Torque) and Base Torque (steering rack).
 * Fixed: some settings were not being saved to the ini file, so they were been restored to defaults every time you opened the app.
@@ -359,7 +359,7 @@ Findings from more testing: the Understeer Effect seems to be working. In fact, 
 ## January 2, 2026
 **Version 0.6.31 - Understeer Effect Fixes**
 
-New release (0.6.31): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.31): https://github.com/coasting-nc/LMUFFB/releases
 
 Fixes for Understeer Effect:
 * Reduced the previous range from 0-200 to 0-2 (since the useful values seemed to be only between 0-2)
@@ -372,7 +372,7 @@ Fixes for Understeer Effect:
 ## January 2, 2026
 **Version 0.6.32 - Preset Fix**
 
-New release (0.6.32): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.32): https://github.com/coasting-nc/LMUFFB/releases
 
 Fixed: "Test: Understeer Only" Preset to ensure proper effect isolation.
 
@@ -381,7 +381,7 @@ Fixed: "Test: Understeer Only" Preset to ensure proper effect isolation.
 ## January 4, 2026
 **Version 0.6.35 - DD Presets**
 
-New release (0.6.35): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.35): https://github.com/coasting-nc/LMUFFB/releases
 
 Added new DD presets based on @dISh and Gamer Muscle presets from today:
 * GT3 DD 15 Nm (Simagic Alpha)
@@ -396,7 +396,7 @@ Updated the default preset to match the "GT3 DD 15 Nm (Simagic Alpha)" preset.
 ## January 5, 2026
 **Version 0.6.36 - Code Architecture Improvements**
 
-New release (0.6.36): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.36): https://github.com/coasting-nc/LMUFFB/releases
 
 ### Improved
 - **Performance Optimization**: Improved code organization and maintainability. Fixed an issue where "Torque Drop" was incorrectly affecting texture effects (Road, Slide, Spin, Bottoming), which now remain distinct during drifts and burnouts.
@@ -406,7 +406,7 @@ New release (0.6.36): https://github.com/coasting-nc/LMUFFB/releases
 ## January 31, 2026
 **Version 0.6.37 - Application Icon**
 
-New release (0.6.37): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.37): https://github.com/coasting-nc/LMUFFB/releases
 
 **Special Thanks** to:
 - **@MartinVindis** for designing the application icon
@@ -420,7 +420,7 @@ New release (0.6.37): https://github.com/coasting-nc/LMUFFB/releases
 ## January 31, 2026
 **Version 0.6.38 - LMU Plugin Update**
 
-New release (0.6.38): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.38): https://github.com/coasting-nc/LMUFFB/releases
 
 **Special Thanks** to **@DiSHTiX** for the LMU Plugin update!
 
@@ -432,7 +432,7 @@ New release (0.6.38): https://github.com/coasting-nc/LMUFFB/releases
 ## January 31, 2026
 **Version 0.6.39 - Auto-Connect & Performance**
 
-New release (0.6.39): https://github.com/coasting-nc/LMUFFB/releases
+**New release** (0.6.39): https://github.com/coasting-nc/LMUFFB/releases
 
 **Special Thanks** to **@AndersHogqvist** for the Auto-connect feature!
 

@@ -94,6 +94,8 @@ Structure:
 ## Version 0.6.40 - [Month Day, Year]
 **Special Thanks** to [contributors] for [contribution]!
 
+**New release** (0.6.40): https://github.com/coasting-nc/LMUFFB/releases
+
 ### Added
 - **Feature Name**: Brief, benefit-focused description of what users will notice or can now do
 
@@ -106,6 +108,11 @@ Structure:
 ### Improved
 - **Area**: Performance or quality improvement users will feel
 ```
+
+**Formatting Requirements**:
+- **"New release" text**: ALWAYS use bold formatting: `**New release**`
+- **Version in link**: Include version number in parentheses after "New release"
+- **Release link**: Always include link to GitHub releases page
 
 **Key Differences from Technical Changelog**:
 - **Brevity**: 2-4 sentences per item, not paragraphs
@@ -198,6 +205,8 @@ The user will review and commit these changes manually.
 ### User-Facing Changelog
 ```markdown
 ## Version 0.6.23 - December 28, 2025
+
+**New release** (0.6.23): https://github.com/coasting-nc/LMUFFB/releases
 
 ### Added
 - **Customizable Low-Speed Smoothing**: Added adjustable sliders in Advanced Settings to control when vibrations fade out at low speeds. Default increased to 18 km/h to better eliminate engine rumble when stationary or in pits.

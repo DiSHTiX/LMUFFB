@@ -44,13 +44,22 @@ Include changes that users will:
 ```markdown
 ## [Version] - Date
 **[Optional: Special Thanks or Theme]**
+
+**New release** ([version]): https://github.com/coasting-nc/LMUFFB/releases
 ```
 
 **Example**:
 ```markdown
 ## Version 0.6.39 - January 31, 2026
 **Special Thanks** to @AndersHogqvist for the Auto-connect feature!
+
+**New release** (0.6.39): https://github.com/coasting-nc/LMUFFB/releases
 ```
+
+**Formatting Requirements**:
+- Always bold "New release": `**New release**`
+- Include version in parentheses after "New release"
+- Always include link to GitHub releases page
 
 ### Change Categories
 
@@ -103,6 +112,8 @@ Use these categories in order of user impact:
 
 ```markdown
 ## Version 0.6.22 - December 28, 2025
+
+**New release** (0.6.22): https://github.com/coasting-nc/LMUFFB/releases
 
 ### Fixed
 - **Vibrations While Stationary**: Fixed the wheel shaking issue when sitting in the pits or at low speeds. Vibration effects now automatically fade out below 2 m/s and steering torque is smoothed below 3 m/s to eliminate engine rumble.
@@ -191,6 +202,8 @@ Before finalizing an entry, ask:
 ```markdown
 ## Version [X.YZ] - [Month Day, Year]
 **Special Thanks** to [Contributors] for [Contribution]!
+
+**New release** ([X.YZ]): https://github.com/coasting-nc/LMUFFB/releases
 
 ### Added
 - **[Feature Name]**: [User benefit description]
