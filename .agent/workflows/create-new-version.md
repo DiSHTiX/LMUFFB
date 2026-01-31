@@ -84,35 +84,51 @@ Add a new detailed technical entry at the TOP of `CHANGELOG_DEV.md` following th
 
 ### 4. Add Entry to User-Facing Changelog
 
-Add a new USER-FRIENDLY entry to `USER_CHANGELOG_DEV.md` (or whatever name was chosen).
+Add a new USER-FRIENDLY entry in **BBCode format** to `USER_CHANGELOG.md`.
 
 **IMPORTANT**: Read `docs/user_facing_changelog_guide.md` FIRST for detailed guidelines.
 
+**Format: BBCode** (for forum posting)
+
 Structure:
 
-```markdown
-## Version 0.6.40 - [Month Day, Year]
-**Special Thanks** to [contributors] for [contribution]!
+```bbcode
+[size=5][b]Month Day, Year[/b][/size]
+[b]Version 0.6.40 - Feature Name[/b]
 
-**New release** (0.6.40): https://github.com/coasting-nc/LMUFFB/releases
+[b]Special Thanks[/b] to [b]@contributors[/b] for [contribution]!
 
-### Added
-- **Feature Name**: Brief, benefit-focused description of what users will notice or can now do
+[b]New release[/b] (0.6.40): https://github.com/coasting-nc/LMUFFB/releases
 
-### Fixed  
-- **Issue Description**: What was wrong and how it's better now, in plain language
+[b]Added[/b]
+[list]
+[*][b]Feature Name[/b]: Brief, benefit-focused description of what users will notice or can now do
+[/list]
 
-### Changed
-- **Feature Name**: What changed from the user's perspective and why they should care
+[b]Fixed[/b]
+[list]
+[*][b]Issue Description[/b]: What was wrong and how it's better now, in plain language
+[/list]
 
-### Improved
-- **Area**: Performance or quality improvement users will feel
+[b]Changed[/b]
+[list]
+[*][b]Feature Name[/b]: What changed from the user's perspective and why they should care
+[/list]
+
+[b]Improved[/b]
+[list]
+[*][b]Area[/b]: Performance or quality improvement users will feel
+[/list]
 ```
 
 **Formatting Requirements**:
-- **"New release" text**: ALWAYS use bold formatting: `**New release**`
+- **"New release" text**: ALWAYS use BBCode bold: `[b]New release[/b]`
 - **Version in link**: Include version number in parentheses after "New release"
 - **Release link**: Always include link to GitHub releases page
+- **Headers**: Use `[size=5][b]Date[/b][/size]` for main heading
+- **Bold**: Use `[b]text[/b]` NOT `**text**`
+- **Lists**: Use `[list][*]item[/list]` NOT `* item`
+- **Links**: Just paste URL or use `[url=url]text[/url]`
 
 **Key Differences from Technical Changelog**:
 - **Brevity**: 2-4 sentences per item, not paragraphs
@@ -143,6 +159,9 @@ Structure:
 - [ ] No code/file references
 - [ ] Explains WHAT CHANGED from user perspective
 - [ ] Skip items users won't notice (tests, refactoring, dev docs)
+- [ ] BBCode formatting used (not Markdown)
+- [ ] Bold uses `[b]text[/b]` NOT `**text**`
+- [ ] Lists use `[list][*]item[/list]` NOT `* item`
 
 ### 6. Build and Test
 
@@ -166,7 +185,7 @@ Review your changes and inform the user that the following files have been modif
 - `VERSION`
 - `src/Version.h`
 - `CHANGELOG_DEV.md`
-- `USER_CHANGELOG_DEV.md` (or renamed file)
+- `USER_CHANGELOG.md`
 
 The user will review and commit these changes manually.
 
@@ -202,17 +221,22 @@ The user will review and commit these changes manually.
   - Provides surgical smoothing without affecting driving feel
 ```
 
-### User-Facing Changelog
-```markdown
-## Version 0.6.23 - December 28, 2025
+### User-Facing Changelog (BBCode)
+```bbcode
+[size=5][b]December 28, 2025[/b][/size]
+[b]Version 0.6.23 - Smoothing Adjustments[/b]
 
-**New release** (0.6.23): https://github.com/coasting-nc/LMUFFB/releases
+[b]New release[/b] (0.6.23): https://github.com/coasting-nc/LMUFFB/releases
 
-### Added
-- **Customizable Low-Speed Smoothing**: Added adjustable sliders in Advanced Settings to control when vibrations fade out at low speeds. Default increased to 18 km/h to better eliminate engine rumble when stationary or in pits.
+[b]Added[/b]
+[list]
+[*][b]Customizable Low-Speed Smoothing[/b]: Added adjustable sliders in Advanced Settings to control when vibrations fade out at low speeds. Default increased to 18 km/h to better eliminate engine rumble when stationary or in pits.
+[/list]
 
-### Improved
-- **Smoother Pit Experience**: Fixed remaining vibrations at very low speeds by automatically applying smoothing below 18 km/h instead of the previous 10 km/h.
+[b]Improved[/b]
+[list]
+[*][b]Smoother Pit Experience[/b]: Fixed remaining vibrations at very low speeds by automatically applying smoothing below 18 km/h instead of the previous 10 km/h.
+[/list]
 ```
 
 ## Notes
