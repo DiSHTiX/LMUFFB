@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.38] - 2026-01-31
+
+**Special Thanks** to the community contributors for this release:
+- **@DiSHTiX** for the LMU Plugin update PR.
+
+### Fixed
+- **LMU Plugin Update Build Break**: Fixed compilation errors in the updated `SharedMemoryInterface.hpp` by restoring missing standard library headers (`<optional>`, `<utility>`, `<cstdint>`, `<cstring>`). This ensures compatibility with the new 2025 plugin interface provided by Studio 397.
+
+### Changed
+- **LMU Plugin Interface**: Updated `InternalsPlugin.hpp` and `PluginObjects.hpp` to the latest 2025 version, aligning with LMU 1.2/1.3 standards.
+
 ## [0.6.37] - 2026-01-31
 
 **Special Thanks** to the community contributors for this release:

@@ -81,6 +81,10 @@ This document provides the Standard Operating Procedures (SOP), context, and con
 *   **Goal**: Help the *next* AI session avoid the same problem.
 
 ### 7. 📤 Delivery
+*   **🚫 NO GIT STAGING**: You are strictly forbidden from running `git add`, `git commit`, or `git reset`.
+    *   **Rule**: Modify files on disk ONLY.
+    *   **Reason**: The user must review and stage changes manually.
+    *   **No Exceptions**: Do not stage files even if you created them.
 *   **Do Not Push**: You do not have write access to the repository.
 *   **Save Files**: Ensure all modified files (including `AGENTS_MEMORY.md`) are saved. The user will download your work as a ZIP.
 *   **MANDATORY CHECKLIST**:

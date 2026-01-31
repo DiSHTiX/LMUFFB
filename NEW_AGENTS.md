@@ -84,7 +84,11 @@ Run all tests that had already been compiled:
 *   **Goal**: Help the *next* AI session avoid the same problem.
 
 ### 7. 📤 Delivery
-*   **Do Not Push**: Do not run any command that change git history (e.g. `git add`, `git commit`, `git push`) or that reset the local staged changes (e.g. `git reset`).
+*   **🚫 NO GIT STAGING**: You are strictly forbidden from running `git add`, `git commit`, or `git reset`.
+    *   **Rule**: Modify files on disk ONLY.
+    *   **Reason**: The user must review and stage changes manually.
+    *   **No Exceptions**: Do not stage files even if you created them.
+*   **Do Not Push**: Do not run `git push`.
 
 *   **MANDATORY CHECKLIST**:
     *   [ ] **Documentation Scanned**: Did you scan all `.md` files and identify relevant docs?
