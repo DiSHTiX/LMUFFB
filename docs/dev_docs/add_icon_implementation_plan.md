@@ -9,6 +9,7 @@ Currently, the LMUFFB application uses the default Windows executable icon, whic
 -   Create a new directory `icon/` to store source assets.
 -   Include the source image `icon.png`.
 -   Provide a script (`icon/magick-ico.sh`) to generate the `.ico` file from the source PNG using ImageMagick, creating multiple sizes (16, 24, 32, 48, 64, 96, 128, 256) for proper scaling in Windows.
+    -   **Note:** This script requires [ImageMagick](https://imagemagick.org/) to be installed and available in the system PATH.
 -   Store the generated `lmuffb.ico` in the `icon/` directory.
 
 ### 2.2. Resource Files
