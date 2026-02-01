@@ -46,8 +46,12 @@ In some cases, writing tests may be **impractical, excessively complex, or techn
 ## Finalization:
 
 7.  **Verify Plan Completeness**: Review the Implementation Plan's **Deliverables** checklist. Confirm that every item (code changes, tests, documentation) has been implemented.
-8.  **Update Documentation:** Update CHANGELOG.md, VERSION, or other docs as required by the Plan.
-9.  **Commit:** Use `git add` and `git commit` to save your work. **Do not push.**
+8.  **Review User Settings & Presets Impact**:
+    *   If the change affects user settings or presets: update the relevant structures and default values.
+    *   If existing user configurations could be affected: implement migration logic.
+    *   Ensure new settings are properly documented.
+9.  **Update Documentation:** Update CHANGELOG.md, VERSION, or other docs as required by the Plan.
+10. **Commit:** Use `git add` and `git commit` to save your work. **Do not push.**
 
 # Output Format
 You must end your response with a JSON block strictly following this schema:

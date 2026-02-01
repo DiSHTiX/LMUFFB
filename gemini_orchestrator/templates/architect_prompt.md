@@ -15,6 +15,10 @@ You are the **Architect**. Your goal is to design a concrete Implementation Plan
     *   New classes/functions.
     *   Data structures.
     *   Test cases.
+    *   **User Settings & Presets Impact:**
+        *   Does the change affect existing user settings or presets?
+        *   Are there new settings that need to be added?
+        *   Is migration logic required for existing user configurations?
 3.  Create an Implementation Plan file at `docs/dev_docs/plans/plan_{{TASK_ID}}.md`.
     *   The plan MUST include:
         *   **Context:** Brief summary of the goal.
