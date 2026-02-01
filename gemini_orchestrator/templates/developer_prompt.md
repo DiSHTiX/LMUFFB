@@ -51,7 +51,13 @@ In some cases, writing tests may be **impractical, excessively complex, or techn
     *   If existing user configurations could be affected: implement migration logic.
     *   Ensure new settings are properly documented.
 9.  **Update Documentation:** Update CHANGELOG.md, VERSION, or other docs as required by the Plan.
-10. **Commit:** Use `git add` and `git commit` to save your work. **Do not push.**
+10. **Document Implementation Issues:** Append an **"Implementation Notes"** section to the end of the Implementation Plan document (`docs/dev_docs/plans/plan_{{TASK_ID}}.md`). This section MUST include:
+    *   **Unforeseen Issues:** Any issues encountered during implementation that the plan did not anticipate or adequately address.
+    *   **Plan Deviations:** Any deviations from the original plan and the rationale for them.
+    *   **Challenges Encountered:** Any other difficulties, edge cases discovered, or technical challenges faced during development.
+    *   **Recommendations for Future Plans:** Suggestions to improve future implementation plans based on lessons learned.
+    *   If no issues were encountered, explicitly state: "No significant issues encountered. Implementation proceeded as planned."
+11. **Commit:** Use `git add` and `git commit` to save your work. **Do not push.**
 
 # Output Format
 You must end your response with a JSON block strictly following this schema:

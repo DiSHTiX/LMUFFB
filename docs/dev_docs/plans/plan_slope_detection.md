@@ -693,3 +693,190 @@ If Slope Detection proves superior after user testing:
 1. **Savitzky-Golay Coefficients Deep Research Report**  
    `docs/dev_docs/plans/savitzky-golay coefficients deep research report.md`  
    Comprehensive mathematical derivation and C++ implementation patterns for SG filter coefficients.
+
+---
+
+## Implementation Notes
+
+*Added: 2026-02-01 (post-implementation)*
+
+### Unforeseen Issues
+
+1. **Missing Preset-Engine Synchronization Fields**
+   - **Issue:** Several parameters (`optimal_slip_angle`, `optimal_slip_ratio`, smoothing parameters) were declared in both `Preset` and `FFBEngine` but were missing from `Preset::Apply()` and `Preset::UpdateFromEngine()` methods.
+   - **Consequence:** When `Preset::ApplyDefaultsToEngine()` was called, these fields remained at zero/uninitialized, triggering validation warnings like "Invalid optimal_slip_angle (0), resetting to default 0.10".
+   - **Resolution:** Added all missing parameter synchronization to both methods in Config.h (lines 265-276 and 325-340).
+
+2. **FFBEngine Constructor Initialization Order**
+   - **Issue:** The plan did not address where `Preset::ApplyDefaultsToEngine()` should be called during FFBEngine construction. The FFBEngine constructor was defined inline in FFBEngine.h but needed to call methods from Config.h which includes FFBEngine.h—a circular dependency.
+   - **Resolution:** Moved FFBEngine constructor definition to Config.h as an `inline` function after the Preset class definition, allowing it to call `Preset::ApplyDefaultsToEngine(*this)`.
+
+3. **Unicode Encoding Issues with Test Files**
+   - **Issue:** Some test files (`test_ffb_engine_HEAD.cpp`, `deleted_lines.txt`) had UTF-16LE encoding, causing `view_file` tool failures with "unsupported mime type text/plain; charset=utf-16le".
+   - **Workaround:** Created UTF-8 copies of files using PowerShell: `Get-Content file.cpp | Out-File -Encoding utf8 file_utf8.cpp`
+   - **Recommendation:** See `docs/dev_docs/unicode_encoding_issues.md` for detailed guidance.
+
+### Plan Deviations
+
+1. **Front-Only Slope Detection**
+   - **Deviation:** Added `is_front` parameter to `calculate_grip()` function to restrict slope detection to front wheels only.
+   - **Rationale:** Slope detection uses lateral G-force, which is a vehicle-level measurement. Applying the same slope calculation to rear wheels would give identical (and incorrect) results. Rear grip continues to use the static threshold method.
+
+2. **Slope Fallback Behavior**
+   - **Original Plan:** When slip angle isn't changing (`dAlpha_dt < 0.001`), set `m_slope_current = 20.0` (assume peak grip).
+   - **Deviation:** Changed to retain previous slope value instead of resetting.
+   - **Rationale:** The noise rejection test (`test_slope_noise_rejection`) expects the SG filter to smooth out G-force noise when slip angle is constant. Resetting slope to 20.0 every frame when slip isn't changing defeated this purpose.
+
+3. **Grip Factor Safety Clamp**
+   - **Added:** Explicit `(std::max)(0.2, (std::min)(1.0, current_grip_factor))` clamp.
+   - **Rationale:** The plan mentioned a 0.2 floor but did not include explicit clamping code. Added to prevent edge cases where excessive negative slopes could produce negative grip factors.
+
+### Challenges Encountered
+
+1. **Test Telemetry Setup (`test_slope_vs_static_comparison`)**
+   - **Challenge:** Original test only varied G-force while keeping slip angle constant. This meant `dAlpha_dt = 0`, which triggered the "no change in slip" branch rather than actually testing slope calculation.
+   - **Resolution:** Modified test to vary both G-force and slip angle over time, simulating a realistic tire curve progression from increasing grip to grip loss past the peak.
+
+2. **Buffer Indexing in Savitzky-Golay Calculation**
+   - **Challenge:** The circular buffer indexing required careful handling when buffer count was less than window size. Initial implementation had edge cases where array indices could be negative before modulo.
+   - **Resolution:** Used `(index + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX` pattern consistently to ensure always-positive indices.
+
+3. **Debugging Build Failures**
+   - **Challenge:** Initial build after implementing the plan had cryptic linker errors due to the FFBEngine constructor circular dependency issue.
+   - **Resolution:** Systematic analysis of include order and moving constructor definition to the right location in the header dependency chain.
+
+### Recommendations for Future Plans
+
+1. **Explicitly Document Parameter Synchronization**
+   - Future plans that add new parameters should explicitly list:
+     - Declaration location in FFBEngine.h
+     - Declaration location in Preset struct (Config.h)
+     - Entry in `Preset::Apply()`
+     - Entry in `Preset::UpdateFromEngine()`
+     - Entry in `Config::Save()`
+     - Entry in `Config::Load()`
+   - Use a parameter checklist table format to ensure nothing is missed.
+
+2. **Include Initialization Order Analysis**
+   - When adding functionality that spans FFBEngine.h and Config.h, analyze the circular dependency implications upfront.
+   - Document whether inline functions or out-of-class definitions are needed.
+
+3. **Test Case Design Should Include Data Flow Analysis**
+   - For derivative-based algorithms, explicitly document what telemetry inputs need to change and how.
+   - Include "telemetry script" examples showing multi-frame progressions.
+
+4. **Consider File Encoding in Agents Guidelines**
+   - Add encoding handling guidance to agent instruction documents.
+   - Prefer UTF-8 with BOM for new source files on Windows to avoid tooling issues.
+
+5. **Add Boundary Condition Tests**
+   - For buffer-based algorithms, include explicit tests for:
+     - Empty buffer
+     - Partially filled buffer
+     - Exactly full buffer
+     - Buffer wraparound
+
+---
+
+## Planned Enhancements (v0.7.1)
+
+### Lower Minimum Filter Window to 3
+
+**Rationale:**  
+After reviewing the v0.7.0 implementation, we identified an opportunity to provide users with an ultra-low latency option while maintaining mathematical validity.
+
+**Current State (v0.7.0):**
+- Minimum window: 5 samples
+- Minimum latency: 6.25ms
+
+**Proposed Change (v0.7.1):**
+- Minimum window: 3 samples
+- Minimum latency: 3.75ms
+
+**Technical Justification:**
+- Savitzky-Golay quadratic polynomial fitting requires minimum 3 points
+- Window=3 is mathematically valid, though noisier than window=5
+- Provides 40% latency reduction for latency-sensitive users
+
+**Implementation Details:**
+
+1. **Lower validation minimum** (`Config.cpp` line 1093):
+   ```cpp
+   if (engine.m_slope_sg_window < 3) engine.m_slope_sg_window = 3;  // Changed from 5
+   ```
+
+2. **Update GUI slider range** (`GuiLayer.cpp` line 1117):
+   ```cpp
+   if (ImGui::SliderInt("  Filter Window", &window, 3, 41)) {  // Changed from 5
+   ```
+
+3. **Add dynamic tooltip warning** (`GuiLayer.cpp` after line 1122):
+   ```cpp
+   if (ImGui::IsItemHovered()) {
+       if (engine.m_slope_sg_window <= 5) {
+           ImGui::SetTooltip(
+               "WARNING: Window sizes < 7 may produce noisy feedback.\n"
+               "Recommended: 11-21 for smooth operation.\n\n"
+               "Current latency: ~%.1f ms", latency_ms);
+       } else {
+           ImGui::SetTooltip(
+               "Savitzky-Golay filter window size.\n"
+               "Larger = Smoother but higher latency.\n"
+               "Smaller = Faster response but noisier.\n\n"
+               "Current latency: ~%.1f ms", latency_ms);
+       }
+   }
+   ```
+
+4. **Update user documentation** (`docs/Slope_Detection_Guide.md`):
+   - Change minimum in all examples from 5 to 3
+   - Add warning about noise with window < 7
+   - Update latency calculations
+
+**Testing Requirements:**
+- Test window=3 with noisy telemetry (curbs, bumps)
+- Validate SG coefficient calculation at edge case
+- Ensure tooltip displays correctly
+- Update `test_slope_latency_characteristics` to include window=3 case
+
+**User Impact:**
+- Advanced users gain access to 3.75ms latency option
+- Default remains at 15 (conservative, well-tested)
+- Warning tooltip prevents accidental misconfiguration
+
+**Priority:** Low (Enhancement, not a fix)  
+**Complexity:** 2/10 (Simple parameter changes)  
+**Risk:** Low (Mathematically sound, optional feature)
+
+---
+
+### Buffer Reset on Toggle (Implemented in v0.7.0)
+
+**Issue:**  
+When slope detection is toggled ON mid-session, stale buffer data from when the feature was OFF could cause incorrect initial slope calculations.
+
+**Solution (Implemented):**  
+Added automatic buffer reset when `m_slope_detection_enabled` transitions from `false` → `true`:
+
+```cpp
+// GuiLayer.cpp - lines 1105-1126
+if (!prev_slope_enabled && engine.m_slope_detection_enabled) {
+    engine.m_slope_buffer_count = 0;
+    engine.m_slope_buffer_index = 0;
+    engine.m_slope_smoothed_output = 1.0;  // Start at full grip
+    std::cout << "[SlopeDetection] Enabled - buffers cleared" << std::endl;
+}
+```
+
+**User Impact:**
+- Eliminates potential FFB glitches when enabling slope detection mid-drive
+- Ensures clean slate for derivative calculation
+- No impact on performance (happens only on toggle event)
+
+**Status:** ✅ Implemented in v0.7.0 (GuiLayer.cpp)
+
+---
+
+*Implementation completed: 2026-02-01*  
+*All 503 tests passing*  
+*Total implementation time: ~2 hours*

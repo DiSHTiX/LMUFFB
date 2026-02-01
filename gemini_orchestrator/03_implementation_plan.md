@@ -57,12 +57,22 @@ This project will not be built in a single "Big Bang". Instead, we will build a 
     *   **Codebase Analysis:** Architect must review current codebase, identify impacted functionalities, and trace data flows.
     *   **FFB Effect Impact Analysis:** For FFB-related tasks, document affected effects (understeer, oversteer, lockup, etc.) from both technical (files, functions, data changes) and user (FFB feel, UI settings, presets) perspectives.
     *   **User Settings & Presets Impact:** Migration logic considerations.
+    *   **Parameter Synchronization Checklist:** For new settings, document declaration locations, Apply/UpdateFromEngine entries, Save/Load entries.
+    *   **Initialization Order Analysis:** For cross-header changes, document circular dependencies and constructor placement.
+    *   **Boundary Condition Tests:** For buffer-based algorithms, include empty/partial/full/wraparound tests.
 *   `plan_reviewer_prompt.txt`: Instructions for validating the plan. **MUST verify:**
     *   Codebase analysis section is complete.
     *   FFB effect impact is documented (if applicable).
+    *   Parameter synchronization checklist is complete (if adding settings).
+    *   Initialization order analysis is included (if cross-header changes).
+    *   Boundary condition tests are included (for buffer algorithms).
     *   Test plan is TDD-ready.
-*   `developer_prompt.txt`: Instructions for TDD-based coding (includes JSON schema).
-*   `auditor_prompt.txt`: Instructions for reviewing code.
+*   `developer_prompt.txt`: Instructions for TDD-based coding (includes JSON schema). **MUST include:**
+    *   TDD cycle (Red-Green phases).
+    *   Append "Implementation Notes" section to plan documenting unforeseen issues and challenges.
+*   `auditor_prompt.txt`: Instructions for reviewing code. **MUST verify:**
+    *   Code correctness, style, tests, and safety.
+    *   No unintended deletions of code, comments, tests, or documentation.
 
 ### Task 2.4: Integration Specialist
 *   Create `integration_specialist_prompt.txt`: Instructions for resolving git merge conflicts.

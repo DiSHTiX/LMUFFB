@@ -1096,6 +1096,79 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             "Typical: 0.12 - 0.15 (12-15%).\n"
             "Used to estimate grip loss under braking/acceleration.\n"
             "Affects: How much braking/acceleration contributes to calculated grip loss.");
+        
+        // --- SLOPE DETECTION (v0.7.0) ---
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Slope Detection (Experimental)");
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        // Slope Detection Enable - with buffer reset on transition (v0.7.0)
+        bool prev_slope_enabled = engine.m_slope_detection_enabled;
+        GuiWidgets::Result slope_res = GuiWidgets::Checkbox("Enable Slope Detection", &engine.m_slope_detection_enabled,
+            "Replaces static 'Optimal Slip Angle' threshold with dynamic derivative monitoring.\n\n"
+            "When enabled:\n"
+            "• Grip is estimated by tracking the slope of lateral-G vs slip angle\n"
+            "• Automatically adapts to tire temperature, wear, and conditions\n"
+            "• 'Optimal Slip Angle' and 'Optimal Slip Ratio' settings are IGNORED\n\n"
+            "When disabled:\n"
+            "• Uses the static threshold method (default behavior)");
+        
+        if (slope_res.changed) {
+            selected_preset = -1;
+            
+            // Reset buffers when enabling slope detection (v0.7.0 - Prevents stale data)
+            if (!prev_slope_enabled && engine.m_slope_detection_enabled) {
+                engine.m_slope_buffer_count = 0;
+                engine.m_slope_buffer_index = 0;
+                engine.m_slope_smoothed_output = 1.0;  // Start at full grip
+                std::cout << "[SlopeDetection] Enabled - buffers cleared" << std::endl;
+            }
+        }
+        if (slope_res.deactivated) {
+            Config::Save(engine);
+        }
+        
+        if (engine.m_slope_detection_enabled) {
+            // Filter Window
+            int window = engine.m_slope_sg_window;
+            if (ImGui::SliderInt("  Filter Window", &window, 5, 41)) {
+                if (window % 2 == 0) window++;  // Force odd
+                engine.m_slope_sg_window = window;
+                selected_preset = -1;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
+            
+            ImGui::SameLine();
+            float latency_ms = (float)(engine.m_slope_sg_window / 2) * 2.5f;
+            ImVec4 color = (latency_ms < 25.0f) ? ImVec4(0,1,0,1) : ImVec4(1,0.5f,0,1);
+            ImGui::TextColored(color, "~%.0f ms latency", latency_ms);
+            ImGui::NextColumn(); ImGui::NextColumn();
+            
+            FloatSetting("  Sensitivity", &engine.m_slope_sensitivity, 0.1f, 5.0f, "%.1fx",
+                "Multiplier for slope-to-grip conversion.\n"
+                "Higher = More aggressive grip loss detection.\n"
+                "Lower = Smoother, less pronounced effect.");
+            
+            // Advanced (Collapsed by Default)
+            if (ImGui::TreeNode("Advanced Slope Settings")) {
+                ImGui::NextColumn(); ImGui::NextColumn();
+                FloatSetting("  Slope Threshold", &engine.m_slope_negative_threshold, -1.0f, 0.0f, "%.2f",
+                    "Slope value below which grip loss begins.\n"
+                    "More negative = Later detection (safer).");
+                FloatSetting("  Output Smoothing", &engine.m_slope_smoothing_tau, 0.005f, 0.100f, "%.3f s",
+                    "Time constant for grip factor smoothing.\n"
+                    "Prevents abrupt FFB changes.");
+                ImGui::TreePop();
+            } else {
+                ImGui::NextColumn(); ImGui::NextColumn();
+            }
+            
+            // Live Diagnostics
+            ImGui::Text("  Live Slope: %.3f | Grip: %.0f%%", 
+                engine.m_slope_current, 
+                engine.m_slope_smoothed_output * 100.0f);
+            ImGui::NextColumn(); ImGui::NextColumn();
+        }
         // ---------------------------------
 
         

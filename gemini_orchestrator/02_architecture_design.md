@@ -147,17 +147,24 @@ The main state machine.
     *   Identifies all affected FFB effects (understeer, oversteer, lockup, ABS, road texture, etc.).
     *   Documents technical impact (files, functions, data changes).
     *   Documents user-facing impact (FFB feel changes, UI settings, preset adjustments).
-4.  **Agent** writes `docs/dev_docs/plans/feature_X.md` including the analysis sections.
-5.  **Orchestrator** commits the Plan.
-6.  **Orchestrator** spawns **Lead Architect (Plan Reviewer)**.
+4.  **Agent** creates **Parameter Synchronization Checklist** (if adding settings):
+    *   Lists declaration locations, Apply/UpdateFromEngine entries, Save/Load entries, validation.
+5.  **Agent** performs **Initialization Order Analysis** (if cross-header changes):
+    *   Documents circular dependency implications and constructor placement.
+6.  **Agent** writes `docs/dev_docs/plans/feature_X.md` including the analysis sections.
+7.  **Orchestrator** commits the Plan.
+8.  **Orchestrator** spawns **Lead Architect (Plan Reviewer)**.
     *   *Input:* The Plan File.
-    *   *Verification:* Plan includes complete codebase analysis and FFB effect impact (if applicable).
-7.  **Agent** outputs JSON: `{"verdict": "APPROVE"}` or `{"verdict": "REJECT", "feedback": "..."}`.
+    *   *Verification:* Plan includes complete codebase analysis, FFB effect impact (if applicable), parameter synchronization (if applicable), and initialization order analysis (if applicable).
+9.  **Agent** outputs JSON: `{"verdict": "APPROVE"}` or `{"verdict": "REJECT", "feedback": "..."}`.
     *   *If REJECT:* Loop back to Architect with feedback. Common rejection reasons:
         *   Missing/incomplete codebase analysis.
         *   Missing/incomplete FFB effect impact analysis.
+        *   Missing parameter synchronization checklist (when adding settings).
+        *   No initialization order analysis (when changes span headers).
+        *   Missing boundary condition tests (for buffer algorithms).
         *   Test cases not TDD-ready.
-8.  **Orchestrator** commits the Review Verdict.
+10. **Orchestrator** commits the Review Verdict.
 
 ### Phase B: Implementation (TDD)
 1.  **Orchestrator** reads Approved Plan.
@@ -167,12 +174,16 @@ The main state machine.
     *   Runs new tests to verify they fail (Red Phase).
     *   Implements minimum code to make tests pass (Green Phase).
     *   Runs full test suite to verify no regressions.
-4.  **Agent** commits changes to git.
-5.  **Agent** prints JSON: `{"commit_hash": "abc1234", "tests_passed": true}`.
+4.  **Agent** documents implementation issues:
+    *   Appends an "Implementation Notes" section to the Implementation Plan.
+    *   Documents unforeseen issues, plan deviations, and challenges encountered.
+5.  **Agent** commits changes to git.
+6.  **Agent** prints JSON: `{"commit_hash": "abc1234", "tests_passed": true}`.
 
 ### Phase C: Review
 1.  **Orchestrator** spawns **Auditor**.
     *   *Input:* Plan + Commit Hash.
+    *   *Verification:* Check for unintended deletions (code, comments, tests, documentation).
 2.  **Agent** writes `docs/dev_docs/reviews/review_X.md`.
 3.  **Orchestrator** commits the Review Report.
 4.  **Agent** prints JSON: `{"verdict": "PASS"}` or `{"verdict": "FAIL"}`.

@@ -55,10 +55,28 @@ The plan **MUST** include:
     *   Table or list of affected FFB effects.
     *   For each effect: technical changes needed and expected user-facing changes.
 *   **Proposed Changes:** Detailed list of files to modify and the logic to implement.
+    *   **Parameter Synchronization Checklist (for new settings):** If adding new configurable parameters, explicitly list for each:
+        *   Declaration in FFBEngine.h (member variable)
+        *   Declaration in Preset struct (Config.h)
+        *   Entry in `Preset::Apply()` 
+        *   Entry in `Preset::UpdateFromEngine()`
+        *   Entry in `Config::Save()`
+        *   Entry in `Config::Load()`
+        *   Validation logic (if applicable)
+    *   **Initialization Order Analysis (for cross-header changes):** If the change spans multiple header files (e.g., FFBEngine.h and Config.h), analyze:
+        *   Circular dependency implications
+        *   Where constructors/initializers should be defined (inline vs out-of-class)
+        *   Include order requirements
 *   **Test Plan (TDD-Ready):** Specific test cases (unit/integration) that the Developer will write **BEFORE** implementing the code. Include:
     *   Test function names and descriptions.
     *   Expected inputs and outputs.
     *   Assertions that should fail until the feature is implemented.
+    *   **Data Flow Analysis (for stateful/derivative algorithms):** Document what inputs need to change between frames and how. Include "telemetry script" examples showing multi-frame progressions.
+    *   **Boundary Condition Tests (for buffer-based algorithms):** Include tests for:
+        *   Empty buffer state
+        *   Partially filled buffer
+        *   Exactly full buffer
+        *   Buffer wraparound behavior
 *   **Deliverables:** Checklist of expected outputs (Code, Tests, Docs).
 
 ## Step 5: Final Check

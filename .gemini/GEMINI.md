@@ -37,3 +37,24 @@ Use these commands to build and run tests:
 ```powershell
 .\build\tests\Release\run_combined_tests.exe
 ```
+
+## 📁 File Encoding Issues
+
+When working with source files, you may encounter encoding issues that prevent file reading/editing tools from working correctly.
+
+**Common Error:**
+```
+Error: unsupported mime type text/plain; charset=utf-16le
+```
+
+**Quick Workaround:**
+```powershell
+# Convert file to UTF-8
+Get-Content "file.cpp" | Out-File -FilePath "file_utf8.cpp" -Encoding utf8
+```
+
+**Full Documentation:** See [`docs/dev_docs/unicode_encoding_issues.md`](docs/dev_docs/unicode_encoding_issues.md) for:
+- Root causes and detection methods
+- Multiple solution approaches
+- Prevention best practices
+- Batch conversion scripts

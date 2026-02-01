@@ -7,6 +7,7 @@
 #include <mutex>
 #include <iostream>
 #include <chrono>
+#include <array>
 #include "lmu_sm_interface/InternalsPlugin.hpp"
 
 // Mathematical Constants
@@ -310,6 +311,13 @@ public:
     float m_road_fallback_scale = 0.05f;
     bool m_understeer_affects_sop = false;
     
+    // ===== SLOPE DETECTION (v0.7.0) =====
+    bool m_slope_detection_enabled = false;
+    int m_slope_sg_window = 15;
+    float m_slope_sensitivity = 1.0f;
+    float m_slope_negative_threshold = -0.1f;
+    float m_slope_smoothing_tau = 0.02f;
+
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
     double m_theoretical_freq = 0.0; // Theoretical wheel frequency for GUI
@@ -404,6 +412,18 @@ public:
     BiquadNotch m_notch_filter;
     BiquadNotch m_static_notch_filter;
 
+    // Slope Detection Buffers (Circular) - v0.7.0
+    static constexpr int SLOPE_BUFFER_MAX = 41;  // Max window size supported
+    std::array<double, SLOPE_BUFFER_MAX> m_slope_lat_g_buffer = {};
+    std::array<double, SLOPE_BUFFER_MAX> m_slope_slip_buffer = {};
+    int m_slope_buffer_index = 0;
+    int m_slope_buffer_count = 0;
+
+    // Slope Detection State (Public for diagnostics) - v0.7.0
+    double m_slope_current = 0.0;
+    double m_slope_grip_factor = 1.0;
+    double m_slope_smoothed_output = 1.0;
+
     // Frequency Estimator State (v0.4.41)
     double m_last_crossing_time = 0.0;
     double m_torque_ac_smoothed = 0.0; // For High-Pass
@@ -423,9 +443,7 @@ public:
     // Friend class for unit testing private helper methods
     friend class FFBEngineTests::FFBEngineTestAccess;
 
-    FFBEngine() {
-        last_log_time = std::chrono::steady_clock::now();
-    }
+    FFBEngine();
     
     // Helper to retrieve data (Consumer)
     std::vector<FFBSnapshot> GetDebugBatch() {
@@ -598,7 +616,9 @@ public:
                               double& prev_slip2,
                               double car_speed,
                               double dt,
-                              const char* vehicleName) {
+                              const char* vehicleName,
+                              const TelemInfoV01* data,
+                              bool is_front = true) {
         GripResult result;
         result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
         result.value = result.original;
@@ -636,31 +656,40 @@ public:
                 // for visualization/rear torque, even if we force grip to 1.0 here.
                 result.value = 1.0; 
             } else {
-                // v0.4.38: Combined Friction Circle (Advanced Reconstruction)
-                
-                // 1. Lateral Component (Alpha)
-                // USE CONFIGURABLE THRESHOLD (v0.5.7)
-                double lat_metric = std::abs(result.slip_angle) / (double)m_optimal_slip_angle;
-
-                // 2. Longitudinal Component (Kappa)
-                // Calculate manual slip for both wheels and average the magnitude
-                double ratio1 = calculate_manual_slip_ratio(w1, car_speed);
-                double ratio2 = calculate_manual_slip_ratio(w2, car_speed);
-                double avg_ratio = (std::abs(ratio1) + std::abs(ratio2)) / 2.0;
-
-                // USE CONFIGURABLE THRESHOLD (v0.5.7)
-                double long_metric = avg_ratio / (double)m_optimal_slip_ratio;
-
-                // 3. Combined Vector (Friction Circle)
-                double combined_slip = std::sqrt((lat_metric * lat_metric) + (long_metric * long_metric));
-
-                // 4. Map to Grip Fraction
-                if (combined_slip > 1.0) {
-                    double excess = combined_slip - 1.0;
-                    // Sigmoid-like drop-off: 1 / (1 + 2x)
-                    result.value = 1.0 / (1.0 + excess * 2.0);
+                if (m_slope_detection_enabled && is_front && data) {
+                    // Dynamic grip estimation via derivative monitoring
+                    result.value = calculate_slope_grip(
+                        data->mLocalAccel.x / 9.81,  // Lateral G
+                        result.slip_angle,            // Slip angle (radians)
+                        dt
+                    );
                 } else {
-                    result.value = 1.0;
+                    // v0.4.38: Combined Friction Circle (Advanced Reconstruction)
+                    
+                    // 1. Lateral Component (Alpha)
+                    // USE CONFIGURABLE THRESHOLD (v0.5.7)
+                    double lat_metric = std::abs(result.slip_angle) / (double)m_optimal_slip_angle;
+
+                    // 2. Longitudinal Component (Kappa)
+                    // Calculate manual slip for both wheels and average the magnitude
+                    double ratio1 = calculate_manual_slip_ratio(w1, car_speed);
+                    double ratio2 = calculate_manual_slip_ratio(w2, car_speed);
+                    double avg_ratio = (std::abs(ratio1) + std::abs(ratio2)) / 2.0;
+
+                    // USE CONFIGURABLE THRESHOLD (v0.5.7)
+                    double long_metric = avg_ratio / (double)m_optimal_slip_ratio;
+
+                    // 3. Combined Vector (Friction Circle)
+                    double combined_slip = std::sqrt((lat_metric * lat_metric) + (long_metric * long_metric));
+
+                    // 4. Map to Grip Fraction
+                    if (combined_slip > 1.0) {
+                        double excess = combined_slip - 1.0;
+                        // Sigmoid-like drop-off: 1 / (1 + 2x)
+                        result.value = 1.0 / (1.0 + excess * 2.0);
+                    } else {
+                        result.value = 1.0;
+                    }
                 }
             }
             
@@ -755,6 +784,80 @@ public:
         // Lockup: V_wheel < V_car -> Ratio < 0
         // Spin: V_wheel > V_car -> Ratio > 0
         return (wheel_vel - car_speed_ms) / denom;
+    }
+
+    // Helper: Calculate Savitzky-Golay First Derivative - v0.7.0
+    // Uses closed-form coefficient generation for quadratic polynomial fit.
+    // Reference: docs/dev_docs/plans/savitzky-golay coefficients deep research report.md
+    double calculate_sg_derivative(const std::array<double, SLOPE_BUFFER_MAX>& buffer, 
+                                   int count, int window, double dt) {
+        // Ensure we have enough samples
+        if (count < window) return 0.0;
+        
+        int M = window / 2;  // Half-width (e.g., window=15 -> M=7)
+        
+        // Calculate S_2 = M(M+1)(2M+1)/3
+        double S2 = (double)M * (M + 1.0) * (2.0 * M + 1.0) / 3.0;
+        
+        // Correct Indexing (v0.7.0 Fix)
+        // m_slope_buffer_index points to the next slot to write.
+        // Latest sample is at (index - 1). Center is at (index - 1 - M).
+        int latest_idx = (m_slope_buffer_index - 1 + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+        int center_idx = (latest_idx - M + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+        
+        double sum = 0.0;
+        for (int k = 1; k <= M; ++k) {
+            int idx_pos = (center_idx + k + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+            int idx_neg = (center_idx - k + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+            
+            // Weights for d=1 are simply k
+            sum += (double)k * (buffer[idx_pos] - buffer[idx_neg]);
+        }
+        
+        // Divide by dt to get derivative in units/second
+        return sum / (S2 * dt);
+    }
+
+    // Helper: Calculate Grip Factor from Slope - v0.7.0
+    // Main slope detection algorithm entry point
+    double calculate_slope_grip(double lateral_g, double slip_angle, double dt) {
+        // 1. Update Buffers
+        m_slope_lat_g_buffer[m_slope_buffer_index] = lateral_g;
+        m_slope_slip_buffer[m_slope_buffer_index] = std::abs(slip_angle);
+        m_slope_buffer_index = (m_slope_buffer_index + 1) % SLOPE_BUFFER_MAX;
+        if (m_slope_buffer_count < SLOPE_BUFFER_MAX) m_slope_buffer_count++;
+
+        // 2. Calculate Derivatives
+        // We need d(Lateral_G) / d(Slip_Angle)
+        // By chain rule: dG/dAlpha = (dG/dt) / (dAlpha/dt)
+        double dG_dt = calculate_sg_derivative(m_slope_lat_g_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
+        double dAlpha_dt = calculate_sg_derivative(m_slope_slip_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
+
+        // 3. Estimate Slope (dG/dAlpha)
+        // Handle small dAlpha/dt to avoid noise/division by zero
+        if (std::abs(dAlpha_dt) > 0.001) {
+            m_slope_current = dG_dt / dAlpha_dt;
+        }
+        // else: If Alpha isn't changing, keep previous slope value (don't update).
+        // This allows noise rejection: with constant slip, dG/dt from SG filter ~ 0,
+        // and we don't want to overwrite with a meaningless value.
+
+        double current_grip_factor = 1.0;
+        if (m_slope_current < (double)m_slope_negative_threshold) {
+            // Slope is negative -> tire is sliding
+            double excess = (double)m_slope_negative_threshold - m_slope_current;
+            current_grip_factor = 1.0 - (excess * 0.1 * (double)m_slope_sensitivity);
+        }
+
+        // Apply Floor (Safety)
+        current_grip_factor = (std::max)(0.2, (std::min)(1.0, current_grip_factor));
+
+        // 5. Smoothing (v0.7.0)
+        double alpha = dt / ((double)m_slope_smoothing_tau + dt);
+        alpha = (std::max)(0.001, (std::min)(1.0, alpha));
+        m_slope_smoothed_output += alpha * (current_grip_factor - m_slope_smoothed_output);
+
+        return m_slope_smoothed_output;
     }
 
     // Helper: Calculate Slip Ratio from wheel (v0.6.36 - Extracted from lambdas)
@@ -939,9 +1042,10 @@ public:
 
         // A. Understeer (Base Torque + Grip Loss)
 
-        // 1. Calculate Grip
-        GripResult front_grip_res = calculate_grip(fl, fr, ctx.avg_load, m_warned_grip,
-                                                   m_prev_slip_angle[0], m_prev_slip_angle[1], ctx.car_speed, ctx.dt, data->mVehicleName);
+        // Grip Estimation (v0.4.5 FIX)
+        GripResult front_grip_res = calculate_grip(fl, fr, ctx.avg_load, m_warned_grip, 
+                                                   m_prev_slip_angle[0], m_prev_slip_angle[1],
+                                                   ctx.car_speed, ctx.dt, data->mVehicleName, data, true);
         ctx.avg_grip = front_grip_res.value;
         m_grip_diag.front_original = front_grip_res.original;
         m_grip_diag.front_approximated = front_grip_res.approximated;
@@ -1190,9 +1294,10 @@ private:
         double sop_base = m_sop_lat_g_smoothed * m_sop_effect * (double)m_sop_scale * ctx.decoupling_scale;
         ctx.sop_unboosted_force = sop_base; // Store unboosted for snapshot
         
-        // Rear Grip Calc
+        // Rear Grip Estimation (v0.4.5 FIX)
         GripResult rear_grip_res = calculate_grip(data->mWheel[2], data->mWheel[3], ctx.avg_load, m_warned_rear_grip,
-                                                  m_prev_slip_angle[2], m_prev_slip_angle[3], ctx.car_speed, ctx.dt, data->mVehicleName);
+                                                  m_prev_slip_angle[2], m_prev_slip_angle[3],
+                                                  ctx.car_speed, ctx.dt, data->mVehicleName, data, false);
         ctx.avg_rear_grip = rear_grip_res.value;
         m_grip_diag.rear_original = rear_grip_res.original;
         m_grip_diag.rear_approximated = rear_grip_res.approximated;

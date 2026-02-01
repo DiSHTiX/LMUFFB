@@ -6,6 +6,24 @@ This document contains all version release posts by ErwinMoss from the [url=http
 
 ---
 
+[size=5][b]February 1, 2026[/b][/size]
+[b]Version v0.7.0 - Dynamic Slope Detection[/b]
+
+[b]New release[/b] (v0.7.0) https://github.com/coasting-nc/LMUFFB/releases
+
+This is a major update introducing [b]Dynamic Slope Detection[/b] for tire grip estimation.
+
+[b]Major Features:[/b]
+[list]
+[*] [b]Dynamic Understeer Feel[/b]: Instead of using a fixed "Optimal Slip Angle", the app now monitors the slope of the tire curve (Lateral G vs Slip Angle) in real-time. This allows lmuFFB to detect exactly when the tire starts to saturate, providing a much more precise and natural Understeer feel that adapts to different cars, tires, and track conditions.
+[*] [b]Advanced Signal Processing[/b]: Uses Savitzky-Golay filtering to calculate clean derivatives from noisy telemetry data, ensuring smooth and stable feedback.
+[*] [b]Safety Hardening[/b]: Added comprehensive regression tests to ensure all settings are correctly synchronized and saved across sessions.
+[/list]
+
+[b]Tuning Tip:[/b] You can find the new Slope Detection settings under the "Grip Estimation" section. For most users, the default settings will provide a significantly improved Understeer cue out-of-the-box.
+
+---
+
 [size=5][b]Post #1 - July 24, 2025[/b][/size]
 [b]Initial Thread Creation[/b]
 

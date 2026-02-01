@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-02-01
+
+### Added
+- **Dynamic Slope Detection (Tire Peak Grip Monitoring)**:
+  - Implemented real-time dynamic grip estimation using Lateral G vs. Slip Angle slope monitoring.
+  - Replaces static "Grip Loss" thresholds with an adaptive system that detects the tire's saturation point regardless of track conditions or car setups.
+  - Added Savitzky-Golay (SG) filtering (window size 15-31) to calculate high-fidelity derivatives of noisy telemetry data.
+  - **Front-Axle Specific**: Slope detection is applied exclusively to the front axle for precise understeer communication, while maintaining stability for rear grip effects.
+
+### Fixed
+- **Preset-Engine Synchronization**:
+  - Fixed a critical regression where newly added parameters (optimal_slip_angle, slope_detection, etc.) were missing from `Preset::Apply()` and `Preset::UpdateFromEngine()`.
+  - Resolved "Invalid optimal_slip_angle (0)" warnings that occurred when applying presets.
+- **FFBEngine Initialization Order**:
+  - Fixed circular dependency between `FFBEngine.h` and `Config.h` by moving the constructor to `Config.h`.
+
+### Improved
+- **Understeer Effect Fidelity**:
+  - The Understeer Effect now utilizes the dynamic slope to determine force reduction, providing a much more organic and informative "light wheel" feel during front-end slides.
+  - Added safety clamping (0.2 floor) and smoothing (configurable tau) to ensure stable feedback during rapid transitions.
+
+### Added
+- **Regression Test Suite**:
+  - Added 11+ new tests covering slope detection math, noise rejection, SG filter coefficients, and Preset-Engine synchronization.
+  - Added `test_preset_engine_sync_regression` to prevent future parameter synchronization omissions.
+
 ## [0.6.39] - 2026-01-31
 
 **Special Thanks** to the community contributors for this release:
