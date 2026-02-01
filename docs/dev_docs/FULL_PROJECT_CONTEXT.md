@@ -11214,311 +11214,6 @@ While waiting for the update, you can tell the user:
 > This will surgically remove the engine bounce without making the steering feel light."
 ```
 
-# File: docs\dev_docs\autosave_implementation_plan.md
-```markdown
-# Implementation Plan: Reactive Auto-Save Functionality
-
-**Plan Date:** 2025-12-31  
-**Target Version:** v0.6.27  
-**Status:** ❌ Needs Implementation
-
-## 1. Overview
-This plan describes the implementation of a "Reactive Auto-Save" mechanism. The goal is to ensure that every adjustment made in the GUI is persisted to `config.ini` without requiring the user to manually click a save button.
-
-## 2. Technical Strategy
-
-### 2.1. The "Deactivation" Pattern
-To avoid excessive disk I/O when dragging sliders, we will use `ImGui::IsItemDeactivatedAfterEdit()`. 
-- **During a drag:** Values are updated in memory and the physics engine responds in real-time.
-- **On release:** The moment the user lets go of the mouse or finishes a keyboard adjustment, `Config::Save()` is called.
-
-### 2.2. The "Immediate" Pattern
-For discrete inputs like Checkboxes and Combo boxes, any change represents a completed intent. These will trigger `Config::Save()` immediately upon the function returning `true`.
-
-## 3. Implementation Details
-
-### 3.1. Update Helper Lambdas in `src/GuiLayer.cpp`
-
-We will modify the core helper lambdas in `GuiLayer::DrawTuningWindow` to include the save trigger.
-
-#### A. `FloatSetting` Update
-```cpp
-auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr) {
-    ImGui::Text("%s", label);
-    ImGui::NextColumn();
-    ImGui::SetNextItemWidth(-1);
-    std::string id = "##" + std::string(label);
-    
-    // 1. Standard Slider
-    if (ImGui::SliderFloat(id.c_str(), v, min, max, fmt)) {
-        selected_preset = -1;
-    }
-    
-    // 2. Trigger Save on Interaction End (Mouse Release or Enter key)
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        Config::Save(engine);
-    }
-
-    if (ImGui::IsItemHovered()) {
-        // ... (existing arrow key logic)
-        if (changed) { 
-            *v = (std::max)(min, (std::min)(max, *v)); 
-            selected_preset = -1; 
-            Config::Save(engine); // Save keyboard adjustments immediately
-        }
-        // ...
-    }
-    ImGui::NextColumn();
-};
-```
-
-#### B. `BoolSetting` Update
-```cpp
-auto BoolSetting = [&](const char* label, bool* v, const char* tooltip = nullptr) {
-    ImGui::Text("%s", label);
-    ImGui::NextColumn();
-    std::string id = "##" + std::string(label);
-    if (ImGui::Checkbox(id.c_str(), v)) {
-        selected_preset = -1;
-        Config::Save(engine); // Save immediately on toggle
-    }
-    // ...
-};
-```
-
-#### C. `IntSetting` Update
-```cpp
-auto IntSetting = [&](const char* label, int* v, const char* const items[], int items_count, const char* tooltip = nullptr) {
-    ImGui::Text("%s", label);
-    ImGui::NextColumn();
-    std::string id = "##" + std::string(label);
-    if (ImGui::Combo(id.c_str(), v, items, items_count)) {
-        selected_preset = -1;
-        Config::Save(engine); // Save immediately on selection change
-    }
-    // ...
-};
-```
-
-### 3.2. Update Individual Controls (Manual Implementation)
-Several controls are defined directly in the UI loop, often because they have custom layouts (e.g., latency/color indicators) or exist outside the main grid. These **DO NOT** use the helper lambdas and must be updated individually:
-
-#### A. Custom Sliders (Latency Indicated)
-The following sliders use raw `ImGui::SliderFloat` calls to accommodate latency text/color above them. They need `ImGui::IsItemDeactivatedAfterEdit()` and `Config::Save(engine)` added:
-- **Steering Shaft Smoothing:** `##ShaftSmooth`
-- **Yaw Kick Response (Smoothing):** `##YawSmooth`
-- **Gyro Smoothing:** `##GyroSmooth`
-- **SoP Smoothing:** `##SoP Smoothing` (Note: Uses Arrow Key logic too)
-- **Slip Angle Smoothing:** `##Slip Angle Smoothing` (Note: Uses Arrow Key logic too)
-- **Chassis Inertia:** `##ChassisSmooth`
-
-#### B. Advanced Settings
-- **Speed Gate (Mute Below/Full Above):** `##Mute Below` (Derived), `##Full Above` (Derived). These use raw `ImGui::SliderFloat`.
-
-#### C. Top Bar Controls
-- **"Always on Top" Checkbox**: Already calls `SetWindowAlwaysOnTop`. Add `Config::Save(engine)`.
-- **"Graphs" Checkbox**: **ALREADY IMPLEMENTED**. (Calls `Config::Save(engine)`).
-
-### 3.3. Thread Safety Note
-Since `DrawTuningWindow` already holds `g_engine_mutex`, calling `Config::Save(engine)` is safe as it accesses the engine state while the mutex is locked.
-
-## 4. Test Specifications
-
-### Test 1: Slider Drag Persistence
-1. Start App.
-2. Drag "Master Gain" to 1.5. **Do not release the mouse.**
-3. Verify `config.ini` has NOT changed yet.
-4. Release mouse.
-5. Verify `config.ini` now contains `gain=1.5`.
-
-### Test 2: Arrow Key Persistence
-1. Hover "Master Gain".
-2. Tap Right Arrow.
-3. Verify `config.ini` updates immediately.
-
-### Test 3: Toggle Persistence
-1. Uncheck "Invert FFB Signal".
-2. Verify `config.ini` contains `invert_force=0` immediately.
-
-### Test 4: Custom Slider Persistence (Latency Controls)
-1. Drag "SoP Smoothing" slider.
-2. Release mouse.
-3. Verify `config.ini` updates `sop_smoothing_factor`.
-
-### Test 5: Presets Coexistence
-1. Load a preset.
-2. Verify the preset name is NOT saved as a global setting (it shouldn't be), but the values within the preset are written to the main section.
-
-## 5. Implementation Roadmap
-- [ ] Refactor `FloatSetting` lambda.
-- [ ] Refactor `BoolSetting` lambda.
-- [ ] Refactor `IntSetting` lambda.
-- [ ] Implement Auto-Save for "Steering Shaft Smoothing".
-- [ ] Implement Auto-Save for "Yaw Kick Smoothing".
-- [ ] Implement Auto-Save for "Gyro Smoothing".
-- [ ] Implement Auto-Save for "SoP Smoothing".
-- [ ] Implement Auto-Save for "Slip Angle Smoothing".
-- [ ] Implement Auto-Save for "Chassis Inertia".
-- [ ] Implement Auto-Save for "Speed Gate" sliders (Lower/Upper).
-- [ ] Add Auto-Save to "Always on Top".
-- [ ] Perform binary size / performance check (disk thrashing test).
-
-## 6. Phase 1: Refactoring UI Helpers (Prerequisite)
-
-**Objective:** specific UI code is currently duplicated across "Standard" sliders (using lambdas) and "Complex" sliders (manual implementation). This refactoring will unify all sliders under a single, flexible abstraction *before* implementing Auto-Save, ensuring consistent behavior and reducing implementation effort.
-
-### 6.1. Design Analysis
-The current codebase has two ways of rendering a slider:
-1.  **Helper Lambda (`FloatSetting`)**: Handles Label, Slider, Tooltip, and Arrow Key logic. Used for ~80% of controls.
-2.  **Manual Implementation**: Used for controls requiring dynamic text (e.g., Latency coloring) or custom layouts. These manually repeat (or miss) the Arrow Key logic and Tooltip logic.
-
-**Problem:** Implementing Auto-Save would require editing `FloatSetting` AND 6+ manual code blocks.
-**Solution:** Upgrade the helper function to support "Decorators" (custom UI elements rendered above the slider).
-
-### 6.2. Implementation Strategy
-
-We will replace the existing `FloatSetting` lambda with a more robust version that accepts an optional callback.
-
-#### Updated Lambda Signature (Conceptual)
-```cpp
-// src/GuiLayer.cpp inside DrawTuningWindow
-
-auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr, std::function<void()> decorator = nullptr) {
-    ImGui::Text("%s", label);               // Column 1: Label
-    ImGui::NextColumn();                    // Switch to Column 2
-    
-    // --- 1. Render Custom Decorator (if exists) ---
-    if (decorator) {
-        decorator(); 
-    }
-    
-    // --- 2. Standard Slider Logic ---
-    ImGui::SetNextItemWidth(-1);            // Fill width
-    std::string id = "##" + std::string(label);
-    
-    bool changed = false;
-    
-    // Slider
-    if (ImGui::SliderFloat(id.c_str(), v, min, max, fmt)) {
-        selected_preset = -1;
-        changed = true;
-    }
-    
-    // --- 3. Unified Interaction Logic (Arrow Keys & Tooltips) ---
-    if (ImGui::IsItemHovered()) {
-        float range = max - min;
-        float step = (range > 50.0f) ? 0.5f : (range < 1.0f) ? 0.001f : 0.01f; 
-        
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) { *v -= step; changed = true; }
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) { *v += step; changed = true; }
-        
-        if (changed) { 
-            *v = (std::max)(min, (std::min)(max, *v)); 
-            selected_preset = -1; 
-            // Auto-Save will go here in Phase 2
-        }
-        
-        // Tooltip (only if not interacting)
-        if (!changed) {
-            ImGui::BeginTooltip();
-            if (tooltip) { ImGui::Text("%s", tooltip); ImGui::Separator(); }
-            ImGui::Text("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
-            ImGui::EndTooltip();
-        }
-    }
-    
-    ImGui::NextColumn();                    // Switch back to Column 1
-};
-```
-
-#### Refactoring Targets
-The following manual blocks will be converted to use `FloatSetting` with a lambda decorator:
-
-1.  **Steering Shaft Smoothing**: Pass decorator that calculates and renders `shaft_ms` colored text.
-2.  **Yaw Kick Smoothing**: Pass decorator for `yaw_ms`.
-3.  **Gyro Smoothing**: Pass decorator for `gyro_ms`.
-4.  **SoP Smoothing**: Pass decorator for `lat_ms`.
-5.  **Slip Angle Smoothing**: Pass decorator for `slip_ms`.
-6.  **Chassis Inertia**: Pass decorator for `chassis_ms`.
-
-Example Conversion:
-```cpp
-// OLD
-/* Manual Block taking 15 lines */
-
-// NEW
-auto ShaftDecorator = [&]() {
-    int ms = (int)(engine.m_steering_shaft_smoothing * 1000.0f + 0.5f);
-    ImVec4 color = (ms < 15) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
-    ImGui::TextColored(color, "Latency: %d ms", ms);
-};
-FloatSetting("Steering Shaft Smoothing", &engine.m_steering_shaft_smoothing, 0.0f, 0.1f, "%.3f s", "Tooltip...", ShaftDecorator);
-```
-
-### 6.3. Automated Testing Strategy
-To ensure the refactoring preserves functionality without requiring manual verification, we will implement an **Automated Interaction Test** using a headless ImGui context. This test will verify that the unified helper correctly modifies values when keys are simulated, proving the logic is active.
-
-#### Pre-requisite: Extract Helper Logic
-To make the UI logic testable without running the full application, we must extract the `FloatSetting` logic from the local lambda in `GuiLayer.cpp` to a reusable class/helper (e.g., `GuiWidgets`) that can be instantiated in a test environment.
-
-#### Test 1.1: Standardized Interaction Test (Automated)
-**Objective:** Verify that the refactored `FloatSetting` helper correctly processes input (Arrow Keys) to modify the target float value.
-1.  **Environment:** Headless ImGui Context (No Graphics, just Logic).
-2.  **Parameters:** `float value = 1.0f`, `min = 0.0f`, `max = 2.0f`.
-3.  **Simulate:** `io.KeysDown[ImGuiKey_RightArrow] = true`.
-4.  **Action:** Call `GuiWidgets::Float("Test", &value, ...)`.
-5.  **Assert:** `value > 1.0f` (Value incremented).
-6.  **Simulate:** `io.KeysDown[ImGuiKey_LeftArrow] = true`.
-7.  **Assert:** `value` decrements.
-
-This test proves that the *interaction logic* is properly hooked up in the new helper, covering all sliders that use it (including the newly converted complex ones).
-
-#### Test 1.2: Decorator Execution Test (Automated)
-**Objective:** Verify that the "Decorator" callback is actually executed.
-1.  **Setup:** Create a boolean flag `bool decoratorCalled = false`.
-2.  **Action:** Call `GuiWidgets::Float(..., [&](){ decoratorCalled = true; })`.
-3.  **Assert:** `decoratorCalled == true`.
-
-### 6.4. Phase 2 (Auto-Save) Preparation
-Once this refactoring is complete, Phase 2 becomes trivial: we simply add the `Config::Save(engine)` call into the *single* `FloatSetting` helper, and it automatically applies to every slider in the application.
-
-## 7. Implementation Roadmap (Updated)
-
-1.  **Phase 1: Refactoring & Test Infrastructure**
-    - [ ] **Extraction:** Move `FloatSetting` logic to a new header `src/GuiWidgets.h`.
-    - [ ] **Test Setup:** Create `tests/test_gui_interaction.cpp` with headless ImGui setup.
-    - [ ] **Implementation:** Implement `FloatSetting` with Decorator support in `src/GuiWidgets.h`.
-    - [ ] **Test:** Implement `test_arrow_key_interaction` and `test_decorator_execution` (Automated).
-    - [ ] **Verification:** Run `run_combined_tests.exe` to ensure new specific UI tests pass.
-    - [ ] **Integration:** Update `src/GuiLayer.cpp` to use `GuiWidgets::Float`.
-    - [ ] **Refactor:** Convert all manual complex sliders (Smoothing, Inertia, etc.) to use `GuiWidgets::Float` with decorators.
-
-2.  **Phase 2: Auto-Save Implementation**
-    - [ ] Add `ImGui::IsItemDeactivatedAfterEdit()` check to `FloatSetting`.
-    - [x] Add `ImGui::IsItemDeactivatedAfterEdit()` check to `BoolSetting` and `IntSetting`.
-    - [x] Implement saving for Top Bar items (Always on Top).
-    - [x] Run Persistence Tests.
-
-## 8. Implementation Report & Findings
-
-**Date:** 2025-12-31  
-**Status:** ✅ Completed
-
-### Findings:
-1.  **Unified Widget Architecture:** The extraction of UI logic into `src/GuiWidgets.h` was highly successful. It allowed us to implement Auto-Save in a single location for the majority of sliders while also enabling "Decorators" for complex smoothing/latency indicators.
-2.  **ImGui Versioning:** Discovered that modern ImGui (v1.87+) requires `io.AddKeyEvent()` for simulated input in tests, replacing the legacy `io.KeysDown[]` array.
-3.  **Headless Testing Limitations:** While `FloatDecorator` execution was easily verified, simulating exact "Hover" states in a headless environment to trigger Arrow Key logic proved brittle due to ImGui's internal layout requirements. Manual verification confirmed this logic works in the live APP.
-4.  **Implicit Save Targets:** Beyond sliders, we identified that `Config::ApplyPreset` must also trigger a `Save` to ensure that loading a preset persists it as the "Current Configuration" for the next session.
-5.  **Performance:** Using `IsItemDeactivatedAfterEdit()` effectively prevents disk thrashing. Disk I/O occurs only on interaction completion, maintaining high performance during real-time adjustments.
-
-### Checklist Completion:
-- [x] Phase 1: Refactoring & Test Infrastructure
-- [x] Phase 2: Auto-Save Implementation
-- [x] Verification: All 419+ tests passing (excluding experimental headless hover test).
-
-
-```
-
 # File: docs\dev_docs\config_reordering_plan.md
 ```markdown
 # Implementation Plan: Config File Reordering
@@ -24787,27 +24482,6 @@ If vendor code issues require fixes that cannot be worked around:
 
 ```
 
-# File: docs\dev_docs\which_cars_in_rF2_have_grip_data.md
-```markdown
-As reported in this forum post: unlinked: community_lemansultimate_com/index_php?threads/add-missing-parameters-to-telemetry-for-plugins_66/page-25#post-74367
-
-Tire grip, tire load, and some other data are blocked for DLC cars in rF2, due to license agreements.
-
-Non-DLC cars have this data available in rF2.
-TODO: we should make a list of all the cars that have this data available in rF2.
-
-Possibilities for the future of LMU (and possibly rF2): 
-
-* S397 might introduce more granularity in which data is blocked, allowing for more data to be available to plugins and shared memory. In fact, more data is blocked at the moment than needed from license agreements, just because the way in which the car to be blocked are grouped, and the way in which whole parts of the data are blocked for certain groups of cars.
-
-* As S397 (as a feature request in the LMU forum) to implement specific formulas to integrate into the FFB. This is because the final goal is to be able to feel certain information through the wheel. In this way, license agreements would be respected, because the raw individual data values are not shared, but the final computation of the FFB might take also those into account.
-TODO: after our experimentation, in the feature request, present specific math formulas that could be beneficial to have in the FFB. This is also to show that these would not be "canned effects", but dynamic effects that would affect the amplitude and frequencies of the FFB based on real car forces.
-It would also make a strong argument for the feasibility of this approach for extending FFB.
-
-Does the Formula Pro have such data? It is not licensed, so...
-Unless the agreements with Goodyear and Bridgestone prevent this.
-```
-
 # File: docs\dev_docs\Yaw Kick names.md
 ```markdown
 Here are the best options for naming this effect in the GUI, keeping in mind that it needs to be short enough for a label but descriptive enough for a user to understand what it feels like.
@@ -25886,338 +25560,6 @@ The "Yaw Kick" effect (derived from `mLocalRotAccel.y`) is currently producing c
 
 ```
 
-# File: docs\dev_docs\archived\Archive - add_icon_implementation_plan.md
-```markdown
-# Implementation Plan: Add Application Icon
-
-## 1. Introduction and Motivation
-Currently, the LMUFFB application uses the default Windows executable icon, which lacks visual identity and polish. This task aims to add a custom application icon (`lmuffb.ico`) that will be embedded in the executable and displayed in Windows Explorer and the taskbar.
-
-## 2. Technical Approach
-
-### 2.1. Assets
--   Create a new directory `icon/` to store source assets.
--   Include the source image `icon.png`.
--   Provide a script (`icon/magick-ico.sh`) to generate the `.ico` file from the source PNG using ImageMagick, creating multiple sizes (16, 24, 32, 48, 64, 96, 128, 256) for proper scaling in Windows.
-    -   **Note:** This script requires [ImageMagick](unlinked: imagemagick_org/) to be installed and available in the system PATH.
--   Store the generated `lmuffb.ico` in the `icon/` directory.
-
-### 2.2. Resource Files
--   Create `src/resource.h` to define the resource identifier (`IDI_ICON1`).
--   Create `src/res.rc` to define the ICON resource, pointing to `lmuffb.ico`.
-
-### 2.3. Build System (CMake)
--   Modify `CMakeLists.txt` to:
-    1.  Copy `icon/lmuffb.ico` to the build directory (so the resource compiler can find it easily).
-    2.  Add `src/res.rc` to the `add_executable` source list. This triggers CMake to invoke the Resource Compiler (`rc.exe`) on Windows.
-
-## 3. Testing Plan
-
-### 3.1. Manual Verification
--   Build the application in Release mode.
--   Inspect the generated `LMUFFB.exe` in Windows Explorer to verify it displays the new icon.
--   Run the application and verify the icon appears in the taskbar / window title bar (if handled by window creation, though resource usually handles the executable icon).
-
-### 3.2. Automated Tests
--   **Test:** `test_icon_presence`
-    -   **Goal:** Verify that the build process correctly stages the icon file.
-    -   **Implementation:** Add a test case in a new or existing test file (e.g., `tests/test_resources.cpp`) that checks for the existence of `lmuffb.ico` in the current working directory (or expected build output directory).
-
-## 4. Documentation
--   **CHANGELOG_DEV.md:** Add an entry under the "Added" section for the new application icon.
--   **VERSION:** Increment the patch version (optional, depending on release cycle).
-
-```
-
-# File: docs\dev_docs\archived\Archived - Fix wheel device disconnecting.md
-```markdown
-TODO: move this document to an archive subfolder because it is outdate (already fixed).
-
-# Technical Report: Connection Hardening & Device Persistence Implementation
-
-**Target Version:** v0.4.44
-**Priority:** Critical (User Experience / Stability)
-**Context:** Addressing feedback from user GamerMuscle regarding connection stability and usability.
-
-## 1. Executive Summary
-
-Users have reported two major usability issues:
-1.  **Connection Loss:** The app stops sending FFB when the window loses focus (Alt-Tab) or when the game momentarily steals Exclusive Mode. The current re-acquisition logic is insufficient because it does not explicitly restart the DirectInput Effect motor.
-2.  **Lack of Persistence:** The user must manually re-select their steering wheel from the dropdown every time the app is launched.
-
-Additionally, the console output is currently cluttered with "Clipping" warnings, which makes debugging connection issues difficult.
-
-## 2. Technical Strategy
-
-### A. Connection Hardening (The "Smart Reconnect")
-We will overhaul the `UpdateForce` loop in `DirectInputFFB.cpp`.
-*   **Diagnosis:** Instead of silently failing, we will catch specific DirectInput errors (`DIERR_INPUTLOST`, `DIERR_OTHERAPPHASPRIO`).
-*   **Context Logging:** We will log the **Active Foreground Window** when a failure occurs. This definitively proves if the Game (LMU) is stealing the device priority.
-*   **Motor Restart:** When we successfully re-acquire the device, we will explicitly call `m_pEffect->Start(1, 0)`. This fixes the "Silent Wheel" bug where the device is connected but the motor is stopped.
-
-### B. Device Persistence
-We will add logic to save the unique **GUID** of the selected DirectInput device to `config.ini`. On startup, the app will scan available devices and auto-select the one matching the saved GUID.
-
-### C. Console Decluttering
-We will remove the rate-limited "FFB Output Saturated" warning from the main loop to ensure the console remains clean for the new connection diagnostics.
-
----
-
-## 3. Implementation Guide
-
-### Step 1: Update `src/DirectInputFFB.h`
-Add static helper methods to convert between the binary `GUID` struct and `std::string` for config storage.
-
-```cpp
-// src/DirectInputFFB.h
-
-// ... existing includes ...
-
-class DirectInputFFB {
-public:
-    // ... existing methods ...
-
-    // NEW: Helpers for Config persistence
-    static std::string GuidToString(const GUID& guid);
-    static GUID StringToGuid(const std::string& str);
-
-private:
-    // ... existing members ...
-};
-```
-
-### Step 2: Update `src/DirectInputFFB.cpp`
-This is the core logic update. It includes the helpers, the console decluttering, and the robust reconnection logic.
-
-```cpp
-// src/DirectInputFFB.cpp
-
-// ... existing includes ...
-#include <cstdio> // For sscanf, sprintf
-#include <psapi.h> // For GetActiveWindowTitle
-
-// NEW: Helper to get foreground window title for diagnostics
-std::string GetActiveWindowTitle() {
-    char wnd_title[256];
-    HWND hwnd = GetForegroundWindow();
-    if (hwnd) {
-        GetWindowTextA(hwnd, wnd_title, sizeof(wnd_title));
-        return std::string(wnd_title);
-    }
-    return "Unknown";
-}
-
-// NEW: Helper Implementations for GUID
-std::string DirectInputFFB::GuidToString(const GUID& guid) {
-    char buf[64];
-    sprintf_s(buf, "{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
-        guid.Data1, guid.Data2, guid.Data3,
-        guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
-        guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
-    return std::string(buf);
-}
-
-GUID DirectInputFFB::StringToGuid(const std::string& str) {
-    GUID guid = { 0 };
-    if (str.empty()) return guid;
-    unsigned long p0;
-    unsigned int p1, p2, p3, p4, p5, p6, p7, p8, p9, p10;
-    int n = sscanf_s(str.c_str(), "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
-        &p0, &p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9, &p10);
-    if (n == 11) {
-        guid.Data1 = p0;
-        guid.Data2 = (unsigned short)p1;
-        guid.Data3 = (unsigned short)p2;
-        guid.Data4[0] = (unsigned char)p3; guid.Data4[1] = (unsigned char)p4;
-        guid.Data4[2] = (unsigned char)p5; guid.Data4[3] = (unsigned char)p6;
-        guid.Data4[4] = (unsigned char)p7; guid.Data4[5] = (unsigned char)p8;
-        guid.Data4[6] = (unsigned char)p9; guid.Data4[7] = (unsigned char)p10;
-    }
-    return guid;
-}
-
-void DirectInputFFB::UpdateForce(double normalizedForce) {
-    if (!m_active) return;
-
-    // Sanity Check: If 0.0, stop effect to prevent residual hum
-    if (std::abs(normalizedForce) < 0.00001) normalizedForce = 0.0;
-
-    // --- DECLUTTERING: REMOVED CLIPPING WARNING ---
-    /*
-    if (std::abs(normalizedForce) > 0.99) {
-        static int clip_log = 0;
-        if (clip_log++ % 400 == 0) { 
-            std::cout << "[DI] WARNING: FFB Output Saturated..." << std::endl;
-        }
-    }
-    */
-    // ----------------------------------------------
-
-    // Clamp
-    normalizedForce = (std::max)(-1.0, (std::min)(1.0, normalizedForce));
-
-    // Scale to -10000..10000
-    long magnitude = static_cast<long>(normalizedForce * 10000.0);
-
-    // Optimization: Don't call driver if value hasn't changed
-    if (magnitude == m_last_force) return;
-    m_last_force = magnitude;
-
-#ifdef _WIN32
-    if (m_pEffect) {
-        DICONSTANTFORCE cf;
-        cf.lMagnitude = magnitude;
-        
-        DIEFFECT eff;
-        ZeroMemory(&eff, sizeof(eff));
-        eff.dwSize = sizeof(DIEFFECT);
-        eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
-        eff.lpvTypeSpecificParams = &cf;
-        
-        // Try to update parameters
-        HRESULT hr = m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
-        
-        // --- DIAGNOSTIC & RECOVERY LOGIC ---
-        if (FAILED(hr)) {
-            // 1. Identify the Error
-            std::string errorType = "Unknown";
-            bool recoverable = false;
-
-            if (hr == DIERR_INPUTLOST) {
-                errorType = "DIERR_INPUTLOST (Physical disconnect or Driver reset)";
-                recoverable = true;
-            } else if (hr == DIERR_NOTACQUIRED) {
-                errorType = "DIERR_NOTACQUIRED (Lost focus/lock)";
-                recoverable = true;
-            } else if (hr == DIERR_OTHERAPPHASPRIO) {
-                errorType = "DIERR_OTHERAPPHASPRIO (Another app stole the device!)";
-                recoverable = true;
-            }
-
-            // 2. Log the Context (Rate limited to 1s)
-            static DWORD lastLogTime = 0;
-            if (GetTickCount() - lastLogTime > 1000) {
-                std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType << std::endl;
-                std::cerr << "           Active Window: [" << GetActiveWindowTitle() << "]" << std::endl;
-                lastLogTime = GetTickCount();
-            }
-
-            // 3. Attempt Recovery
-            if (recoverable) {
-                HRESULT hrAcq = m_pDevice->Acquire();
-                
-                if (SUCCEEDED(hrAcq)) {
-                    std::cout << "[DI RECOVERY] Device Re-Acquired successfully." << std::endl;
-                    
-                    // CRITICAL FIX: Restart the effect
-                    // Often, re-acquiring is not enough; the effect must be restarted.
-                    m_pEffect->Start(1, 0); 
-                    
-                    // Retry the update immediately
-                    m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
-                } 
-            }
-        }
-    }
-#endif
-}
-```
-
-### Step 3: Update `src/Config.h`
-Add the static variable to hold the GUID string.
-
-```cpp
-// src/Config.h
-
-class Config {
-public:
-    // ... existing members ...
-    
-    // NEW: Persist selected device
-    static std::string m_last_device_guid;
-};
-```
-
-### Step 4: Update `src/Config.cpp`
-Implement the Save/Load logic for the GUID.
-
-```cpp
-// src/Config.cpp
-
-// Initialize
-std::string Config::m_last_device_guid = "";
-
-void Config::Save(const FFBEngine& engine, const std::string& filename) {
-    std::ofstream file(filename);
-    if (file.is_open()) {
-        // ... existing saves ...
-        file << "last_device_guid=" << m_last_device_guid << "\n"; // NEW
-        
-        // ... rest of save ...
-    }
-}
-
-void Config::Load(FFBEngine& engine, const std::string& filename) {
-    // ... existing load loop ...
-    while (std::getline(file, line)) {
-        // ... parsing ...
-        if (key == "last_device_guid") m_last_device_guid = value; // NEW
-        // ... existing keys ...
-    }
-}
-```
-
-### Step 5: Update `src/GuiLayer.cpp`
-Implement the auto-selection logic on startup and save logic on change.
-
-```cpp
-// src/GuiLayer.cpp
-
-void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
-    // ... [Setup] ...
-    
-    // Device Selection
-    static std::vector<DeviceInfo> devices;
-    static int selected_device_idx = -1;
-    
-    // Scan button (or auto scan once)
-    if (devices.empty()) {
-        devices = DirectInputFFB::Get().EnumerateDevices();
-        
-        // NEW: Auto-select last used device
-        if (selected_device_idx == -1 && !Config::m_last_device_guid.empty()) {
-            GUID target = DirectInputFFB::StringToGuid(Config::m_last_device_guid);
-            for (int i = 0; i < devices.size(); i++) {
-                if (memcmp(&devices[i].guid, &target, sizeof(GUID)) == 0) {
-                    selected_device_idx = i;
-                    DirectInputFFB::Get().SelectDevice(devices[i].guid);
-                    break;
-                }
-            }
-        }
-    }
-
-    if (ImGui::BeginCombo("FFB Device", selected_device_idx >= 0 ? devices[selected_device_idx].name.c_str() : "Select Device...")) {
-        for (int i = 0; i < devices.size(); i++) {
-            bool is_selected = (selected_device_idx == i);
-            if (ImGui::Selectable(devices[i].name.c_str(), is_selected)) {
-                selected_device_idx = i;
-                DirectInputFFB::Get().SelectDevice(devices[i].guid);
-                
-                // NEW: Save selection to config immediately
-                Config::m_last_device_guid = DirectInputFFB::GuidToString(devices[i].guid);
-                Config::Save(engine); 
-            }
-            if (is_selected) ImGui::SetItemDefaultFocus();
-        }
-        ImGui::EndCombo();
-    }
-    
-    // ... [Rest of file] ...
-```
-
-```
-
 # File: docs\dev_docs\community_responses\ffb_bucket_philosophy_response.md
 ```markdown
 # Understanding LMUFFB's FFB Signal Processing
@@ -27250,7 +26592,212 @@ git commit --author="coasting-nc <coasting-nc@users.noreply.github.com>"
 
 ```
 
-# File: docs\dev_docs\plans\plan_slope_detection.md
+# File: docs\dev_docs\implementation plan reviews\plan_review_slope_detection.md
+```markdown
+# Plan Review: Slope Detection Algorithm for Dynamic Grip Estimation
+
+**Plan Path:** `docs/dev_docs/plans/plan_slope_detection.md`
+**Review Date:** 2026-02-01
+**Reviewer:** Lead Architect (Plan Reviewer)
+
+---
+
+## Executive Summary
+
+| Verdict | **✅ APPROVE** |
+|---------|----------------|
+| **Plan Quality** | Excellent |
+| **Completeness** | High |
+| **TDD-Readiness** | Good |
+| **Risk Level** | Low (Feature disabled by default) |
+
+The implementation plan for the Slope Detection Algorithm is **well-structured, comprehensive, and ready for implementation**. It demonstrates a thorough understanding of the codebase, provides detailed technical specifications, and includes adequate safeguards for backward compatibility. Minor suggestions for improvement are noted below but do not warrant rejection.
+
+---
+
+## Review Criteria Assessment
+
+### 1. ✅ Completeness
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| Context/Problem Statement | ✅ Complete | Clear explanation of the problem (static thresholds) and proposed solution (dynamic derivative-based detection) |
+| Reference Documents | ✅ Complete | All 4 source documents properly referenced |
+| Codebase Analysis | ✅ Complete | Detailed analysis of `calculate_grip()`, `FFBEngine.h`, and `Config.h` |
+| FFB Effect Impact Analysis | ✅ Complete | Comprehensive table of affected/unaffected effects |
+| Implementation Details | ✅ Complete | Code snippets with line numbers for all changes |
+| Test Plan | ✅ Complete | 8 unit tests with inputs, outputs, and assertions |
+| Deliverables Checklist | ✅ Complete | Itemized checklist with line count estimates |
+| Documentation Updates | ✅ Complete | CHANGELOG, VERSION, README mentioned |
+
+**Assessment:** The plan covers all requirements from `architect_prompt.md` and `01_specifications.md`.
+
+---
+
+### 2. ✅ Codebase Analysis Quality
+
+The plan demonstrates **strong codebase analysis**:
+
+| Aspect | Evidence |
+|--------|----------|
+| **Impacted modules identified** | `FFBEngine.h`, `Config.h`, `Config.cpp`, `GuiLayer.cpp` clearly listed |
+| **Functions/classes identified** | `calculate_grip()` (lines 593-678), `GripResult` struct, `FFBCalculationContext`, `Preset` struct |
+| **Data flow documented** | Clear flow diagram: Telemetry → Grip Calculation → Effect Calculations → Output |
+| **Existing functionality impact** | Section 2.4 clearly shows the branching logic: new code path for slope detection *alongside* preserved static threshold logic |
+
+**Key Insight Documented:** The plan correctly identifies that slope detection replaces **steps 2c/2d/2e** of the grip calculation fallback path (line 78), not the entire function.
+
+---
+
+### 3. ✅ FFB Effect Impact Analysis
+
+The plan includes an **exemplary FFB effect impact analysis** (Section: "FFB Effects Impact Analysis"):
+
+| Category | Effects Listed | Technical Impact | User Impact |
+|----------|----------------|------------------|-------------|
+| **Front Grip Consumers** | Understeer Effect, Slide Texture | ✅ Functions and line numbers provided | ✅ "Smoother and more progressive" feel described |
+| **Rear Grip Consumers** | Lateral G Boost (Oversteer) | ✅ Differential calculation explained | ✅ "Better oversteer detection in mixed conditions" |
+| **Slip Angle Derived** | Rear Aligning Torque | ✅ Noted as unaffected | ✅ Counter-steering cues remain accurate |
+| **Unaffected Effects** | Steering Shaft, Yaw Kick, Gyro, Lockup, Road Texture, ABS, etc. | ✅ Clear list with rationale | ✅ No changes expected |
+
+**User Experience Summary Table (Section 5):**
+- Clear before/after comparison (static vs. slope detection)
+- Explicitly notes what will change and what will NOT change
+
+**Assessment:** This section meets and exceeds the requirements in `architect_prompt.md` (Step 2: FFB Effect Impact Analysis).
+
+---
+
+### 4. ✅ Testability (TDD-Ready)
+
+The plan includes **8 unit tests** with sufficient detail for TDD:
+
+| Test | Purpose | Inputs | Expected Outputs | Assertions |
+|------|---------|--------|------------------|------------|
+| `test_slope_detection_buffer_init` | Buffer initialization | Fresh engine | `count == 0, index == 0, current == 0.0` | ✅ Clear |
+| `test_slope_sg_derivative` | SG derivative accuracy | Linear ramp, window=9, dt=0.01 | `derivative ≈ 10.0 ±1.0` | ✅ Clear |
+| `test_slope_grip_at_peak` | Zero slope = full grip | Constant G=1.2, constant slip | `output > 0.95` | ✅ Clear |
+| `test_slope_grip_past_peak` | Negative slope = grip loss | Decreasing G, increasing slip | `0.2 < output < 0.9` | ✅ Clear |
+| `test_slope_vs_static_comparison` | Both methods detect loss | Same telemetry, 12% slip | Both detect grip loss | ✅ Clear |
+| `test_slope_config_persistence` | Save/load cycle | Non-default values | Loaded == saved | ✅ Clear |
+| `test_slope_latency_characteristics` | Buffer fill timing | window=15, dt=0.0025 | `fill_count == window_size` | ✅ Clear |
+| `test_slope_noise_rejection` | SG filter rejects noise | Constant G + noise | `|slope| < 1.0` | ✅ Clear |
+
+**Assessment:** Tests are described to a level where a developer can write them BEFORE implementation (TDD Red Phase).
+
+---
+
+### 5. ✅ Clarity & Implementability
+
+| Aspect | Assessment |
+|--------|------------|
+| **Code locations** | ✅ Specific line numbers provided (e.g., "line 312", "~line 1100") |
+| **Code snippets** | ✅ C++ pseudocode provided for all major changes |
+| **Naming conventions** | ✅ Consistent prefix `m_slope_*` and `slope_*` |
+| **Configuration parameters** | ✅ Table with types, defaults, and descriptions |
+| **GUI layout** | ✅ ImGui tree structure with conditional visibility |
+| **Validation logic** | ✅ Range clamps and odd-number enforcement documented |
+| **Backward compatibility** | ✅ Feature OFF by default, static logic preserved |
+
+**Assessment:** A developer can implement this plan without additional clarification.
+
+---
+
+### 6. ✅ Safety & Risk Assessment
+
+| Risk Area | Mitigation | Assessment |
+|-----------|------------|------------|
+| **Breaking existing behavior** | `slope_detection_enabled = false` by default | ✅ Low risk |
+| **Complete FFB loss** | Grip floor of 0.2 documented (line 588) | ✅ Safe |
+| **Config corruption (old files)** | Missing keys use defaults, no migration needed | ✅ Safe |
+| **Buffer overflow** | `SLOPE_BUFFER_MAX = 41`, window clamped to [5, 41] | ✅ Safe |
+| **Division by zero** | Not applicable (dt from telemetry, window guaranteed ≥5) | ✅ Safe |
+
+---
+
+### 7. User Settings & Presets Impact
+
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| **New settings defined** | ✅ Yes | 5 new parameters in Preset struct |
+| **GUI section designed** | ✅ Yes | "Slope Detection (Experimental)" tree node |
+| **Migration logic needed** | ✅ No | Defaults apply to missing keys |
+| **Preset updates required** | ✅ Yes | All presets get new settings (disabled by default) |
+| **Settings interaction documented** | ✅ Yes | "Optimal Slip Angle is IGNORED when enabled" (tooltip) |
+
+**Assessment:** The "User Settings & Presets Impact" section fully addresses requirements from `auditor_prompt.md`.
+
+---
+
+## Minor Suggestions (Non-Blocking)
+
+The following are **optional improvements** that do not affect the approval status:
+
+### 1. ✅ ~~Savitzky-Golay Coefficient Source~~ (RESOLVED)
+
+~~The plan mentions "pre-computed coefficients for quadratic polynomial fit" but does not specify:~~
+- ~~How coefficients are computed (runtime vs. compile-time)~~
+- ~~Reference for SG coefficient formulas~~
+
+**Resolution (2026-02-01):** A comprehensive Savitzky-Golay Coefficients Deep Research Report has been created at `docs/dev_docs/plans/savitzky-golay coefficients deep research report.md`  and `docs/dev_docs/plans/savitzky-golay coefficients deep research report(2).md`. The implementation plan has been updated to include:
+- The closed-form coefficient generation formula: `w_k = k / (S_2 × h)` where `S_2 = M(M+1)(2M+1)/3`
+- Full C++ implementation of `calculate_sg_derivative()` with algorithm comments
+- Boundary handling strategy (shrinking symmetric window)
+- Reference to the deep research report
+
+### 2. Edge Case: Very Low Speed
+
+The plan notes that Slope Detection is active when `mGripFract` is zero (same condition as static threshold fallback). Consider explicitly documenting behavior at:
+- Standstill (speed = 0)
+- Very low speeds (< 5 km/h)
+
+The existing code likely already handles this via speed gate, but a note would improve clarity.
+
+### 3. Diagnostic Logging
+
+Consider adding a debug log message when slope detection mode is activated/deactivated, to help users troubleshoot configuration issues.
+
+### 4. Optional: Experimental Preset
+
+The plan mentions "An experimental preset could be added" but does not include it in the deliverables checklist. Consider:
+- Adding one experimental preset for testing purposes
+- Or explicitly noting this is deferred to a future version
+
+---
+
+## Compliance Matrix
+
+| Document Requirement | Compliance |
+|----------------------|------------|
+| `01_specifications.md` §3.6 - Artifact Interface | ✅ Plan includes all required sections |
+| `02_architecture_design.md` §3 - Data Flow | ✅ Codebase analysis traces data flow |
+| `architect_prompt.md` Step 1 - Codebase Analysis | ✅ Impacted modules, functions, and data flows documented |
+| `architect_prompt.md` Step 2 - FFB Effect Impact | ✅ Affected effects listed with technical and user-facing impact |
+| `architect_prompt.md` Step 3 - User Settings Impact | ✅ New settings, migration, and preset impact documented |
+| `architect_prompt.md` Step 4 - TDD-Ready Test Plan | ✅ 8 tests with inputs, outputs, and assertions |
+| `plan_reviewer_prompt.md` - Reject Reasons Check | ✅ None of the common rejection reasons apply |
+
+---
+
+## Conclusion
+
+The **Slope Detection Algorithm Implementation Plan** is **approved for implementation**. The document is thorough, technically sound, and provides sufficient detail for a developer to follow TDD practices. The feature's conservative default (disabled) and preservation of the static threshold logic ensure low risk to existing users.
+
+**Next Step:** Proceed to **Phase B: Developer (Implementation)**.
+
+---
+
+```json
+{
+  "verdict": "APPROVE",
+  "review_path": "docs/dev_docs/reviews/plan_review_slope_detection.md",
+  "feedback": "Excellent implementation plan. Comprehensive codebase and FFB effect analysis, TDD-ready test plan, and clear implementation details. Minor suggestions for SG coefficient documentation and edge case handling are optional. Ready for development."
+}
+```
+
+```
+
+# File: docs\dev_docs\implementation_plans\plan_slope_detection.md
 ```markdown
 # Implementation Plan: Slope Detection Algorithm for Dynamic Grip Estimation
 
@@ -28137,7 +27684,7 @@ if (!prev_slope_enabled && engine.m_slope_detection_enabled) {
 
 ```
 
-# File: docs\dev_docs\plans\savitzky-golay coefficients deep research report(2).md
+# File: docs\dev_docs\implementation_plans\savitzky-golay coefficients deep research report(2).md
 ```markdown
 Advanced Signal Processing Architectures: Definitive Implementation of Savitzky-Golay Filters for Quadratic Differentiation with Adaptive Windowing1. Introduction and Historical ContextThe rigorous analysis of time-domain signals often necessitates the extraction of rate-of-change information—derivatives—from data streams corrupted by stochastic noise. In the landscape of digital signal processing (DSP) and chemometrics, the Savitzky-Golay (SG) filter stands as a preeminent algorithm, revered for its unique ability to smooth data and calculate derivatives while preserving the higher-order spectral moments of the underlying signal features, such as peak width and height. First introduced in the seminal 1964 Analytical Chemistry paper by Abraham Savitzky and Marcel J. E. Golay, the method fundamentally shifted the paradigm of data smoothing from simple moving averages to local least-squares polynomial fitting.The user's requirement to implement a Quadratic Fit ($N=2$) for the First Derivative with Variable Window Sizes touches upon the most sophisticated aspects of this algorithm. While the original formulation relied on static lookup tables for fixed window sizes, modern real-time applications demand dynamic adaptability. This report provides an exhaustive, expert-level deconstruction of the SG filter, moving from first-principles mathematical derivation to high-performance C++ implementation strategies. It addresses the subtle but critical mathematical equivalence between linear and quadratic fits on symmetric domains, the breakdown of this equivalence at signal boundaries, and the algorithmic imperative for dynamic coefficient generation over static storage.The necessity for such a filter arises because standard finite difference methods, such as the two-point central difference operator, act as high-pass filters. In the frequency domain, differentiation corresponds to multiplication by $j\omega$; consequently, high-frequency noise is amplified linearly with frequency, often drowning out the signal of interest in the derivative domain. The Savitzky-Golay filter effectively combines a low-pass smoothing filter with a differentiation kernel, optimizing the trade-off between noise suppression (variance reduction) and signal fidelity (bias minimization) through the least-squares criterion.2. Mathematical Derivation of the Least-Squares ConvolutionTo implement a robust feature for variable window sizes, one cannot rely on the pre-computed tables found in the original 1964 paper—which, notably, contained several numerical errors corrected in subsequent literature by Gorry and others. Instead, the implementation must utilize the generative mathematical model.2.1 The General Linear ModelThe core premise of the Savitzky-Golay filter is that valid signal trends within a narrow temporal window can be approximated by a polynomial of degree $N$. Let us consider a subset of $2M+1$ data points, denoted as the vector $\mathbf{x}$, centered at a time index $n=0$. The local index $k$ ranges from $-M$ to $M$. We aim to fit a polynomial $P(k)$ of degree $N$ to these points:$$P(k) = \sum_{j=0}^{N} a_j k^j$$The coefficients $a_j$ are determined by minimizing the sum of squared errors $\chi^2$ between the polynomial model and the observed data $x[k]$:$$\chi^2 = \sum_{k=-M}^{M} \left( \sum_{j=0}^{N} a_j k^j - x[k] \right)^2$$This minimization problem can be expressed in matrix notation. Let $\mathbf{J}$ be the Vandermonde design matrix of size $(2M+1) \times (N+1)$, where the element $J_{k,j} = k^j$. The system of linear equations to solve is:$$\mathbf{x} = \mathbf{J} \mathbf{a} + \mathbf{\epsilon}$$where $\mathbf{a} = [a_0, a_1, \dots, a_N]^T$ is the vector of polynomial coefficients. The optimal solution $\hat{\mathbf{a}}$ is found via the normal equations:$$\hat{\mathbf{a}} = (\mathbf{J}^T \mathbf{J})^{-1} \mathbf{J}^T \mathbf{x}$$The matrix $\mathbf{C} = (\mathbf{J}^T \mathbf{J})^{-1} \mathbf{J}^T$ is the projection matrix. The crucial insight of Savitzky and Golay was that because the indices $k$ are fixed relative to the window center (e.g., always $-2, -1, 0, 1, 2$ for $M=2$), the matrix $\mathbf{C}$ is constant and depends only on $M$ and $N$, not on the data $\mathbf{x}$.2.2 Deriving the First DerivativeThe polynomial $P(k)$ models the signal structure within the window.The smoothed value at the center ($k=0$) is $P(0) = a_0$.The first derivative at the center is evaluated analytically from the polynomial:$$\frac{d P(k)}{dk} \bigg|_{k=0} = \frac{d}{dk} (a_0 + a_1 k + a_2 k^2 + \dots) \bigg|_{k=0} = a_1$$The second derivative is $2a_2$, and so forth.Therefore, obtaining the smoothed first derivative reduces to calculating the coefficient $a_1$. From the matrix solution $\hat{\mathbf{a}} = \mathbf{C} \mathbf{x}$, the value of $a_1$ is simply the dot product of the second row of $\mathbf{C}$ (index 1) with the data vector $\mathbf{x}$.$$a_1 = \sum_{k=-M}^{M} C_{1,k} x[k]$$This linear combination forms the Finite Impulse Response (FIR) filter kernel for the derivative.3. The Quadratic-Linear Equivalence on Symmetric WindowsA critical theoretical nuance—often overlooked in general implementations but vital for understanding the "Quadratic" requirement—is the equivalence between Linear ($N=1$) and Quadratic ($N=2$) fits for determining the first derivative on symmetric windows.3.1 Orthogonality of Basis FunctionsThe matrix $\mathbf{J}^T \mathbf{J}$ consists of the moments of the index $k$. Let $S_p = \sum_{k=-M}^{M} k^p$.For a symmetric window $[-M, M]$, the sum of any odd power of $k$ is zero.$$S_{odd} = 0$$For a Linear Fit ($N=1$), the normal matrix $\mathbf{A}_{lin} = \mathbf{J}^T \mathbf{J}$ is:$$\mathbf{A}_{lin} = \begin{bmatrix} S_0 & S_1 \\ S_1 & S_2 \end{bmatrix} = \begin{bmatrix} 2M+1 & 0 \\ 0 & S_2 \end{bmatrix}$$This matrix is diagonal. The solution for $a_1$ is completely decoupled from $a_0$:$$a_1^{(lin)} = \frac{1}{S_2} \sum_{k=-M}^{M} k \cdot x[k]$$For a Quadratic Fit ($N=2$), the normal matrix $\mathbf{A}_{quad}$ expands to $3 \times 3$:$$\mathbf{A}_{quad} = \begin{bmatrix} S_0 & S_1 & S_2 \\ S_1 & S_2 & S_3 \\ S_2 & S_3 & S_4 \end{bmatrix} = \begin{bmatrix} S_0 & 0 & S_2 \\ 0 & S_2 & 0 \\ S_2 & 0 & S_4 \end{bmatrix}$$
 Observe the "checkerboard" pattern of zeros. The equation for $a_1$ (the middle row) is effectively isolated from $a_0$ and $a_2$ because the off-diagonal terms $S_1$ and $S_3$ are zero. The inverse of this block-diagonal matrix retains the same structure, and the element corresponding to $a_1$ remains $1/S_2$.Consequently:$$a_1^{(quad)} = \frac{1}{S_2} \sum_{k=-M}^{M} k \cdot x[k]$$3.2 Implications for ImplementationThis mathematical identity leads to a profound simplification for the implementation. As long as the window is symmetric (i.e., not at the edges of the signal), the "Quadratic First Derivative" filter is computationally identical to the "Linear First Derivative" filter. The quadratic term $a_2$ captures the curvature (second derivative) and improves the estimate of the smoothed value $a_0$, but it does not alter the slope $a_1$ at the center of symmetry.Requirement Analysis: The user asked for a Quadratic Fit. The implementation must honor this. While the coefficients are identical to the linear case for the steady-state signal, the distinction becomes relevant if the user later requests the second derivative (which requires $N=2$) or processes the boundaries where symmetry is lost (discussed in Section 4).3.3 Comparison of Polynomial Orders for DerivativesIt is instructive to compare why one might choose $N=2$ over $N=3$ or $N=4$.Polynomial Order (N)Basis FunctionsFirst Derivative Character (a1​)NotesLinear ($N=1$)$1, k$Slope of regression line.Robust, high bias for curved signals.Quadratic ($N=2$)$1, k, k^2$Identical to Linear ($a_1^{(2)} = a_1^{(1)}$).Captures curvature ($a_2$) but slope at center is unchanged.Cubic ($N=3$)$1, k, k^2, k^3$Different. Slope accounts for inflection.Reduced bias, increased variance (noise sensitivity).Quartic ($N=4$)$1, \dots, k^4$Identical to Cubic ($a_1^{(4)} = a_1^{(3)}$).Adds $a_4$ term, center slope unchanged from Cubic.This table clarifies that for derivative estimation, polynomial orders pair up: $(1,2)$, $(3,4)$, $(5,6)$. The user's choice of Quadratic puts them in the lowest-variance (most stable) pair.4. The Universal Generating Function for Variable WindowsTo fulfill the requirement of Variable Window Sizes, the implementation cannot use hardcoded arrays. We must derive a function $f(M)$ that returns the convolution kernel.From the derivation in Section 3.1, the weight $w_k$ for the input $x[k]$ is:$$w_k = \frac{k}{S_2}$$The denominator $S_2$ is the sum of squares of integers from $-M$ to $M$.$$S_2 = \sum_{k=-M}^{M} k^2 = 2 \sum_{k=1}^{M} k^2 = 2 \frac{M(M+1)(2M+1)}{6} = \frac{M(M+1)(2M+1)}{3}$$Substituting this back into the expression for $w_k$:$$w_k = \frac{3k}{M(M+1)(2M+1)}$$This equation allows for the $O(1)$ generation of filter coefficients for any window half-width $M$. This is the definitive "definition" requested by the user.Physical Unit Scaling:The coefficient $a_1$ represents the change in signal amplitude per sample. To convert this to a physical rate of change (e.g., Volts/second), the result must be divided by the sampling interval $h$ (or $\Delta t$):$$\frac{dy}{dt} \approx \frac{1}{h} \sum_{k=-M}^{M} w_k x[n+k]$$
@@ -28248,7 +27795,7 @@ public:
 This reduces the number of multiplications by approximately 50%, a significant saving for high-throughput applications on embedded hardware.8. ConclusionThe implementation of a Quadratic First Derivative Savitzky-Golay filter with Variable Window Sizes requires a synthesis of robust mathematical theory and careful software architecture. By recognizing the Linear-Quadratic Equivalence on symmetric domains, the developer can employ the simplified Universal Generating Function derived in this report. However, the rigor of the implementation is defined by its handling of the "Variable Window" edge cases, where the Shrinking Symmetric Window strategy is recommended to prevent the instability inherent in asymmetric polynomial extrapolation.This report provides the definitions, derivations, and code structures necessary to deploy a production-grade differentiator that outperforms standard finite difference methods in noise suppression while preserving the fidelity of the underlying signal dynamics.References within text:.
 ```
 
-# File: docs\dev_docs\plans\savitzky-golay coefficients deep research report.md
+# File: docs\dev_docs\implementation_plans\savitzky-golay coefficients deep research report.md
 ```markdown
 I have done a deep research about Savitzky-Golay Coefficients to help inform the implementation of the slope detection algorithm, in order to address the issue you identified about the Savitzky-Golay Coefficient Source.
 
@@ -29327,209 +28874,25 @@ The following parameters are exposed in the GUI and `config.ini` to tune effect 
 
 ```
 
-# File: docs\dev_docs\reviews\plan_review_slope_detection.md
+# File: docs\dev_docs\references\which_cars_in_rF2_have_grip_data.md
 ```markdown
-# Plan Review: Slope Detection Algorithm for Dynamic Grip Estimation
+As reported in this forum post: unlinked: community_lemansultimate_com/index_php?threads/add-missing-parameters-to-telemetry-for-plugins_66/page-25#post-74367
 
-**Plan Path:** `docs/dev_docs/plans/plan_slope_detection.md`
-**Review Date:** 2026-02-01
-**Reviewer:** Lead Architect (Plan Reviewer)
+Tire grip, tire load, and some other data are blocked for DLC cars in rF2, due to license agreements.
 
----
+Non-DLC cars have this data available in rF2.
+TODO: we should make a list of all the cars that have this data available in rF2.
 
-## Executive Summary
+Possibilities for the future of LMU (and possibly rF2): 
 
-| Verdict | **✅ APPROVE** |
-|---------|----------------|
-| **Plan Quality** | Excellent |
-| **Completeness** | High |
-| **TDD-Readiness** | Good |
-| **Risk Level** | Low (Feature disabled by default) |
+* S397 might introduce more granularity in which data is blocked, allowing for more data to be available to plugins and shared memory. In fact, more data is blocked at the moment than needed from license agreements, just because the way in which the car to be blocked are grouped, and the way in which whole parts of the data are blocked for certain groups of cars.
 
-The implementation plan for the Slope Detection Algorithm is **well-structured, comprehensive, and ready for implementation**. It demonstrates a thorough understanding of the codebase, provides detailed technical specifications, and includes adequate safeguards for backward compatibility. Minor suggestions for improvement are noted below but do not warrant rejection.
+* As S397 (as a feature request in the LMU forum) to implement specific formulas to integrate into the FFB. This is because the final goal is to be able to feel certain information through the wheel. In this way, license agreements would be respected, because the raw individual data values are not shared, but the final computation of the FFB might take also those into account.
+TODO: after our experimentation, in the feature request, present specific math formulas that could be beneficial to have in the FFB. This is also to show that these would not be "canned effects", but dynamic effects that would affect the amplitude and frequencies of the FFB based on real car forces.
+It would also make a strong argument for the feasibility of this approach for extending FFB.
 
----
-
-## Review Criteria Assessment
-
-### 1. ✅ Completeness
-
-| Requirement | Status | Notes |
-|-------------|--------|-------|
-| Context/Problem Statement | ✅ Complete | Clear explanation of the problem (static thresholds) and proposed solution (dynamic derivative-based detection) |
-| Reference Documents | ✅ Complete | All 4 source documents properly referenced |
-| Codebase Analysis | ✅ Complete | Detailed analysis of `calculate_grip()`, `FFBEngine.h`, and `Config.h` |
-| FFB Effect Impact Analysis | ✅ Complete | Comprehensive table of affected/unaffected effects |
-| Implementation Details | ✅ Complete | Code snippets with line numbers for all changes |
-| Test Plan | ✅ Complete | 8 unit tests with inputs, outputs, and assertions |
-| Deliverables Checklist | ✅ Complete | Itemized checklist with line count estimates |
-| Documentation Updates | ✅ Complete | CHANGELOG, VERSION, README mentioned |
-
-**Assessment:** The plan covers all requirements from `architect_prompt.md` and `01_specifications.md`.
-
----
-
-### 2. ✅ Codebase Analysis Quality
-
-The plan demonstrates **strong codebase analysis**:
-
-| Aspect | Evidence |
-|--------|----------|
-| **Impacted modules identified** | `FFBEngine.h`, `Config.h`, `Config.cpp`, `GuiLayer.cpp` clearly listed |
-| **Functions/classes identified** | `calculate_grip()` (lines 593-678), `GripResult` struct, `FFBCalculationContext`, `Preset` struct |
-| **Data flow documented** | Clear flow diagram: Telemetry → Grip Calculation → Effect Calculations → Output |
-| **Existing functionality impact** | Section 2.4 clearly shows the branching logic: new code path for slope detection *alongside* preserved static threshold logic |
-
-**Key Insight Documented:** The plan correctly identifies that slope detection replaces **steps 2c/2d/2e** of the grip calculation fallback path (line 78), not the entire function.
-
----
-
-### 3. ✅ FFB Effect Impact Analysis
-
-The plan includes an **exemplary FFB effect impact analysis** (Section: "FFB Effects Impact Analysis"):
-
-| Category | Effects Listed | Technical Impact | User Impact |
-|----------|----------------|------------------|-------------|
-| **Front Grip Consumers** | Understeer Effect, Slide Texture | ✅ Functions and line numbers provided | ✅ "Smoother and more progressive" feel described |
-| **Rear Grip Consumers** | Lateral G Boost (Oversteer) | ✅ Differential calculation explained | ✅ "Better oversteer detection in mixed conditions" |
-| **Slip Angle Derived** | Rear Aligning Torque | ✅ Noted as unaffected | ✅ Counter-steering cues remain accurate |
-| **Unaffected Effects** | Steering Shaft, Yaw Kick, Gyro, Lockup, Road Texture, ABS, etc. | ✅ Clear list with rationale | ✅ No changes expected |
-
-**User Experience Summary Table (Section 5):**
-- Clear before/after comparison (static vs. slope detection)
-- Explicitly notes what will change and what will NOT change
-
-**Assessment:** This section meets and exceeds the requirements in `architect_prompt.md` (Step 2: FFB Effect Impact Analysis).
-
----
-
-### 4. ✅ Testability (TDD-Ready)
-
-The plan includes **8 unit tests** with sufficient detail for TDD:
-
-| Test | Purpose | Inputs | Expected Outputs | Assertions |
-|------|---------|--------|------------------|------------|
-| `test_slope_detection_buffer_init` | Buffer initialization | Fresh engine | `count == 0, index == 0, current == 0.0` | ✅ Clear |
-| `test_slope_sg_derivative` | SG derivative accuracy | Linear ramp, window=9, dt=0.01 | `derivative ≈ 10.0 ±1.0` | ✅ Clear |
-| `test_slope_grip_at_peak` | Zero slope = full grip | Constant G=1.2, constant slip | `output > 0.95` | ✅ Clear |
-| `test_slope_grip_past_peak` | Negative slope = grip loss | Decreasing G, increasing slip | `0.2 < output < 0.9` | ✅ Clear |
-| `test_slope_vs_static_comparison` | Both methods detect loss | Same telemetry, 12% slip | Both detect grip loss | ✅ Clear |
-| `test_slope_config_persistence` | Save/load cycle | Non-default values | Loaded == saved | ✅ Clear |
-| `test_slope_latency_characteristics` | Buffer fill timing | window=15, dt=0.0025 | `fill_count == window_size` | ✅ Clear |
-| `test_slope_noise_rejection` | SG filter rejects noise | Constant G + noise | `|slope| < 1.0` | ✅ Clear |
-
-**Assessment:** Tests are described to a level where a developer can write them BEFORE implementation (TDD Red Phase).
-
----
-
-### 5. ✅ Clarity & Implementability
-
-| Aspect | Assessment |
-|--------|------------|
-| **Code locations** | ✅ Specific line numbers provided (e.g., "line 312", "~line 1100") |
-| **Code snippets** | ✅ C++ pseudocode provided for all major changes |
-| **Naming conventions** | ✅ Consistent prefix `m_slope_*` and `slope_*` |
-| **Configuration parameters** | ✅ Table with types, defaults, and descriptions |
-| **GUI layout** | ✅ ImGui tree structure with conditional visibility |
-| **Validation logic** | ✅ Range clamps and odd-number enforcement documented |
-| **Backward compatibility** | ✅ Feature OFF by default, static logic preserved |
-
-**Assessment:** A developer can implement this plan without additional clarification.
-
----
-
-### 6. ✅ Safety & Risk Assessment
-
-| Risk Area | Mitigation | Assessment |
-|-----------|------------|------------|
-| **Breaking existing behavior** | `slope_detection_enabled = false` by default | ✅ Low risk |
-| **Complete FFB loss** | Grip floor of 0.2 documented (line 588) | ✅ Safe |
-| **Config corruption (old files)** | Missing keys use defaults, no migration needed | ✅ Safe |
-| **Buffer overflow** | `SLOPE_BUFFER_MAX = 41`, window clamped to [5, 41] | ✅ Safe |
-| **Division by zero** | Not applicable (dt from telemetry, window guaranteed ≥5) | ✅ Safe |
-
----
-
-### 7. User Settings & Presets Impact
-
-| Aspect | Status | Notes |
-|--------|--------|-------|
-| **New settings defined** | ✅ Yes | 5 new parameters in Preset struct |
-| **GUI section designed** | ✅ Yes | "Slope Detection (Experimental)" tree node |
-| **Migration logic needed** | ✅ No | Defaults apply to missing keys |
-| **Preset updates required** | ✅ Yes | All presets get new settings (disabled by default) |
-| **Settings interaction documented** | ✅ Yes | "Optimal Slip Angle is IGNORED when enabled" (tooltip) |
-
-**Assessment:** The "User Settings & Presets Impact" section fully addresses requirements from `auditor_prompt.md`.
-
----
-
-## Minor Suggestions (Non-Blocking)
-
-The following are **optional improvements** that do not affect the approval status:
-
-### 1. ✅ ~~Savitzky-Golay Coefficient Source~~ (RESOLVED)
-
-~~The plan mentions "pre-computed coefficients for quadratic polynomial fit" but does not specify:~~
-- ~~How coefficients are computed (runtime vs. compile-time)~~
-- ~~Reference for SG coefficient formulas~~
-
-**Resolution (2026-02-01):** A comprehensive Savitzky-Golay Coefficients Deep Research Report has been created at `docs/dev_docs/plans/savitzky-golay coefficients deep research report.md`  and `docs/dev_docs/plans/savitzky-golay coefficients deep research report(2).md`. The implementation plan has been updated to include:
-- The closed-form coefficient generation formula: `w_k = k / (S_2 × h)` where `S_2 = M(M+1)(2M+1)/3`
-- Full C++ implementation of `calculate_sg_derivative()` with algorithm comments
-- Boundary handling strategy (shrinking symmetric window)
-- Reference to the deep research report
-
-### 2. Edge Case: Very Low Speed
-
-The plan notes that Slope Detection is active when `mGripFract` is zero (same condition as static threshold fallback). Consider explicitly documenting behavior at:
-- Standstill (speed = 0)
-- Very low speeds (< 5 km/h)
-
-The existing code likely already handles this via speed gate, but a note would improve clarity.
-
-### 3. Diagnostic Logging
-
-Consider adding a debug log message when slope detection mode is activated/deactivated, to help users troubleshoot configuration issues.
-
-### 4. Optional: Experimental Preset
-
-The plan mentions "An experimental preset could be added" but does not include it in the deliverables checklist. Consider:
-- Adding one experimental preset for testing purposes
-- Or explicitly noting this is deferred to a future version
-
----
-
-## Compliance Matrix
-
-| Document Requirement | Compliance |
-|----------------------|------------|
-| `01_specifications.md` §3.6 - Artifact Interface | ✅ Plan includes all required sections |
-| `02_architecture_design.md` §3 - Data Flow | ✅ Codebase analysis traces data flow |
-| `architect_prompt.md` Step 1 - Codebase Analysis | ✅ Impacted modules, functions, and data flows documented |
-| `architect_prompt.md` Step 2 - FFB Effect Impact | ✅ Affected effects listed with technical and user-facing impact |
-| `architect_prompt.md` Step 3 - User Settings Impact | ✅ New settings, migration, and preset impact documented |
-| `architect_prompt.md` Step 4 - TDD-Ready Test Plan | ✅ 8 tests with inputs, outputs, and assertions |
-| `plan_reviewer_prompt.md` - Reject Reasons Check | ✅ None of the common rejection reasons apply |
-
----
-
-## Conclusion
-
-The **Slope Detection Algorithm Implementation Plan** is **approved for implementation**. The document is thorough, technically sound, and provides sufficient detail for a developer to follow TDD practices. The feature's conservative default (disabled) and preservation of the static threshold logic ensure low risk to existing users.
-
-**Next Step:** Proceed to **Phase B: Developer (Implementation)**.
-
----
-
-```json
-{
-  "verdict": "APPROVE",
-  "review_path": "docs/dev_docs/reviews/plan_review_slope_detection.md",
-  "feedback": "Excellent implementation plan. Comprehensive codebase and FFB effect analysis, TDD-ready test plan, and clear implementation details. Minor suggestions for SG coefficient documentation and edge case handling are optional. Ready for development."
-}
-```
-
+Does the Formula Pro have such data? It is not licensed, so...
+Unless the agreements with Goodyear and Bridgestone prevent this.
 ```
 
 # File: docs\python_version\performance_analysis.md
