@@ -11,11 +11,20 @@ python_prototype/
 tmp/
 
 # LocalOnly folders/files
+.local/
+.cache/
+.next-devtools-mcp/
 .vs/
 .specstory/
 .hive/
 .vscode/
 subagents/
+.semantic-memory/
+.npm/
+.env
+.envrc
+.gitconfig
+.bash_history
 .checkpoint.md
 
 # VS Code CMake build directories
