@@ -98,6 +98,30 @@ struct Preset {
     // Reserved for future implementation (v0.6.23+)
     float road_fallback_scale = 0.05f;      // Planned: Road texture fallback scaling
     bool understeer_affects_sop = false;     // Planned: Understeer modulation of SoP
+    
+    // v0.7.0: Weather-Aware FFB Settings
+    bool weather_enabled = true;
+    float weather_rain_grip_penalty = 0.3f;
+    float weather_temp_grip_factor = 1.0f;
+    float weather_texture_modifier = 1.0f;
+    
+    // v0.7.0: Terrain-Aware Settings
+    bool terrain_enabled = false;
+    float terrain_gravel_intensity = 1.5f;
+    float terrain_dirt_intensity = 1.0f;
+    float terrain_cobbles_intensity = 2.0f;
+    
+    // v0.7.0: Tire Compound Awareness Settings
+    bool compound_awareness_enabled = false;
+    float compound_dry_grip_scale = 1.0f;
+    float compound_wet_grip_scale = 0.65f;
+    float compound_intermediate_grip_scale = 0.85f;
+    
+    // v0.7.0: Configurable Filter Modes
+    int road_filter_mode = 1;  // 1 = MovingAverage_3
+    int lockup_filter_mode = 3;  // 3 = EMA
+    float road_filter_tau = 0.1f;
+    float lockup_filter_tau = 0.05f;
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}

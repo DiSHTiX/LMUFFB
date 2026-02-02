@@ -310,6 +310,38 @@ public:
     float m_road_fallback_scale = 0.05f;
     bool m_understeer_affects_sop = false;
     
+    // v0.7.0: Weather-Aware FFB Settings (I3)
+    bool m_weather_enabled = true;
+    float m_weather_rain_grip_penalty = 0.3f;
+    float m_weather_temp_grip_factor = 1.0f;
+    float m_weather_texture_modifier = 1.0f;
+    
+    // v0.7.0: Terrain-Aware Settings (I4)
+    bool m_terrain_enabled = false;
+    float m_terrain_gravel_intensity = 1.5f;
+    float m_terrain_dirt_intensity = 1.0f;
+    float m_terrain_cobbles_intensity = 2.0f;
+    
+    // v0.7.0: Tire Compound Awareness Settings (I5)
+    bool m_compound_awareness_enabled = false;
+    float m_compound_dry_grip_scale = 1.0f;
+    float m_compound_wet_grip_scale = 0.65f;
+    float m_compound_intermediate_grip_scale = 0.85f;
+    
+    // v0.7.0: Configurable Filter Modes (I6)
+    enum class FilterMode {
+        Off = 0,
+        MovingAverage_3,
+        MovingAverage_5,
+        EMA,
+        Median,
+        Wiener
+    };
+    FilterMode m_road_filter_mode = FilterMode::MovingAverage_3;
+    FilterMode m_lockup_filter_mode = FilterMode::EMA;
+    float m_road_filter_tau = 0.1f;
+    float m_lockup_filter_tau = 0.05f;
+    
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
     double m_theoretical_freq = 0.0; // Theoretical wheel frequency for GUI
@@ -533,10 +565,11 @@ private:
     // Rear lockup is only triggered when rear slip exceeds front slip by this margin (1% slip).
     static constexpr double AXLE_DIFF_HYSTERESIS = 0.01;  // 1% slip buffer to prevent mode chattering
     
-    // ABS Detection Thresholds (v0.6.0)
-    // These constants control when the ABS pulse effect is triggered.
-    static constexpr double ABS_PEDAL_THRESHOLD = 0.5;  // 50% pedal input required to detect ABS
-    static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 2.0;  // bar/s pressure modulation rate
+    // ABS Detection Thresholds (v0.6.0, v0.7.0 fix B1)
+    // mUnfilteredBrake is normalized (0-1), mBrakePressure is in kPa
+    // Use lower threshold for normalized brake input (5% pedal movement to detect ABS)
+    static constexpr double ABS_PEDAL_THRESHOLD = 0.05;
+    static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 100.0;  // kPa/s pressure modulation rate
     
     // Predictive Lockup Gating Thresholds (v0.6.0)
     // These constants define the conditions under which predictive logic is enabled.
@@ -691,17 +724,21 @@ public:
         return w.mSuspForce + 300.0;
     }
 
-    // Helper: Calculate Kinematic Load (v0.4.39)
+    // Helper: Calculate Kinematic Load (v0.4.39, v0.7.0 fix B3)
     // Estimates tire load from chassis physics when telemetry (mSuspForce) is missing.
     // This is critical for encrypted DLC content where suspension sensors are blocked.
     double calculate_kinematic_load(const TelemInfoV01* data, int wheel_index) {
-        // 1. Static Weight Distribution
+        // 0. Velocity Scaling Factor (v0.7.0 fix B3)
+        // Scale static weight by velocity - 0 at standstill, full at 10+ m/s
+        double speed = std::abs(data->mLocalVel.z);
+        double velocity_factor = (std::min)(1.0, speed / 10.0);
+
+        // 1. Static Weight Distribution (scaled by velocity)
         bool is_rear = (wheel_index >= 2);
         double bias = is_rear ? m_approx_weight_bias : (1.0 - m_approx_weight_bias);
-        double static_weight = (m_approx_mass_kg * 9.81 * bias) / 2.0;
+        double static_weight = (m_approx_mass_kg * 9.81 * bias * velocity_factor) / 2.0;
 
         // 2. Aerodynamic Load (Velocity Squared)
-        double speed = std::abs(data->mLocalVel.z);
         double aero_load = m_approx_aero_coeff * (speed * speed);
         double wheel_aero = aero_load / 4.0; 
 
