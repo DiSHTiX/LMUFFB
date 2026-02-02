@@ -119,6 +119,7 @@ struct FFBSnapshot {
 
     float debug_freq; // New v0.4.41: Frequency for diagnostics
     float tire_radius; // New v0.4.41: Tire radius in meters for theoretical freq calculation
+    float slope_current; // New v0.7.1: Slope detection derivative value
 };
 
 struct BiquadNotch {
@@ -311,12 +312,12 @@ public:
     float m_road_fallback_scale = 0.05f;
     bool m_understeer_affects_sop = false;
     
-    // ===== SLOPE DETECTION (v0.7.0) =====
+    // ===== SLOPE DETECTION (v0.7.0 → v0.7.1 defaults) =====
     bool m_slope_detection_enabled = false;
     int m_slope_sg_window = 15;
-    float m_slope_sensitivity = 1.0f;
-    float m_slope_negative_threshold = -0.1f;
-    float m_slope_smoothing_tau = 0.02f;
+    float m_slope_sensitivity = 0.5f;            // v0.7.1: Reduced from 1.0 (less aggressive)
+    float m_slope_negative_threshold = -0.3f;    // v0.7.1: Changed from -0.1 (later trigger)
+    float m_slope_smoothing_tau = 0.04f;         // v0.7.1: Changed from 0.02 (smoother transitions)
 
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
@@ -1187,6 +1188,7 @@ public:
                 snap.warn_dt = ctx.frame_warn_dt;
                 snap.debug_freq = (float)m_debug_freq;
                 snap.tire_radius = (float)fl.mStaticUndeflectedRadius / 100.0f;
+                snap.slope_current = (float)m_slope_current; // v0.7.1: Slope detection diagnostic
 
                 m_debug_buffer.push_back(snap);
             }
@@ -1305,9 +1307,16 @@ private:
         if (rear_grip_res.approximated) ctx.frame_warn_rear_grip = true;
         
         // Lateral G Boost (Oversteer)
-        double grip_delta = ctx.avg_grip - ctx.avg_rear_grip;
-        if (grip_delta > 0.0) {
-            sop_base *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
+        // v0.7.1 FIX: Disable when slope detection is enabled to prevent oscillations.
+        // Slope detection uses a different calculation method for front grip than the
+        // static threshold used for rear grip. This asymmetry creates artificial
+        // grip_delta values that cause feedback oscillation.
+        // See: docs/dev_docs/investigations/slope_detection_issues_v0.7.0.md (Issue 2)
+        if (!m_slope_detection_enabled) {
+            double grip_delta = ctx.avg_grip - ctx.avg_rear_grip;
+            if (grip_delta > 0.0) {
+                sop_base *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
+            }
         }
         ctx.sop_base_force = sop_base;
         

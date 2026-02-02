@@ -1128,6 +1128,12 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             Config::Save(engine);
         }
         
+        if (engine.m_slope_detection_enabled && engine.m_oversteer_boost > 0.01f) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), 
+                "Note: Lateral G Boost (Slide) is auto-disabled when Slope Detection is ON.");
+            ImGui::NextColumn(); ImGui::NextColumn();
+        }
+
         if (engine.m_slope_detection_enabled) {
             // Filter Window
             int window = engine.m_slope_sg_window;
@@ -1135,6 +1141,17 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
                 if (window % 2 == 0) window++;  // Force odd
                 engine.m_slope_sg_window = window;
                 selected_preset = -1;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Savitzky-Golay filter window size (samples).\n\n"
+                    "Larger = Smoother but higher latency\n"
+                    "Smaller = Faster response but noisier\n\n"
+                    "Recommended:\n"
+                    "  Direct Drive: 11-15\n"
+                    "  Belt Drive: 15-21\n"
+                    "  Gear Drive: 21-31\n\n"
+                    "Must be ODD (enforced automatically).");
             }
             if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
             
@@ -1546,6 +1563,7 @@ static RollingBuffer plot_calc_rear_grip;
 static RollingBuffer plot_calc_slip_ratio;
 static RollingBuffer plot_calc_slip_angle_smoothed; 
 static RollingBuffer plot_calc_rear_slip_angle_smoothed; 
+static RollingBuffer plot_slope_current;  // New v0.7.1: Slope detection diagnostic
 // Moved here from Header C
 static RollingBuffer plot_calc_rear_lat_force; 
 
@@ -1628,6 +1646,7 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         plot_calc_slip_angle_smoothed.Add(snap.calc_front_slip_angle_smoothed);
         plot_calc_rear_slip_angle_smoothed.Add(snap.calc_rear_slip_angle_smoothed);
         plot_calc_rear_lat_force.Add(snap.calc_rear_lat_force);
+        plot_slope_current.Add(snap.slope_current); // v0.7.1
 
         // --- Header C: Raw Telemetry ---
         plot_raw_steer.Add(snap.steer_force);
@@ -1782,6 +1801,14 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         
         PlotWithStats("Rear Slip Angle (Sm)", plot_calc_rear_slip_angle_smoothed, 0.0f, 1.0f, ImVec2(0, 40),
                       "Smoothed Rear Slip Angle (LPF)");
+        
+        if (engine.m_slope_detection_enabled) {
+            PlotWithStats("Slope (dG/dAlpha)", plot_slope_current, -5.0f, 5.0f, ImVec2(0, 40),
+                "Slope detection derivative value.\n"
+                "Positive = building grip.\n"
+                "Near zero = at peak grip.\n"
+                "Negative = past peak, sliding.");
+        }
         
         ImGui::NextColumn();
         

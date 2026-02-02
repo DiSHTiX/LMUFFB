@@ -1,8 +1,8 @@
 # Slope Detection Algorithm - Technical Guide
 
-**Version:** 0.7.0  
-**Status:** Experimental  
-**Last Updated:** February 1, 2026
+**Version:** 0.7.1  
+**Status:** Stable / Recommended  
+**Last Updated:** February 2, 2026
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## Overview
 
-**Slope Detection** is a new experimental feature in lmuFFB v0.7.0 that dynamically estimates tire grip by monitoring the **rate of change** (slope) of the tire's performance curve in real-time, rather than using static thresholds.
+**Slope Detection** is an adaptive algorithm in lmuFFB v0.7.1 that dynamically estimates tire grip by monitoring the **rate of change** (slope) of the tire's performance curve in real-time, rather than using static thresholds.
 
 **Key Benefits:**
 - 🎯 **Adaptive** - Automatically adjusts to different tire compounds, temperatures, and wear states
@@ -145,7 +145,7 @@ SG Filtered Derivative
 
 When enabled, replaces the static "Optimal Slip Angle" threshold with dynamic slope monitoring. The "Optimal Slip Angle" and "Optimal Slip Ratio" settings are ignored when this is ON.
 
-**Important:** When you toggle this ON mid-session, the system automatically clears its internal buffers to ensure clean slope calculations. This prevents stale data from causing FFB glitches during the first few seconds after enabling.
+> ⚠️ **Note:** When Slope Detection is enabled, **Lateral G Boost (Slide)** is automatically disabled to prevent oscillations caused by asymmetric calculation methods between axles.
 
 ---
 
@@ -178,7 +178,7 @@ Window = 31  → 38.75 ms latency  (Very Smooth, Sluggish)
 
 ### Sensitivity
 **Range:** 0.1x - 5.0x  
-**Default:** 1.0x  
+**Default:** 0.5x (v0.7.1)
 **Unit:** Multiplier
 
 **What it does:** Scales how aggressively the slope is converted to grip loss.
@@ -207,7 +207,7 @@ Sensitivity = 0.5x  →  Grip Factor = 0.92 (wheel lightens 8%)
 
 #### Slope Threshold
 **Range:** -1.0 to 0.0  
-**Default:** -0.1  
+**Default:** -0.3 (v0.7.1)
 **Unit:** (Lateral G / Slip Angle)
 
 The slope value below which grip loss begins. More negative = later detection.
@@ -218,7 +218,7 @@ The slope value below which grip loss begins. More negative = later detection.
 
 #### Output Smoothing
 **Range:** 0.005s - 0.100s  
-**Default:** 0.020s (20ms)  
+**Default:** 0.040s (40ms) (v0.7.1)
 **Unit:** Seconds (time constant)
 
 Applies an exponential moving average to the final grip factor to prevent abrupt FFB changes.
@@ -241,15 +241,12 @@ Smoothed Output = Previous Output + α × (New Grip Factor - Previous Output)
 
 ### Live Diagnostics
 ```
-Live Slope: 0.142 | Grip: 100%
+Live Slope: 0.142 | Grip: 100% | Cur derivative: -0.15
 ```
 
-**Live Slope:** The current calculated slope  
-- **Positive (0.1 to 0.5):** Tire building grip  
-- **Near zero (±0.05):** Tire at peak  
-- **Negative (-0.1 to -0.5):** Tire saturating/sliding  
-
-**Grip:** The current grip percentage (100% = full grip, lower = reduced grip)
+**Live Slope:** The current filtered slope value used for grip loss calculation.  
+**Grip:** The current grip percentage (100% = full grip, lower = reduced grip).  
+**Slope Graph:** A live scrolling graph available in the "Internal Physics" header to visualize the tire curve derivative.
 
 Use these to understand what the algorithm is detecting during driving.
 
@@ -388,7 +385,7 @@ Window = 31 (39ms latency):
 ```
 Enable Slope Detection: ON
 Filter Window: 15
-Sensitivity: 1.0
+Sensitivity: 0.5 (Default)
 ```
 
 Then adjust "Understeer Effect" slider (in the main Front Axle section) to taste:
@@ -483,8 +480,9 @@ Gear-driven wheels benefit from more smoothing to hide mechanical noise.
 
 **Solution:**
 1. Increase Filter Window: Try 21, 25, or 31
-2. Increase Output Smoothing: 0.02s → 0.04s
-3. Check that window size is **odd** (should be automatic)
+2. Increase Output Smoothing: 0.04s → 0.06s
+3. Lower Sensitivity: 0.5 → 0.3
+4. Check that window size is **odd** (should be automatic)
 
 ---
 
@@ -522,6 +520,14 @@ Gear-driven wheels benefit from more smoothing to hide mechanical noise.
 **Cause:** Slope detection is working correctly! Different ride heights change the tire's slip angle characteristics.
 
 **This is a feature, not a bug.** The algorithm adapts to your setup changes, just like a real car would feel different with different suspension settings.
+
+---
+
+### "Oscillations when turning in or cornering"
+
+**Cause:** Conflict between Slope Detection (Front only) and Lateral G Boost (Global effect).
+
+**Fix in v0.7.1:** lmuFFB now automatically disables **Lateral G Boost (Slide)** when Slope Detection is enabled. This eliminates the feedback loop that caused oscillations in v0.7.0. If you still experience oscillations, try increasing the **Filter Window** (e.g., 21 or 25).
 
 ---
 
@@ -620,7 +626,7 @@ This asymmetry is intentional and physically justified.
 | **Tuning Required** | High (Optimal Slip Angle must be dialed in) | Low (mostly set-and-forget) |
 | **Noise Sensitivity** | Low (simple comparison) | Medium (requires filtering) |
 | **Tire Degradation** | No adaptation (threshold stays fixed) | Adapts as grip degrades |
-| **Best For** | Users who want instant response and minimal latency | Users who want accurate, adaptive grip feedback |
+| **Best For** | Users who want instant response and minimal latency | Users who want accurate, adaptive, and organic understeer feel |
 
 **Both methods are valid.** Choose the one that matches your priorities.
 
@@ -733,7 +739,7 @@ Slope Detection represents a significant advancement in FFB grip estimation, mov
 
 ---
 
-**Document Version:** 1.0  
-**lmuFFB Version:** 0.7.0  
+**Document Version:** 1.1 (v0.7.1)
+**lmuFFB Version:** 0.7.1  
 **Author:** lmuFFB Development Team  
 **License:** This document is distributed with lmuFFB under the same MIT license.

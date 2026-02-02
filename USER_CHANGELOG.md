@@ -6,6 +6,24 @@ This document contains all version release posts by ErwinMoss from the [url=http
 
 ---
 
+[size=5][b]February 2, 2026[/b][/size]
+[b]Version v0.7.1 - Slope Detection Stability & UI[/b]
+
+[b]New release[/b] (v0.7.1) https://github.com/coasting-nc/LMUFFB/releases
+
+This update addresses several stability issues discovered in the initial Slope Detection release (v0.7.0) and improves the user interface for better tuning.
+
+[b]Fixes & Improvements:[/b]
+[list]
+[*] [b]Oscillation Fix[/b]: Lateral G Boost (Slide) is now automatically disabled when Slope Detection is ON. This prevents a feedback loop caused by different grip calculation methods between front and rear axles.
+[*] [b]UI Tooltips[/b]: Added detailed tooltips for Slope Detection parameters with recommended values for Direct Drive, Belt, and Gear-driven wheels.
+[*] [b]Slope Graph[/b]: Added a new live graph in the "Internal Physics" header to monitor the slope (dG/dAlpha) in real-time. This helps in visual tuning and understanding tire behavior.
+[*] [b]Smoother Transitions[/b]: Updated default settings for a less aggressive response out-of-the-box (Sensitivity: 0.5, Smoothing Tau: 0.04s).
+[*] [b]Diagnostic Improvements[/b]: Added live slope values to the diagnostic snapshot for easier troubleshooting.
+[/list]
+
+---
+
 [size=5][b]February 1, 2026[/b][/size]
 [b]Version v0.7.0 - Dynamic Slope Detection[/b]
 

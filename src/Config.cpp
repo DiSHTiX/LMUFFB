@@ -1095,7 +1095,7 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
     if (engine.m_slope_sg_window % 2 == 0) engine.m_slope_sg_window++; // Must be odd
     if (engine.m_slope_sensitivity < 0.1f) engine.m_slope_sensitivity = 0.1f;
     if (engine.m_slope_sensitivity > 10.0f) engine.m_slope_sensitivity = 10.0f;
-    if (engine.m_slope_smoothing_tau < 0.001f) engine.m_slope_smoothing_tau = 0.02f;
+    if (engine.m_slope_smoothing_tau < 0.001f) engine.m_slope_smoothing_tau = 0.04f;
     
     // v0.6.20: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges (Expanded)
     if (engine.m_lockup_gamma < 0.1f || engine.m_lockup_gamma > 3.0f) {

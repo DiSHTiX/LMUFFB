@@ -100,12 +100,12 @@ struct Preset {
     float road_fallback_scale = 0.05f;      // Planned: Road texture fallback scaling
     bool understeer_affects_sop = false;     // Planned: Understeer modulation of SoP
 
-    // ===== SLOPE DETECTION (v0.7.0) =====
+    // ===== SLOPE DETECTION (v0.7.0 → v0.7.1 defaults) =====
     bool slope_detection_enabled = false;
     int slope_sg_window = 15;
-    float slope_sensitivity = 1.0f;
-    float slope_negative_threshold = -0.1f;
-    float slope_smoothing_tau = 0.02f;
+    float slope_sensitivity = 0.5f;          // Reduced from 1.0 (less aggressive)
+    float slope_negative_threshold = -0.3f;  // Changed from -0.1 (later trigger)
+    float slope_smoothing_tau = 0.04f;       // Changed from 0.02 (smoother transitions)
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
@@ -182,7 +182,7 @@ struct Preset {
     Preset& SetYawSmoothing(float v) { yaw_smoothing = v; return *this; }
     Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
     
-    Preset& SetSlopeDetection(bool enabled, int window = 15, float sens = 1.0f, float thresh = -0.1f, float tau = 0.02f) {
+    Preset& SetSlopeDetection(bool enabled, int window = 15, float sens = 0.5f, float thresh = -0.3f, float tau = 0.04f) {
         slope_detection_enabled = enabled;
         slope_sg_window = window;
         slope_sensitivity = sens;

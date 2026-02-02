@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-02-02
+
+### Fixed
+- **Slope Detection Stability**:
+  - Automatically disable **Lateral G Boost (Slide)** when Slope Detection is enabled. This prevents artificial grip-delta oscillations caused by asymmetric calculation methods between axles.
+  - Updated default parameters for a more conservative and smoother experience on initial activation (Sensitivity: 0.5, Smoothing Tau: 0.04s).
+- **GUI & UX Improvements**:
+  - Added a dedicated **Slope (dG/dAlpha) Graph** in the Internal Physics section for real-time monitoring of the tire curve derivative.
+  - Implemented detailed **Tuning Tooltips** for the SG Filter Window, providing hardware-specific recommendations for Direct Drive, Belt, and Gear-driven wheels.
+  - Added a dashboard warning when both Slope Detection and Lateral G Boost are conceptually enabled, informing the user that the boost has been auto-suppressed.
+- **Diagnostic Coverage**:
+  - Populated the `slope_current` field in `FFBSnapshot` to ensure slope detection state is visible in telemetry logs and debugging tools.
+
+### Added
+- **v0.7.1 Regression Tests**:
+  - `test_slope_detection_defaults_v071`: Verifies the new, less aggressive default parameters.
+  - `test_slope_detection_diag_v071`: Confirms the slope diagnostic is correctly populated in snapshots.
+  - `test_slope_detection_boost_disable_v071`: Ensures Lateral G Boost is properly suppressed when slope detection is active.
+  - `test_slope_detection_less_aggressive_v071`: End-to-end physics test verifying the reduced sensitivity compared to v0.7.0.
+
 ## [0.7.0] - 2026-02-01
 
 ### Added
