@@ -143,7 +143,7 @@ This file provides SOP, build commands, code style, and patterns for AI agents w
 
 *   **Formulas**: `docs/dev_docs/FFB_formulas.md` (The math behind the code).
 *   **Telemetry**: `docs/dev_docs/telemetry_data_reference.md` (Available inputs).
-*   **Structs**: `rF2Data.h` (Memory layout - **Must match rFactor 2 plugin exactly**).
+*   **Structs**: `src/lmu_sm_interface/*.hpp` (Memory layout - **Must match LMU plugin exactly**).
 
 ---
 
@@ -212,15 +212,3 @@ The hive remembers everything. Learnings, sessions, patterns—all searchable.
 # Sync to git
 `hivemind_sync()`
 
----
-
-## Subagents - for specialized tasks
-For specialized tasks, invoke these subagents from `subagents/` directory:
-
-| Subagent | Use When |
-|----------|----------|
-| `02-language-specialists/cpp-pro.md` | C++ optimization, memory management, template metaprogramming, concurrency patterns |
-| `07-specialized-domains/embedded-systems.md` | Real-time constraints, hardware abstraction, interrupt handling, resource-limited code |
-| `07-specialized-domains/game-developer.md` | Game telemetry integration, physics simulation, player feedback systems |
-| `06-developer-experience/refactoring-specialist.md` | Code smell detection, design pattern application, systematic code improvement |
-| `06-developer-experience/build-engineer.md` | Build optimization, compilation strategies, caching mechanisms |
