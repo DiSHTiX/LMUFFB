@@ -8,6 +8,7 @@
 #include <iostream>
 #include <chrono>
 #include "lmu_sm_interface/InternalsPlugin.hpp"
+#include "TelemetryProcessor.h"
 
 // Mathematical Constants
 static constexpr double PI = 3.14159265358979323846;
@@ -212,6 +213,11 @@ struct FFBCalculationContext {
     double bottoming_crunch = 0.0;
     double abs_pulse_force = 0.0;
     double gain_reduction_factor = 1.0;
+
+    // v0.7.0: Environmental modifiers
+    double weather_grip_modifier = 1.0;
+    double terrain_intensity = 0.0;
+    double compound_grip_modifier = 1.0;
 };
     
 // FFB Engine Class
@@ -440,6 +446,10 @@ public:
     double m_last_crossing_time = 0.0;
     double m_torque_ac_smoothed = 0.0; // For High-Pass
     double m_prev_ac_torque = 0.0;
+
+    // v0.7.0: Filter State for Configurable Filter Modes
+    TelemetryProcessor::EMAFilter m_road_ema_filter{0.1, 0.0};
+    TelemetryProcessor::EMAFilter m_lockup_ema_filter{0.05, 0.0};
 
     // Telemetry Stats
     ChannelStats s_torque;
@@ -859,6 +869,49 @@ public:
             last_log_time = now;
         }
 
+        // --- 3.5 ENVIRONMENTAL PROCESSING (v0.7.0) ---
+
+        // Weather-Aware FFB (I3)
+        ctx.weather_grip_modifier = 1.0;
+        if (m_weather_enabled) {
+            auto weather = TelemetryProcessor::ExtractWeather(data);
+            ctx.weather_grip_modifier = weather.grip_modifier;
+        }
+
+        // Terrain-Aware Texture (I4)
+        ctx.terrain_intensity = 0.0;
+        if (m_terrain_enabled) {
+            // Simple terrain detection based on surface type or roughness
+            // For now, use track surface grip as proxy for terrain type
+            double surface_grip = (fl.mGripFract + fr.mGripFract + data->mWheel[2].mGripFract + data->mWheel[3].mGripFract) / 4.0;
+            if (surface_grip < 0.7) {
+                // Low grip surface - could be gravel or dirt
+                ctx.terrain_intensity = m_terrain_gravel_intensity;
+            } else if (surface_grip < 0.85) {
+                // Medium grip - could be dirt or intermediate
+                ctx.terrain_intensity = m_terrain_dirt_intensity;
+            }
+        }
+
+        // Tire Compound Awareness (I5)
+        ctx.compound_grip_modifier = 1.0;
+        if (m_compound_awareness_enabled) {
+            // Detect compound from tire temps (hotter = softer = more grip)
+            double avg_temp_k = (fl.mTireCarcassTemperature + fr.mTireCarcassTemperature) / 2.0;
+            double temp_c = avg_temp_k - 273.15;
+
+            if (temp_c > 100.0) {
+                // Dry compound - optimal temp range
+                ctx.compound_grip_modifier = m_compound_dry_grip_scale;
+            } else if (temp_c > 70.0) {
+                // Intermediate or cool dry
+                ctx.compound_grip_modifier = m_compound_intermediate_grip_scale;
+            } else {
+                // Cold or wet
+                ctx.compound_grip_modifier = m_compound_wet_grip_scale;
+            }
+        }
+
         // --- 4. PRE-CALCULATIONS ---
 
         // Average Load & Fallback Logic
@@ -1000,7 +1053,11 @@ public:
         }
         
         // Apply Grip Modulation
-        double grip_loss = (1.0 - ctx.avg_grip) * m_understeer_effect;
+        // v0.7.0: Apply weather and compound grip modifiers
+        double effective_grip = ctx.avg_grip * ctx.weather_grip_modifier * ctx.compound_grip_modifier;
+        effective_grip = (std::max)(0.0, (std::min)(1.0, effective_grip));
+
+        double grip_loss = (1.0 - effective_grip) * m_understeer_effect;
         ctx.grip_factor = (std::max)(0.0, 1.0 - grip_loss);
         
         double output_force = (base_input * (double)m_steering_shaft_gain) * ctx.grip_factor;
@@ -1211,6 +1268,24 @@ public:
 private:
     // Effect Helper Methods
 
+    // v0.7.0: Helper to apply configurable filter modes
+    double apply_filter_mode(FilterMode mode, double input, double dt, TelemetryProcessor::EMAFilter& ema_filter, double tau) {
+        switch (mode) {
+            case FilterMode::Off:
+                return input;
+            case FilterMode::EMA:
+                return ema_filter.Update(input, dt);
+            case FilterMode::MovingAverage_3:
+            case FilterMode::MovingAverage_5:
+            case FilterMode::Median:
+            case FilterMode::Wiener:
+            default:
+                // For now, fall back to EMA for non-Off modes
+                // Full implementation would require ring buffer state
+                return ema_filter.Update(input, dt);
+        }
+    }
+
     void calculate_sop_lateral(const TelemInfoV01* data, FFBCalculationContext& ctx) {
         // Lateral G
         double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
@@ -1377,7 +1452,14 @@ private:
             m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI);
             double amp = worst_severity * chosen_pressure_factor * m_lockup_gain * (double)BASE_NM_LOCKUP_VIBRATION * ctx.decoupling_scale * ctx.brake_load_factor;
             if (chosen_freq_multiplier < 1.0) amp *= (double)m_lockup_rear_boost;
-            ctx.lockup_rumble = std::sin(m_lockup_phase) * amp * ctx.speed_gate;
+
+            // Apply v0.7.0: Weather and compound modifiers to lockup intensity
+            double lockup_intensity = amp * ctx.weather_grip_modifier * ctx.compound_grip_modifier;
+
+            // Apply configurable filter mode (I6)
+            lockup_intensity = apply_filter_mode(m_lockup_filter_mode, lockup_intensity, ctx.dt, m_lockup_ema_filter, m_lockup_filter_tau);
+
+            ctx.lockup_rumble = std::sin(m_lockup_phase) * lockup_intensity * ctx.speed_gate;
         }
     }
 
@@ -1441,15 +1523,15 @@ private:
                 ctx.scrub_drag_force = drag_dir * m_scrub_drag_gain * (double)BASE_NM_SCRUB_DRAG * fade * ctx.decoupling_scale;
             }
         }
-        
+
         double delta_l = data->mWheel[0].mVerticalTireDeflection - m_prev_vert_deflection[0];
         double delta_r = data->mWheel[1].mVerticalTireDeflection - m_prev_vert_deflection[1];
         delta_l = (std::max)(-0.01, (std::min)(0.01, delta_l));
         delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
-        
+
         double road_noise_val = 0.0;
         bool deflection_active = (std::abs(delta_l) > 0.000001 || std::abs(delta_r) > 0.000001);
-        
+
         if (deflection_active || ctx.car_speed < 5.0) {
             road_noise_val = (delta_l + delta_r) * 50.0;
         } else {
@@ -1459,9 +1541,17 @@ private:
             double delta_accel = vert_accel - m_prev_vert_accel;
             road_noise_val = delta_accel * 0.05 * 50.0;
         }
-        
-        ctx.road_noise = road_noise_val * m_road_texture_gain * ctx.decoupling_scale * ctx.texture_load_factor;
-        ctx.road_noise *= ctx.speed_gate;
+
+        // Apply v0.7.0: Weather texture modifier and terrain intensity
+        double texture_modifier = m_weather_enabled ? m_weather_texture_modifier : 1.0;
+        double terrain_multiplier = (ctx.terrain_intensity > 0.0) ? ctx.terrain_intensity : 1.0;
+
+        double raw_road_noise = road_noise_val * m_road_texture_gain * ctx.decoupling_scale * ctx.texture_load_factor;
+
+        // Apply configurable filter mode (I6)
+        raw_road_noise = apply_filter_mode(m_road_filter_mode, raw_road_noise, ctx.dt, m_road_ema_filter, m_road_filter_tau);
+
+        ctx.road_noise = raw_road_noise * texture_modifier * terrain_multiplier * ctx.speed_gate;
     }
 
     void calculate_suspension_bottoming(const TelemInfoV01* data, FFBCalculationContext& ctx) {

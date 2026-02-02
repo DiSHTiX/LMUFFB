@@ -7,7 +7,7 @@
 #include "../src/FFBEngine.h"
 #include "../src/lmu_sm_interface/InternalsPlugin.hpp"
 #else
-#include "../include/TelemetryProcessor.h"
+#include "../src/TelemetryProcessor.h"
 #endif
 
 namespace TelemetryProcessorTests {

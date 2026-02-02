@@ -279,6 +279,30 @@ struct Preset {
         engine.m_gyro_smoothing = gyro_smoothing;
         engine.m_yaw_accel_smoothing = yaw_smoothing;
         engine.m_chassis_inertia_smoothing = chassis_smoothing;
+
+        // v0.7.0: Weather-Aware FFB Settings
+        engine.m_weather_enabled = weather_enabled;
+        engine.m_weather_rain_grip_penalty = weather_rain_grip_penalty;
+        engine.m_weather_temp_grip_factor = weather_temp_grip_factor;
+        engine.m_weather_texture_modifier = weather_texture_modifier;
+
+        // v0.7.0: Terrain-Aware Settings
+        engine.m_terrain_enabled = terrain_enabled;
+        engine.m_terrain_gravel_intensity = terrain_gravel_intensity;
+        engine.m_terrain_dirt_intensity = terrain_dirt_intensity;
+        engine.m_terrain_cobbles_intensity = terrain_cobbles_intensity;
+
+        // v0.7.0: Tire Compound Awareness Settings
+        engine.m_compound_awareness_enabled = compound_awareness_enabled;
+        engine.m_compound_dry_grip_scale = compound_dry_grip_scale;
+        engine.m_compound_wet_grip_scale = compound_wet_grip_scale;
+        engine.m_compound_intermediate_grip_scale = compound_intermediate_grip_scale;
+
+        // v0.7.0: Configurable Filter Modes
+        engine.m_road_filter_mode = static_cast<FFBEngine::FilterMode>(road_filter_mode);
+        engine.m_lockup_filter_mode = static_cast<FFBEngine::FilterMode>(lockup_filter_mode);
+        engine.m_road_filter_tau = road_filter_tau;
+        engine.m_lockup_filter_tau = lockup_filter_tau;
     }
 
     // NEW: Capture current engine state into this preset
@@ -340,6 +364,30 @@ struct Preset {
         gyro_smoothing = engine.m_gyro_smoothing;
         yaw_smoothing = engine.m_yaw_accel_smoothing;
         chassis_smoothing = engine.m_chassis_inertia_smoothing;
+
+        // v0.7.0: Weather-Aware FFB Settings
+        weather_enabled = engine.m_weather_enabled;
+        weather_rain_grip_penalty = engine.m_weather_rain_grip_penalty;
+        weather_temp_grip_factor = engine.m_weather_temp_grip_factor;
+        weather_texture_modifier = engine.m_weather_texture_modifier;
+
+        // v0.7.0: Terrain-Aware Settings
+        terrain_enabled = engine.m_terrain_enabled;
+        terrain_gravel_intensity = engine.m_terrain_gravel_intensity;
+        terrain_dirt_intensity = engine.m_terrain_dirt_intensity;
+        terrain_cobbles_intensity = engine.m_terrain_cobbles_intensity;
+
+        // v0.7.0: Tire Compound Awareness Settings
+        compound_awareness_enabled = engine.m_compound_awareness_enabled;
+        compound_dry_grip_scale = engine.m_compound_dry_grip_scale;
+        compound_wet_grip_scale = engine.m_compound_wet_grip_scale;
+        compound_intermediate_grip_scale = engine.m_compound_intermediate_grip_scale;
+
+        // v0.7.0: Configurable Filter Modes
+        road_filter_mode = static_cast<int>(engine.m_road_filter_mode);
+        lockup_filter_mode = static_cast<int>(engine.m_lockup_filter_mode);
+        road_filter_tau = engine.m_road_filter_tau;
+        lockup_filter_tau = engine.m_lockup_filter_tau;
     }
 };
 

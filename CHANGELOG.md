@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
 - **Downforce Calculation (Bug B2)**: Verified velocity-squared downforce calculation is correctly implemented using `m_approx_aero_coeff * (speed * speed)`.
 
 ### Architecture Improvements
-- **TelemetryProcessor Class (I1)**: Created new centralized telemetry processing class in `include/TelemetryProcessor.h` with:
+- **TelemetryProcessor Class (I1)**: Created new centralized telemetry processing class in `src/TelemetryProcessor.h` with:
   - `SanitizedLoad` struct for validated telemetry data
   - `FallbackState` struct for tracking missing data
   - `EMAFilter` class for exponential moving average smoothing

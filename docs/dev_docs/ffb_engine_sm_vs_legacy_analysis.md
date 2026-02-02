@@ -336,7 +336,7 @@ if (m_missing_load_frames > 20) {
 
 **FFBEngine_SM.h:**
 ```cpp
-// Separate TelemetryProcessor class (Processing/TelemetryProcessor.h)
+// Separate TelemetryProcessor class (src/TelemetryProcessor.h)
 void TelemetryProcessor::processTireLoad(const VehicleTelemetry& data) {
     float totalLoad = 0.0f;
     for (float load : data.tireLoad) totalLoad += load;
