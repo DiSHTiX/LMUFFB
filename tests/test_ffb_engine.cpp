@@ -146,7 +146,8 @@ static void test_signal_conditioning_helper(); // v0.6.36 - Code review recommen
 static void test_unconditional_vert_accel_update(); // v0.6.36 - Code review recommendation 3
 
 // v0.7.1: Slope Detection Fixes Tests
-static void test_slope_detection_disables_lat_g_boost();
+static void test_slope_detection_no_boost_when_grip_balanced();
+static void test_slope_detection_no_boost_during_oversteer();
 static void test_lat_g_boost_works_without_slope_detection();
 static void test_slope_detection_default_values_v071();
 static void test_slope_current_in_snapshot();
@@ -5829,7 +5830,8 @@ void Run() {
     test_slope_buffer_reset_on_toggle();  // v0.7.0 - Buffer reset enhancement
 
     // v0.7.1: Slope Detection Fixes
-    test_slope_detection_disables_lat_g_boost();
+    test_slope_detection_no_boost_when_grip_balanced();
+    test_slope_detection_no_boost_during_oversteer();
     test_lat_g_boost_works_without_slope_detection();
     test_slope_detection_default_values_v071();
     test_slope_current_in_snapshot();
@@ -6653,31 +6655,30 @@ static void test_signal_conditioning_helper() {
     ASSERT_NEAR(result, 10.0, 0.01);
 }
 
-static void test_slope_detection_disables_lat_g_boost() {
-    std::cout << "\nTest: Slope Detection Disables Lateral G Boost (v0.7.1)" << std::endl;
+static void test_slope_detection_no_boost_when_grip_balanced() {
+    std::cout << "\nTest: Slope Detection - No Boost When Grip Balanced (v0.7.1)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
     
-    // Enable both
+    // Enable slope detection with oversteer boost
     engine.m_slope_detection_enabled = true;
-    engine.m_oversteer_boost = 2.0f; // Strong boost
+    engine.m_oversteer_boost = 2.0f; // Strong boost setting
     engine.m_sop_effect = 1.0f;
     engine.m_sop_scale = 10.0f;
     engine.m_max_torque_ref = 20.0f;
     
-    // Setup telemetry to create a grip differential
-    // Front grip will be calculated by slope, Rear grip is static
+    // Setup telemetry - front grip will be calculated by slope, rear by static threshold
     TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
     data.mDeltaTime = 0.01;
     
-    // Frames 1-20: Constant G and Slip (Slope = 0, Grip = 1.0)
+    // Frames 1-20: Constant G and Slip (Slope = 0, Front Grip = 1.0)
     for (int i = 0; i < 20; i++) {
         data.mLocalAccel.x = 1.0 * 9.81;
         data.mWheel[0].mLateralPatchVel = 0.05 * 20.0;
         engine.calculate_force(&data);
     }
     
-    // Now trigger a negative slope to reduce front grip
+    // Trigger negative slope to reduce front grip
     // Slip: 0.05 -> 0.10, G: 1.0 -> 0.8 => Negative Slope
     for (int i = 0; i < 10; i++) {
         double slip = 0.05 + i * 0.005;
@@ -6687,65 +6688,55 @@ static void test_slope_detection_disables_lat_g_boost() {
         engine.calculate_force(&data);
     }
     
-    // At this point, front_grip (slope) should be < 1.0
+    // Front grip (slope) should be reduced
     // Rear grip (static threshold 0.15) should be 1.0 for slip 0.10
+    // grip_delta would be negative (understeer scenario), so boost wouldn't trigger anyway
     double front_grip = engine.m_slope_smoothed_output;
-    double rear_grip = 1.0; // Static
-    
     ASSERT_TRUE(front_grip < 0.95);
     
-    // Capture snapshot to check boosted force
+    // Capture snapshot - oversteer_boost should be 0.0 (disabled by slope detection)
     auto batch = engine.GetDebugBatch();
     FFBSnapshot snap = batch.back();
-    
-    // expected unboosted Sop force at 0.8G: 0.8 * 1.0 * 10 = 8.0 Nm
-    // normalized: 8.0 / 20.0 = 0.4
-    
-    // If boost WAS active: grip_delta = 1.0 - front_grip (since it's oversteer boost, it triggers when front > rear? No, plan says grip_delta = front - rear, and it triggers if delta > 0.0. Wait...)
-    // Plan says:
-    // double grip_delta = ctx.avg_grip - ctx.avg_rear_grip;
-    // if (grip_delta > 0.0) { sop_base *= (1 + grip_delta * oversteer_boost * 2) }
-    // This is UNDERSTEER boost? No, higher front grip than rear grip = oversteer.
-    // So if front_grip < rear_grip, it doesn't boost anyway.
-    
-    // Let's re-read the plan.
-    // "Lateral G Boost: sop *= (1 + grip_delta * oversteer_boost * 2)"
-    // "grip_delta = ctx.avg_grip - ctx.avg_rear_grip"
-    // If front grip is LOWER than rear grip (understeer), grip_delta is negative, no boost.
-    // So to test disabling of boost, we need front grip > rear_grip.
-    
-    // Let's force rear grip to be low.
-    engine.m_optimal_slip_angle = 0.05f; // Static threshold for rear
-    // Now slip 0.10 means rear grip is low.
-    // But slope detection (front) might still think it's 1.0 if slope is positive.
-    
-    // New Setup:
+    ASSERT_NEAR(snap.oversteer_boost, 0.0, 0.01);
+}
+
+static void test_slope_detection_no_boost_during_oversteer() {
+    std::cout << "\nTest: Slope Detection - No Boost During Oversteer (v0.7.1)" << std::endl;
+    FFBEngine engine;
     InitializeEngine(engine);
+    
+    // Enable slope detection with oversteer boost
     engine.m_slope_detection_enabled = true;
-    engine.m_oversteer_boost = 2.0f;
+    engine.m_oversteer_boost = 2.0f; // Strong boost setting
     engine.m_sop_effect = 1.0f;
     engine.m_sop_scale = 10.0f;
     engine.m_max_torque_ref = 20.0f;
-    engine.m_optimal_slip_angle = 0.05f; // Rear grip will drop at 0.10 slip
+    engine.m_optimal_slip_angle = 0.05f; // Rear grip will drop past 0.05 slip
+    
+    // Setup telemetry to create oversteer scenario (front grip > rear grip)
+    TelemInfoV01 data = CreateBasicTestTelemetry(20.0);
+    data.mDeltaTime = 0.01;
     
     // Frames 1-20: Build up positive slope (Front grip = 1.0)
+    // Increasing G with increasing slip creates positive slope
     for (int i = 0; i < 20; i++) {
         data.mLocalAccel.x = (0.5 + i * 0.05) * 9.81;
         data.mWheel[0].mLateralPatchVel = (0.02 + i * 0.002) * 20.0;
         engine.calculate_force(&data);
     }
     
-    // Now we have:
-    // Front Slip ~ 0.06. Rear Slip ~ 0.06.
-    // Front Grip (slope) = 1.0 (positive slope)
-    // Rear Grip (static) = starts dropping past 0.05.
-    // At 0.06 slip, rear grip ~ 1.0 - (0.01 * 2 * 1.0) = 0.98.
-    // grip_delta = 1.0 - 0.98 = 0.02.
-    // If boost was ON: factor = 1 + 0.02 * 2.0 * 2 = 1.08.
+    // Final state:
+    // Front Slip ~ 0.06, Front Grip (slope) = 1.0 (positive slope)
+    // Rear Slip ~ 0.06, Rear Grip (static) = 0.98 (drops past 0.05 threshold)
+    // grip_delta = 1.0 - 0.98 = 0.02 > 0 (oversteer condition)
+    // Without slope detection, this would trigger boost: factor = 1 + 0.02 * 2.0 * 2 = 1.08
+    // With slope detection enabled, boost should be suppressed
     
-    snap = engine.GetDebugBatch().back();
+    auto batch = engine.GetDebugBatch();
+    FFBSnapshot snap = batch.back();
     
-    // Assertion: oversteer_boost should be 0.0 when slope detection is enabled.
+    // Assertion: oversteer_boost should be 0.0 when slope detection is enabled
+    // even when grip_delta > 0 (oversteer scenario)
     ASSERT_NEAR(snap.oversteer_boost, 0.0, 0.01);
 }
 
