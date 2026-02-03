@@ -58,7 +58,7 @@ In some cases, writing tests may be **impractical, excessively complex, or techn
     *   **Challenges Encountered:** Any other difficulties, edge cases discovered, or technical challenges faced during development.
     *   **Recommendations for Future Plans:** Suggestions to improve future implementation plans based on lessons learned.
     *   If no issues were encountered, explicitly state: "No significant issues encountered. Implementation proceeded as planned."
-11. **Commit:** Use `git add` and `git commit` to save your work. **Do not push.**
+11. **Commit:** ONLY IF you are working on a separate branch for this implementation, use `git add` and `git commit` to save your work. **Do not push.**
 
 # Output Format
 You must end your response with a JSON block strictly following this schema:
