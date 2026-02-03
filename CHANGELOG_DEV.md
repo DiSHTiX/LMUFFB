@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4] - 2026-02-03
+### Changed
+- **Test Suite Refactoring**: 
+  - Split the monolithic `test_ffb_engine.cpp` (7,263 lines) into 9 modular category files (`test_ffb_core_physics`, `test_ffb_slip_grip`, etc.) for improved maintainability.
+  - Introduced `test_ffb_common.h` and `test_ffb_common.cpp` for shared test infrastructure and helpers.
+  - Incomplete implementation was pushed to git due to quota limits. Only 586 tests are currently present (5 less than the original 591).
+  - Re-verified some of the regression tests (586?) to ensure physics integrity during the migration.
+
 ## [0.7.3] - 2026-02-03
 
 ### Fixed

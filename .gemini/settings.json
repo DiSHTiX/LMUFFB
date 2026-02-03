@@ -1,5 +1,15 @@
 {
   "tools": {
-    "autoAccept": true
+    "autoAccept": true,
+    "core": ["run_shell_command"],
+    "exclude": [
+      "run_shell_command(git add)",
+      "run_shell_command(git restore)",
+      "run_shell_command(git commit)",
+      "run_shell_command(git reset)",
+      "run_shell_command(git push)",
+      "run_shell_command(git restore)",
+      "run_shell_command(git restore --staged)"
+    ]
   }
 }

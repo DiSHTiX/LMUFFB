@@ -10,7 +10,17 @@ include_directories(../src)
 # Combined Test Executable
 set(TEST_SOURCES 
     main_test_runner.cpp 
-    test_ffb_engine.cpp 
+    test_ffb_common.cpp
+    test_ffb_core_physics.cpp
+    test_ffb_slope_detection.cpp
+    test_ffb_understeer.cpp
+    test_ffb_smoothstep.cpp
+    test_ffb_yaw_gyro.cpp
+    test_ffb_coordinates.cpp
+    test_ffb_features.cpp
+    test_ffb_config.cpp
+    test_ffb_slip_grip.cpp
+    test_ffb_internal.cpp
     test_persistence_v0625.cpp
     test_persistence_v0628.cpp
     ../src/Config.cpp

@@ -1,0 +1,94 @@
+// test_ffb_common.h
+#pragma once
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include <cmath>
+#include <cstring>
+#include <algorithm>
+#include <fstream>
+#include <cstdio>
+#include <random>
+#include <sstream>
+
+#include "../src/FFBEngine.h"
+#include "../src/lmu_sm_interface/InternalsPlugin.hpp"
+#include "../src/lmu_sm_interface/LmuSharedMemoryWrapper.h"
+#include "../src/Config.h"
+
+namespace FFBEngineTests {
+
+// --- Test Counters (defined in test_ffb_common.cpp) ---
+extern int g_tests_passed;
+extern int g_tests_failed;
+
+// --- Assert Macros ---
+#define ASSERT_TRUE(condition) \
+    if (condition) { \
+        std::cout << "[PASS] " << #condition << std::endl; \
+        g_tests_passed++; \
+    } else { \
+        std::cout << "[FAIL] " << #condition << " (" << __FILE__ << ":" << __LINE__ << ")" << std::endl; \
+        g_tests_failed++; \
+    }
+
+#define ASSERT_NEAR(a, b, epsilon) \
+    if (std::abs((a) - (b)) < (epsilon)) { \
+        std::cout << "[PASS] " << #a << " approx " << #b << std::endl; \
+        g_tests_passed++; \
+    } else { \
+        std::cout << "[FAIL] " << #a << " (" << (a) << ") != " << #b << " (" << (b) << ")" << std::endl; \
+        g_tests_failed++; \
+    }
+
+#define ASSERT_GE(a, b) \
+    if ((a) >= (b)) { \
+        std::cout << "[PASS] " << #a << " >= " << #b << std::endl; \
+        g_tests_passed++; \
+    } else { \
+        std::cout << "[FAIL] " << #a << " (" << (a) << ") < " << #b << " (" << (b) << ")" << std::endl; \
+        g_tests_failed++; \
+    }
+
+#define ASSERT_LE(a, b) \
+    if ((a) <= (b)) { \
+        std::cout << "[PASS] " << #a << " <= " << #b << std::endl; \
+        g_tests_passed++; \
+    } else { \
+        std::cout << "[FAIL] " << #a << " (" << (a) << ") > " << #b << " (" << (b) << ")" << std::endl; \
+        g_tests_failed++; \
+    }
+
+// --- Test Constants ---
+const int FILTER_SETTLING_FRAMES = 40;
+
+// --- Helper Functions ---
+TelemInfoV01 CreateBasicTestTelemetry(double speed = 20.0, double slip_angle = 0.0);
+void InitializeEngine(FFBEngine& engine);
+
+// --- Sub-Runner Declarations ---
+void Run_CorePhysics();
+void Run_SlipGrip();
+void Run_Understeer();
+void Run_SlopeDetection();
+void Run_Texture();
+void Run_YawGyro();
+void Run_Coordinates();
+void Run_Config();
+void Run_SpeedGate();
+void Run_Internal(); // New runner for internal tests
+void Run(); // Main runner
+
+// --- Friend Access for Testing ---
+class FFBEngineTestAccess {
+public:
+    static bool HasWarnings(const FFBEngine& engine) {
+        return engine.m_warned_load || engine.m_warned_grip || engine.m_warned_dt;
+    }
+    static void test_unit_sop_lateral();
+    static void test_unit_gyro_damping();
+    static void test_unit_abs_pulse();
+};
+
+} // namespace FFBEngineTests
