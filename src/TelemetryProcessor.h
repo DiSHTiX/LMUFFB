@@ -230,11 +230,11 @@ public:
         return result;
     }
 
-    static WeatherData ExtractWeather(const TelemInfoV01* data) {
+    static WeatherData ExtractWeather(const ScoringInfoV01* data) {
         WeatherData result = {};
         result.rain_intensity = (double)data->mRaining;
-        result.track_temp = (double)data->mTrackTempK - 273.15;
-        result.ambient_temp = (double)data->mAmbientTempK - 273.15;
+        result.track_temp = (double)data->mTrackTemp - 273.15;
+        result.ambient_temp = (double)data->mAmbientTemp - 273.15;
         result.raining = data->mRaining > 0;
 
         result.grip_modifier = 1.0;

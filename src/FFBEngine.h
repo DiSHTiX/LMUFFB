@@ -814,7 +814,7 @@ public:
     }
 
     // Refactored calculate_force
-    double calculate_force(const TelemInfoV01* data) {
+    double calculate_force(const TelemInfoV01* data, const ScoringInfoV01* scoring = nullptr) {
         if (!data) return 0.0;
         
         // --- 1. INITIALIZE CONTEXT ---
@@ -873,8 +873,8 @@ public:
 
         // Weather-Aware FFB (I3)
         ctx.weather_grip_modifier = 1.0;
-        if (m_weather_enabled) {
-            auto weather = TelemetryProcessor::ExtractWeather(data);
+        if (m_weather_enabled && scoring) {
+            auto weather = TelemetryProcessor::ExtractWeather(scoring);
             ctx.weather_grip_modifier = weather.grip_modifier;
         }
 

@@ -11,6 +11,7 @@
 #include "DirectInputFFB.h"
 #include "DynamicVJoy.h"
 #include "GameConnector.h"
+#include "TelemetryProcessor.h"
 #include <optional>
 
 // Constants
@@ -77,7 +78,7 @@ void FFBThread() {
                     {
                         // PROTECT SETTINGS: Use mutex because GUI modifies engine parameters
                         std::lock_guard<std::mutex> lock(g_engine_mutex);
-                        force = g_engine.calculate_force(pPlayerTelemetry);
+                        force = g_engine.calculate_force(pPlayerTelemetry, &g_localData.scoring.scoringInfo);
                     }
                     should_output = true;
                 }
