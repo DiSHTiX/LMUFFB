@@ -1,4 +1,4 @@
-<img width="1743" height="1024" alt="image" src="https://github.com/user-attachments/assets/eb28260d-574d-47c4-be07-7ba2d263ead6" /># lmuFFB
+# lmuFFB
 
 A FFB app for LMU, similar to irFFB and Marvin's iRacing App
 
