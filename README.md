@@ -1,4 +1,4 @@
-# lmuFFB
+<img width="1743" height="1024" alt="image" src="https://github.com/user-attachments/assets/eb28260d-574d-47c4-be07-7ba2d263ead6" /># lmuFFB
 
 A FFB app for LMU, similar to irFFB and Marvin's iRacing App
 
@@ -99,6 +99,8 @@ For feedback, questions, or support:
 *   **LMU Forum Thread**: [lmuFFB App](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
 *   **GitHub Issues**: [Report bugs or request features](https://github.com/coasting-nc/LMUFFB/issues)
 
+See also this Reddit thread: 
+* https://www.reddit.com/r/LeMansUltimateWEC/comments/1quwx67/lmuffb_telemetry_based_ffb_for_lmu/
 
 ## Documentation
 
