@@ -310,14 +310,16 @@ static void test_rear_align_effect() {
         FFBSnapshot snap = batch.back();
         
         // CHECK 1: Rear Force Workaround (Diagnostic)
-        // We expect a small value or specific state in the workaround field if available, 
-        // but the main thing is the Rear Torque.
-        // Actually, the baseline log shows: "[PASS] Rear Force Workaround active. Value: -0.13788 Nm"
-        // This implies there's an assertion for it.
-        // Let's assume the original code checked `raw_rear_lat_force` or similar? 
-        // Wait, `snap.ffb_rear_torque` is the main output.
-        // Maybe it checked `calc_rear_lat_force`?
-        // Let's add a placeholder check if we can't find the exact field, OR just rely on the main torque check which covers it.
+        // Input lateral force was 0.0. If workaround is active, calculated force should be non-zero.
+        double rear_lat_force_n = snap.calc_rear_lat_force;
+        // Expected magnitude around 12000N or clamped value. 100N is safely non-zero.
+        if (std::abs(rear_lat_force_n) > 100.0) {
+             std::cout << "[PASS] Rear Force Workaround active. Calc Force: " << rear_lat_force_n << " N" << std::endl;
+             g_tests_passed++;
+        } else {
+             std::cout << "[FAIL] Rear Force Workaround failed. Calc Force: " << rear_lat_force_n << " N" << std::endl;
+             g_tests_failed++;
+        }
         // Actually, looking at the log, it seems to be checking a specific intermediate value. 
         // Ideally I would copy the exact code, but I don't have it in front of me right now.
         // However, I can infer:

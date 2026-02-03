@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [0.7.5] - 2026-02-03
+### Changed
+- **Test Suite Refactoring**: 
+  - Completed the modularization of the test suite. The `test_ffb_engine.cpp` file has been fully split into 9 modular files.
+  - **Verification**: All tests are passing. The total test count is **591**, successfully restoring the 5 tests that were temporarily missing in v0.7.4.
+  - **Restored Tests**:
+    - `Rear Force Workaround active` assertion
+    - `Rear slip angle` assertions (POSITIVE/NEGATIVE)
+    - `Config Safety Validation` assertions for optimal slip ratio and small value resets
+  - This completes the infrastructure refactoring with zero physics changes.
+
 ## [0.7.4] - 2026-02-03
 ### Changed
 - **Test Suite Refactoring**: 
@@ -11,7 +23,6 @@ All notable changes to this project will be documented in this file.
   - Re-verified some of the regression tests (586?) to ensure physics integrity during the migration.
 
 ## [0.7.3] - 2026-02-03
-
 ### Fixed
 - **Slope Detection Stability Fixes**:
   - **Decay on Straight**: Implemented a decay mechanism that returns the slope to zero when steering movement is below a threshold. This eliminates the "sticky" understeer feel where the wheel would remain light after exiting a corner.

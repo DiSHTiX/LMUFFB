@@ -315,7 +315,22 @@ static void test_config_safety_validation_v057() {
     engine.m_optimal_slip_angle = 0.0f;
     Config::Save(engine, "tmp_invalid.ini");
     Config::Load(engine, "tmp_invalid.ini");
+    // Test: Invalid optimal_slip_ratio (0.0) reset
+    engine.m_optimal_slip_ratio = 0.0f;
+    Config::Save(engine, "tmp_invalid.ini");
+    Config::Load(engine, "tmp_invalid.ini");
+    ASSERT_NEAR(engine.m_optimal_slip_ratio, 0.12f, 0.01);
+
+    // Test: Very small values (<0.01) correctly reset
+    engine.m_optimal_slip_angle = 0.005f;
+    Config::Save(engine, "tmp_invalid.ini");
+    Config::Load(engine, "tmp_invalid.ini");
     ASSERT_NEAR(engine.m_optimal_slip_angle, 0.10f, 0.01);
+
+    engine.m_optimal_slip_ratio = 0.005f;
+    Config::Save(engine, "tmp_invalid.ini");
+    Config::Load(engine, "tmp_invalid.ini");
+    ASSERT_NEAR(engine.m_optimal_slip_ratio, 0.12f, 0.01);
 }
 
 static void test_config_safety_clamping() {

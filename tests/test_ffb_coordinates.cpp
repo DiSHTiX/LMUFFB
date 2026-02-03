@@ -268,8 +268,12 @@ static void test_coordinate_debug_slip_angle_sign() {
     // Expected: Positive slip angle
     data.mWheel[0].mLateralPatchVel = 5.0;  // FL sliding left
     data.mWheel[1].mLateralPatchVel = 5.0;  // FR sliding left
+    data.mWheel[2].mLateralPatchVel = 5.0;  // RL sliding left
+    data.mWheel[3].mLateralPatchVel = 5.0;  // RR sliding left
     data.mWheel[0].mLongitudinalGroundVel = 20.0;
     data.mWheel[1].mLongitudinalGroundVel = 20.0;
+    data.mWheel[2].mLongitudinalGroundVel = 20.0;
+    data.mWheel[3].mLongitudinalGroundVel = 20.0;
     
     engine.calculate_force(&data);
     
@@ -291,11 +295,24 @@ static void test_coordinate_debug_slip_angle_sign() {
         g_tests_failed++;
     }
     
+
+
+    // Check Rear Slip Angle (Positive)
+    if (snap.raw_rear_slip_angle > 0.1) {
+        std::cout << "[PASS] Rear slip angle is POSITIVE (" << snap.raw_rear_slip_angle << " rad)" << std::endl;
+        g_tests_passed++;
+    } else {
+        std::cout << "[FAIL] Rear slip angle should be POSITIVE. Got: " << snap.raw_rear_slip_angle << std::endl;
+        g_tests_failed++;
+    }
+
     // Test Case 2: Front wheels sliding RIGHT
     // Game: -X = Right, so lateral velocity = -5.0 (right)
     // Expected: Negative slip angle
     data.mWheel[0].mLateralPatchVel = -5.0;  // FL sliding right
     data.mWheel[1].mLateralPatchVel = -5.0;  // FR sliding right
+    data.mWheel[2].mLateralPatchVel = -5.0;  // RL sliding right
+    data.mWheel[3].mLateralPatchVel = -5.0;  // RR sliding right
     
     engine.calculate_force(&data);
     
@@ -309,6 +326,15 @@ static void test_coordinate_debug_slip_angle_sign() {
             g_tests_passed++;
         } else {
             std::cout << "[FAIL] Front slip angle should be NEGATIVE. Got: " << snap.raw_front_slip_angle << std::endl;
+            g_tests_failed++;
+        }
+
+        // Check Rear Slip Angle (Negative)
+        if (snap.raw_rear_slip_angle < -0.1) {
+            std::cout << "[PASS] Rear slip angle is NEGATIVE (" << snap.raw_rear_slip_angle << " rad)" << std::endl;
+            g_tests_passed++;
+        } else {
+            std::cout << "[FAIL] Rear slip angle should be NEGATIVE. Got: " << snap.raw_rear_slip_angle << std::endl;
             g_tests_failed++;
         }
     }

@@ -5,6 +5,18 @@ This document contains all version release posts by ErwinMoss from the [url=http
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
 ---
+ 
+[size=5][b]February 3, 2026[/b][/size]
+[b]Version 0.7.5 - Test Infrastructure Refactoring[/b]
+
+[b]New release[/b] (0.7.5): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Internal Changes[/b]
+[list]
+[*][b]Codebase Modularization[/b]: Refactored the internal test suite, splitting the monolithic `test_ffb_engine.cpp` into 9 modular files. This improves maintainability and development speed for future updates. No user-facing changes to FFB logic or physics.
+[/list]
+
+---
 
 [size=5][b]February 3, 2026[/b][/size]
 [b]Version 0.7.3 - Slope Stability Fixes[/b]
