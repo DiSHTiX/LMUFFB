@@ -30,7 +30,7 @@ git fetch <remote repo>
 
 ### 4. Create a temporary branch for the merge
 ```bash
-git checkout -b temp-merge-mauro
+git checkout -b temp-merge
 ```
 
 ### 5. Merge remote repo into the temporary branch
@@ -42,7 +42,7 @@ git merge <remote repo>/main --allow-unrelated-histories
 ### 6. Switch back to main and perform a squash merge
 ```bash
 git checkout main
-git merge --squash temp-merge-mauro
+git merge --squash temp-merge
 ```
 
 ### 7. Commit the squashed changes with coasting-nc as author
@@ -80,9 +80,9 @@ After completing these steps:
 If you want even more control over the commit message and ensure no traces:
 
 ```bash
-# After step 5 (while on temp-merge-mauro)
+# After step 5 (while on temp-merge)
 git checkout main
-git merge --squash temp-merge-mauro
+git merge --squash temp-merge
 git commit --author="coasting-nc <coasting-nc@users.noreply.github.com>"
 # Then continue with steps 8-10
 ```
