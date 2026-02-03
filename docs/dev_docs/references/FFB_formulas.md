@@ -1,4 +1,4 @@
-# FFB Mathematical Formulas (v0.6.20)
+# FFB Mathematical Formulas (v0.7.3)
 
 > **⚠️ API Source of Truth**  
 > All telemetry data units and field names are defined in **`src/lmu_sm_interface/InternalsPlugin.hpp`**.  
@@ -80,6 +80,17 @@ If telemetry grip (`mGripFract`) is missing or invalid (< 0.0001), the engine ap
     *   $\text{ApproxGrip} = (1.0 \text{ if } \text{Combined} < 1.0 \text{ else } 1.0 / (1.0 + (\text{Combined}-1.0) \times 2.0))$
 *   **Safety Clamp**: Approx Grip is usually clamped to min **0.2** to prevent total loss of force.
 
+**3. Slope Detection (Dynamic Limit, v0.7.0)**
+An advanced algorithm that estimates grip limit by monitoring the tire's force-response curve ($dG/d\alpha$).
+*   **Principle**: As tires saturate, the rate of Lat G gain per unit of Slip Angle decreases. Past the limit, the slope becomes negative.
+*   **Derivatives**: Calculated using Savitzky-Golay filters (Window: 15 frames) for noise immunity.
+    *   $Slope = \frac{dG_{lat}/dt}{d\alpha/dt}$
+*   **Logic (v0.7.3 Stability)**:
+    *   If $Slope < m_{\text{threshold}}$ (Default: -0.3), grip is reduced.
+    *   **Sensitivity**: $Loss = (\text{Threshold} - Slope) \times 0.1 \times m_{\text{sensitivity}}$.
+    *   **Decay**: If not cornering ($|d\alpha/dt| < 0.02$), slope decays to 0.0 exponentially (Rate: 5.0).
+    *   **Confidence**: Grip reduction is scaled by signal confidence ($\min(1.0, |d\alpha/dt|/0.1)$).
+
 **3. Kinematic Load Reconstruction**
 If `mSuspForce` is missing (encrypted content), tire load is estimated from chassis physics:
 *   $$ F_z = F_{\text{static}} + F_{\text{aero}} + F_{\text{long-transfer}} + F_{\text{lat-transfer}} $$
@@ -96,9 +107,9 @@ If `mSuspForce` is missing (encrypted content), tire load is estimated from chas
     *   **Smoothing**: Time-Corrected LPF ($\tau \approx 0.0225 - 0.1\text{s}$ mapped from scalar).
     *   **Formula**: $G_{\text{smooth}} \times K_{\text{sop}} \times K_{\text{sop-scale}} \times K_{\text{decouple}}$.
 
-2.  **Lateral G Boost ($F_{\text{boost}}$)**:
     *   Amplifies the SoP force when the car is oversteering (Front Grip > Rear Grip).
-    *   **Condition**: `if (FrontGrip > RearGrip)`
+    *   **Condition**: `if (FrontGrip > RearGrip) AND (!SlopeDetectionEnabled)`
+        *   *Note: Automatically disabled if Slope Detection is active to prevent feedback loops.*
     *   **Formula**: `SoP_Total *= (1.0 + ((FrontGrip - RearGrip) * K_oversteer_boost * 2.0))`
 
 3.  **Yaw Acceleration ("The Kick")**:
@@ -205,6 +216,18 @@ Applied at the very end of the pipeline to `F_norm` (before clipping).
 *   **Logic**: If $|F| > 0.0001$ AND $|F| < K_{\text{min-force}}$:
     *   $F_{\text{final}} = \text{Sign}(F) \times K_{\text{min-force}}$.
 *   **Purpose**: Ensures small forces are always strong enough to overcome the physical friction/deadzone of gear/belt wheels.
+
+**5. Speed Gate (Low Speed Silence)**
+Prevents violent oscillation at limits/standstill (v0.7.2).
+*   **Algorithm**: Smoothstep (Hermite Interpolation) S-Curve.
+*   **Range**:
+    *   **Lower**: 1.0 m/s (Fade-in starts).
+    *   **Upper**: 5.0 m/s (Full strength).
+*   **Formula**: 
+    *   $t = \text{Clamp}((v - 1.0) / 4.0, 0.0, 1.0)$
+    *   $Gate = t^2 \times (3.0 - 2.0t)$
+*   **Application**: Applied to Base Force, SoP, Rear Torque, Yaw Kick, ABS, Lockup, Road Noise, and Bottoming. (Spin/Slide textures rely on Slip Velocity). 
+*   **Exceptions**: Slide Texture and Wheel Spin are exempt from the speed gate (they rely on slip velocity).
 
 ---
 
