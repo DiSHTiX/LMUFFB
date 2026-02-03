@@ -67,6 +67,7 @@ The plan **MUST** include:
         *   Circular dependency implications
         *   Where constructors/initializers should be defined (inline vs out-of-class)
         *   Include order requirements
+    *   **Version Increment Rule:** The plan MUST explicitly state that version numbers (in `VERSION` and `src/Version.h`) should be incremented by the **smallest possible increment** (+1 to the rightmost number), unless the user explicitly requested otherwise.
 *   **Test Plan (TDD-Ready):** Specific test cases (unit/integration) that the Developer will write **BEFORE** implementing the code. Include:
     *   Test function names and descriptions.
     *   Expected inputs and outputs.
@@ -77,7 +78,11 @@ The plan **MUST** include:
         *   Partially filled buffer
         *   Exactly full buffer
         *   Buffer wraparound behavior
-*   **Deliverables:** Checklist of expected outputs (Code, Tests, Docs).
+*   **Deliverables:** Checklist of expected outputs (Code, Tests, Docs). MUST include:
+    *   Code changes.
+    *   New/Updated tests.
+    *   Documentation updates.
+    *   **Implementation Notes:** A specific checklist item to update the plan document with "Unforeseen Issues", "Plan Deviations", "Challenges", and "Recommendations".
 
 ## Step 5: Final Check
 Do NOT write the actual source code yet (pseudo-code is fine).
