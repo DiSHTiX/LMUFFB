@@ -690,3 +690,7 @@ Note that the developer that performed the refactoring, was still grappling with
 Among the committed changes, there are also several temporary txt, log and ini  files (which will be unstaged and deleted later) that were used for some aspects of the work, including tracking the original total number of tests (591) and their names, to make sure we didn't  delete any.
 
 Among the committed changes, there are also several .md files under gemini_chats\ , you should ignore those. You should also ignore this script: convert_chats_to_md.py
+
+TODO: 
+- Restore the 5 missing tests
+- Review the refactoring to make sure that, besides the total number of tests, the same actual tests are present (they should have only been moved to different files, not modified or deleted).
