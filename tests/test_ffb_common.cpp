@@ -6,6 +6,105 @@ namespace FFBEngineTests {
 int g_tests_passed = 0;
 int g_tests_failed = 0;
 
+// --- Tag Filtering Globals ---
+std::vector<std::string> g_tag_filter;
+std::vector<std::string> g_tag_exclude;
+std::vector<std::string> g_category_filter;
+bool g_enable_tag_filtering = false;
+
+// --- Helper: Parse Command Line Arguments ---
+void ParseTagArguments(int argc, char* argv[]) {
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        
+        // --tag=Physics,Math
+        if (arg.find("--tag=") == 0) {
+            g_enable_tag_filtering = true;
+            std::string tags_str = arg.substr(6);
+            std::stringstream ss(tags_str);
+            std::string tag;
+            while (std::getline(ss, tag, ',')) {
+                g_tag_filter.push_back(tag);
+            }
+        }
+        // --exclude=Performance
+        else if (arg.find("--exclude=") == 0) {
+            g_enable_tag_filtering = true;
+            std::string tags_str = arg.substr(10);
+            std::stringstream ss(tags_str);
+            std::string tag;
+            while (std::getline(ss, tag, ',')) {
+                g_tag_exclude.push_back(tag);
+            }
+        }
+        // --category=CorePhysics,SlipGrip
+        else if (arg.find("--category=") == 0) {
+            g_enable_tag_filtering = true;
+            std::string cats_str = arg.substr(11);
+            std::stringstream ss(cats_str);
+            std::string cat;
+            while (std::getline(ss, cat, ',')) {
+                g_category_filter.push_back(cat);
+            }
+        }
+        // --help
+        else if (arg == "--help" || arg == "-h") {
+            std::cout << "\nLMUFFB Test Suite - Tag Filtering\n";
+            std::cout << "==================================\n\n";
+            std::cout << "Usage: run_combined_tests.exe [options]\n\n";
+            std::cout << "Options:\n";
+            std::cout << "  --tag=TAG1,TAG2       Run only tests with specified tags (OR logic)\n";
+            std::cout << "  --exclude=TAG1,TAG2   Exclude tests with specified tags\n";
+            std::cout << "  --category=CAT1,CAT2  Run only specified test categories\n";
+            std::cout << "  --help, -h            Show this help message\n\n";
+            std::cout << "Available Tags:\n";
+            std::cout << "  Functional: Physics, Math, Integration, Config, Regression, Edge, Performance\n";
+            std::cout << "  Component: SoP, Slope, Texture, Grip, Coordinates, Smoothing\n\n";
+            std::cout << "Available Categories:\n";
+            std::cout << "  CorePhysics, SlipGrip, Understeer, SlopeDetection, Texture,\n";
+            std::cout << "  YawGyro, Coordinates, Config, SpeedGate, Internal\n\n";
+            std::cout << "Examples:\n";
+            std::cout << "  run_combined_tests.exe --tag=Physics\n";
+            std::cout << "  run_combined_tests.exe --tag=Physics,Regression\n";
+            std::cout << "  run_combined_tests.exe --exclude=Performance\n";
+            std::cout << "  run_combined_tests.exe --category=CorePhysics,SlipGrip\n\n";
+            std::cout << "For more information, see: docs/dev_docs/test_tagging_system.md\n\n";
+            exit(0);
+        }
+    }
+    
+    // Print active filters
+    if (g_enable_tag_filtering) {
+        std::cout << "\n=== Tag Filtering Active ===\n";
+        if (!g_tag_filter.empty()) {
+            std::cout << "Include Tags: ";
+            for (size_t i = 0; i < g_tag_filter.size(); i++) {
+                std::cout << g_tag_filter[i];
+                if (i < g_tag_filter.size() - 1) std::cout << ", ";
+            }
+            std::cout << "\n";
+        }
+        if (!g_tag_exclude.empty()) {
+            std::cout << "Exclude Tags: ";
+            for (size_t i = 0; i < g_tag_exclude.size(); i++) {
+                std::cout << g_tag_exclude[i];
+                if (i < g_tag_exclude.size() - 1) std::cout << ", ";
+            }
+            std::cout << "\n";
+        }
+        if (!g_category_filter.empty()) {
+            std::cout << "Categories: ";
+            for (size_t i = 0; i < g_category_filter.size(); i++) {
+                std::cout << g_category_filter[i];
+                if (i < g_category_filter.size() - 1) std::cout << ", ";
+            }
+            std::cout << "\n";
+        }
+        std::cout << "============================\n";
+    }
+}
+
+
 // --- Helper: Create Basic Test Telemetry ---
 TelemInfoV01 CreateBasicTestTelemetry(double speed, double slip_angle) {
     TelemInfoV01 data;

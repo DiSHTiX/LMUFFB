@@ -16,7 +16,8 @@ std::mutex g_engine_mutex;
 namespace FFBEngineTests { 
     extern int g_tests_passed; 
     extern int g_tests_failed; 
-    void Run(); 
+    void Run();
+    void ParseTagArguments(int argc, char* argv[]); // Tag filtering
 }
 namespace PersistenceTests { 
     extern int g_tests_passed; 
@@ -47,7 +48,10 @@ namespace GuiInteractionTests {
 }
 #endif
 
-int main() {
+int main(int argc, char* argv[]) {
+    // Parse tag filtering arguments
+    FFBEngineTests::ParseTagArguments(argc, argv);
+    
     int total_passed = 0;
     int total_failed = 0;
 

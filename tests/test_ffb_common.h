@@ -63,6 +63,54 @@ extern int g_tests_failed;
 // --- Test Constants ---
 const int FILTER_SETTLING_FRAMES = 40;
 
+// --- Test Tagging System ---
+// Global tag filter (set via command line arguments)
+extern std::vector<std::string> g_tag_filter;
+extern std::vector<std::string> g_tag_exclude;
+extern std::vector<std::string> g_category_filter;
+extern bool g_enable_tag_filtering;
+
+// Tag checking helper
+inline bool ShouldRunTest(const std::vector<std::string>& test_tags, const std::string& category) {
+    if (!g_enable_tag_filtering) return true;
+    
+    // Category filter (if specified)
+    if (!g_category_filter.empty()) {
+        bool category_match = false;
+        for (const auto& cat : g_category_filter) {
+            if (cat == category) {
+                category_match = true;
+                break;
+            }
+        }
+        if (!category_match) return false;
+    }
+    
+    // Tag exclude filter (if specified)
+    if (!g_tag_exclude.empty()) {
+        for (const auto& exclude_tag : g_tag_exclude) {
+            for (const auto& test_tag : test_tags) {
+                if (test_tag == exclude_tag) return false;
+            }
+        }
+    }
+    
+    // Tag include filter (if specified)
+    if (!g_tag_filter.empty()) {
+        for (const auto& filter_tag : g_tag_filter) {
+            for (const auto& test_tag : test_tags) {
+                if (test_tag == filter_tag) return true;
+            }
+        }
+        return false; // No matching tags found
+    }
+    
+    return true; // No filters, run all tests
+}
+
+// Parse command line arguments for tag filtering
+void ParseTagArguments(int argc, char* argv[]);
+
 // --- Helper Functions ---
 TelemInfoV01 CreateBasicTestTelemetry(double speed = 20.0, double slip_angle = 0.0);
 void InitializeEngine(FFBEngine& engine);
