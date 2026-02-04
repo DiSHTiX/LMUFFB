@@ -30,87 +30,117 @@ In C++, `static` on a global function means "this function is only visible in th
 
 ### Option 2: The Auto-Registration Pattern (Recommended)
 
-This is how frameworks like **Google Test** and **Catch2** work. Instead of manually calling functions in `main()`, you create a system where defining a test *automatically* adds it to a list.
+This is how frameworks like **Google Test** and **Catch2** work. Instead of manually calling functions in `Run()`, you create a system where defining a test *automatically* adds it to a global registry.
 
-You can implement this in about 20 lines of code in your `test_ffb_engine.cpp`.
+Given the new **multi-file structure** of the test suite (v0.7.6+), this pattern requires a **Cross-Unit Singleton** to ensure all tests register to the same list regardless of which `.cpp` file they are in.
 
-**1. Add the Infrastructure (Top of file):**
+#### 1. Architecture
 
+**In `tests/test_ffb_common.h` (The Interface):**
 ```cpp
 #include <vector>
 #include <functional>
+#include <string>
 
-// A list to hold all registered tests
-struct TestRegistry {
-    using TestFunc = std::function<void()>;
-    struct TestEntry {
-        std::string name;
-        TestFunc func;
-    };
-    
-    static std::vector<TestEntry>& GetTests() {
-        static std::vector<TestEntry> tests;
-        return tests;
-    }
+namespace FFBEngineTests {
 
-    // Helper struct to register tests at startup
-    struct Registrar {
-        Registrar(const std::string& name, TestFunc func) {
-            TestRegistry::GetTests().push_back({name, func});
-        }
-    };
+struct TestEntry {
+    std::string name;
+    std::string category; // Derived from filename or tag
+    std::function<void()> func;
 };
 
-// The Macro that makes it magic
-#define TEST_CASE(name) \
-    void name(); \
-    static TestRegistry::Registrar reg_##name(#name, name); \
-    void name()
-```
+class TestRegistry {
+public:
+    static TestRegistry& Instance();
+    void Register(const std::string& name, const std::string& category, std::function<void()> func);
+    const std::vector<TestEntry>& GetTests() const;
 
-**2. Define your tests using the Macro:**
+private:
+    std::vector<TestEntry> m_tests;
+};
 
-Instead of `void test_name() { ... }`, you write:
+// Helper class for static registration
+struct AutoRegister {
+    AutoRegister(const std::string& name, const std::string& category, std::function<void()> func) {
+        TestRegistry::Instance().Register(name, category, func);
+    }
+};
 
-```cpp
-TEST_CASE(test_sanity_checks) {
-    // ... your test code ...
-    ASSERT_TRUE(true);
 }
 
-TEST_CASE(test_rear_force_workaround) {
-    // ... your test code ...
-}
+// Macro to define tests
+// Usage: TEST_CASE(test_my_feature)
+#define TEST_CASE(test_name) \
+    void test_name(); \
+    static FFBEngineTests::AutoRegister reg_##test_name(#test_name, __FILE__, test_name); \
+    void test_name()
 ```
 
-**3. Update `main()` to run the list:**
-
-You no longer need to manually call functions. `main` becomes generic:
-
+**In `tests/test_ffb_common.cpp` (The Implementation):**
 ```cpp
-int main() {
-    std::cout << "Running " << TestRegistry::GetTests().size() << " tests...\n";
+namespace FFBEngineTests {
 
-    for (const auto& test : TestRegistry::GetTests()) {
+TestRegistry& TestRegistry::Instance() {
+    static TestRegistry instance; // Thread-safe singleton
+    return instance;
+}
+
+void TestRegistry::Register(const std::string& name, const std::string& category, std::function<void()> func) {
+    m_tests.push_back({name, category, func});
+}
+
+const std::vector<TestEntry>& TestRegistry::GetTests() const {
+    return m_tests;
+}
+
+// Updated Run() Loop - replaces manual calls
+void Run() {
+    auto& tests = TestRegistry::Instance().GetTests();
+    std::cout << "Running " << tests.size() << " registered tests..." << std::endl;
+
+    for (const auto& test : tests) {
+        // Integrate with existing Tag Filtering
+        // Example: if (!ShouldRunTest(test.name, g_active_tags)) continue;
+
         std::cout << "Running: " << test.name << "..." << std::endl;
         try {
             test.func();
         } catch (const std::exception& e) {
-            std::cout << "[FAIL] Exception in " << test.name << ": " << e.what() << std::endl;
+            std::cout << "[FAIL] Exception: " << e.what() << std::endl;
             g_tests_failed++;
         }
     }
+}
 
-    std::cout << "\n----------------" << std::endl;
-    std::cout << "Tests Passed: " << g_tests_passed << std::endl;
-    std::cout << "Tests Failed: " << g_tests_failed << std::endl;
-
-    return g_tests_failed > 0 ? 1 : 0;
 }
 ```
 
-**Why this works:**
-The macro creates a global `static` variable (`reg_##name`). In C++, global variables are initialized *before* `main()` starts. The constructor of that variable pushes the function pointer into the vector. By the time `main()` runs, the vector is already full of all your tests.
+#### 2. Migration Steps
+
+1.  **Define Infrastructure:** Add the code above to `common.h` and `common.cpp`.
+2.  **Migrate Tests:** Replace `static void test_name() { ... }` with `TEST_CASE(test_name) { ... }` in all `test_ffb_*.cpp` files.
+    *   *Tip:* Use Regex Replace: `static void (test_\w+)\(\)` → `TEST_CASE($1)`
+3.  **Clean Up:** Delete all individual `Run_Category()` functions and their calls in `Run()`.
+
+---
+
+### Implementation Analysis (v0.7.x Split Suite)
+
+Implementing this solution for the current codebase (13+ files, ~590 tests) involves the following considerations:
+
+**Complexity: Low-Medium**
+*   **Logic:** The registry code itself is minimal (< 50 lines).
+*   **Integration:** Requires ensuring correct linking. Since all test files are explicitly listed in `CMakeLists.txt`, the linker will include them, and the auto-registration macros will execute automatically at startup.
+
+**Time Consumption: 2-4 Hours**
+*   **Infrastructure:** ~30 minutes to update `common` files.
+*   **Migration:** ~2 hours to mechanically find-and-replace `TEST_CASE` across 590 tests.
+*   **Verification:** ~1 hour to ensure all 590 tests still run and tags work.
+
+**Risks: Low**
+*   **Build Issues:** Minor risk of linker optimizations stripping "unused" objects. (Low risk with current CMake configuration).
+*   **Dependency:** Creates a harder dependency on `common.h` macros, but simplifies test writing significantly.
 
 ---
 
