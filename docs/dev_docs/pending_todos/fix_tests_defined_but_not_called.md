@@ -340,7 +340,7 @@ Use this checklist to track progress. Migrate in order of increasing complexity:
 
 | Order | File | Tests | Category | Status |
 |-------|------|-------|----------|--------|
-| 1 | `test_ffb_internal.cpp` | ~10 | Internal | ⬜ |
+| 1 | `test_ffb_internal.cpp` | ~10 | Internal | ✅ |
 | 2 | `test_ffb_coordinates.cpp` | ~15 | Coordinates | ⬜ |
 | 3 | `test_ffb_road_texture.cpp` | ~20 | RoadTexture | ⬜ |
 | 4 | `test_ffb_features.cpp` | ~25 | Texture | ⬜ |

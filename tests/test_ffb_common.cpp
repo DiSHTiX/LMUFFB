@@ -167,10 +167,67 @@ void InitializeEngine(FFBEngine& engine) {
     engine.m_speed_gate_upper = -5.0f;
 }
 
+// ============================================================
+// Auto-Registration Implementation
+// ============================================================
+
+// Category ordering for consistent output
+static const std::vector<std::string> CATEGORY_ORDER = {
+    "CorePhysics", "SlopeDetection", "Understeer", "SpeedGate",
+    "YawGyro", "Coordinates", "RoadTexture", "Texture",
+    "LockupBraking", "Config", "SlipGrip", "Internal"
+};
+
+static int GetCategoryOrder(const std::string& cat) {
+    auto it = std::find(CATEGORY_ORDER.begin(), CATEGORY_ORDER.end(), cat);
+    if (it != CATEGORY_ORDER.end()) {
+        return static_cast<int>(std::distance(CATEGORY_ORDER.begin(), it));
+    }
+    return 999; // Unknown categories go last
+}
+
+TestRegistry& TestRegistry::Instance() {
+    static TestRegistry instance;
+    return instance;
+}
+
+void TestRegistry::Register(const std::string& name, 
+                            const std::string& category,
+                            const std::vector<std::string>& tags,
+                            std::function<void()> func,
+                            int order) {
+    m_tests.push_back({name, category, tags, func, order});
+}
+
+void TestRegistry::SortByCategory() {
+    if (m_sorted) return;
+    std::stable_sort(m_tests.begin(), m_tests.end(), 
+        [](const TestEntry& a, const TestEntry& b) {
+            int orderA = GetCategoryOrder(a.category);
+            int orderB = GetCategoryOrder(b.category);
+            if (orderA != orderB) return orderA < orderB;
+            return a.order_hint < b.order_hint;
+        });
+    m_sorted = true;
+}
+
+const std::vector<TestEntry>& TestRegistry::GetTests() const {
+    return m_tests;
+}
+
+AutoRegister::AutoRegister(const std::string& name, 
+                           const std::string& category, 
+                           const std::vector<std::string>& tags,
+                           std::function<void()> func,
+                           int order) {
+    TestRegistry::Instance().Register(name, category, tags, func, order);
+}
+
 void Run() {
     std::cout << "\n--- FFTEngine Regression Suite ---" << std::endl;
     
     // Categorized Runners
+    // Categorized Runners (Legacy/Manual)
     Run_CorePhysics();
     Run_SlopeDetection();
     Run_Understeer();
@@ -182,7 +239,36 @@ void Run() {
     Run_LockupBraking();
     Run_Config();
     Run_SlipGrip();
-    Run_Internal();
+    // Run_Internal(); // Migrated to Auto-Registration
+
+    // Auto-Registered Tests
+    auto& registry = TestRegistry::Instance();
+    if (!registry.GetTests().empty()) {
+        registry.SortByCategory();
+        auto& tests = registry.GetTests();
+        
+        std::cout << "\n--- Auto-Registered Tests (" << tests.size() << ") ---" << std::endl;
+        
+        std::string current_category;
+        for (const auto& test : tests) {
+            if (test.category != current_category) {
+                current_category = test.category;
+                std::cout << "\n=== " << current_category << " Tests ===" << std::endl;
+            }
+            
+            if (!ShouldRunTest(test.tags, test.category)) continue;
+
+            try {
+                test.func();
+            } catch (const std::exception& e) {
+                std::cout << "[FAIL] " << test.name << " threw exception: " << e.what() << std::endl;
+                g_tests_failed++;
+            } catch (...) {
+                std::cout << "[FAIL] " << test.name << " threw unknown exception" << std::endl;
+                g_tests_failed++;
+            }
+        }
+    }
 
     std::cout << "\n--- Physics Engine Test Summary ---" << std::endl;
     std::cout << "Tests Passed: " << g_tests_passed << std::endl;

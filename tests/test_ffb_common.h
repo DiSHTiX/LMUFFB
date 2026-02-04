@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <random>
 #include <sstream>
+#include <functional>
 
 #include "../src/FFBEngine.h"
 #include "../src/lmu_sm_interface/InternalsPlugin.hpp"
@@ -142,3 +143,56 @@ public:
 };
 
 } // namespace FFBEngineTests
+
+// ============================================================
+// Auto-Registration System (v0.7.8)
+// ============================================================
+
+namespace FFBEngineTests {
+
+struct TestEntry {
+    std::string name;
+    std::string category;
+    std::vector<std::string> tags;
+    std::function<void()> func;
+    int order_hint; // For sorting within a category
+};
+
+class TestRegistry {
+public:
+    static TestRegistry& Instance();
+    void Register(const std::string& name, 
+                  const std::string& category, 
+                  const std::vector<std::string>& tags,
+                  std::function<void()> func,
+                  int order = 0);
+    const std::vector<TestEntry>& GetTests() const;
+    void SortByCategory(); 
+
+private:
+    std::vector<TestEntry> m_tests;
+    bool m_sorted = false;
+};
+
+// Helper class for static registration
+struct AutoRegister {
+    AutoRegister(const std::string& name, 
+                 const std::string& category, 
+                 const std::vector<std::string>& tags,
+                 std::function<void()> func,
+                 int order = 0);
+};
+
+} // namespace FFBEngineTests
+
+// Usage: TEST_CASE(test_my_feature, "CorePhysics", {"Physics", "Regression"})
+#define TEST_CASE_TAGGED(test_name, category, tags) \
+    static void test_name(); \
+    static FFBEngineTests::AutoRegister reg_##test_name( \
+        #test_name, category, tags, test_name); \
+    static void test_name()
+
+// Simple version without tags (defaults to {"Functional"})
+#define TEST_CASE(test_name, category_name) \
+    TEST_CASE_TAGGED(test_name, category_name, {"Functional"})
+

@@ -2,7 +2,7 @@
 
 namespace FFBEngineTests {
 
-static void test_snapshot_data_integrity() {
+TEST_CASE(test_snapshot_data_integrity, "Internal") {
     std::cout << "\nTest: Snapshot Data Integrity (v0.4.7)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
@@ -137,7 +137,7 @@ static void test_snapshot_data_integrity() {
     }
 }
 
-static void test_zero_effects_leakage() {
+TEST_CASE(test_zero_effects_leakage, "Internal") {
     std::cout << "\nTest: Zero Effects Leakage (No Ghost Forces)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
@@ -212,7 +212,7 @@ static void test_zero_effects_leakage() {
     }
 }
 
-static void test_snapshot_data_v049() {
+TEST_CASE(test_snapshot_data_v049, "Internal") {
     std::cout << "\nTest: Snapshot Data v0.4.9 (Rear Physics)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
@@ -290,7 +290,7 @@ static void test_snapshot_data_v049() {
     }
 }
 
-static void test_refactor_snapshot_sop() {
+TEST_CASE(test_refactor_snapshot_sop, "Internal") {
     std::cout << "\nTest: Refactor Regression - Snapshot SoP (v0.6.36)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
@@ -419,13 +419,13 @@ void FFBEngineTestAccess::test_unit_abs_pulse() {
     }
 }
 
-static void test_refactor_units() {
+TEST_CASE(test_refactor_units, "Internal") {
     FFBEngineTestAccess::test_unit_sop_lateral();
     FFBEngineTestAccess::test_unit_gyro_damping();
     FFBEngineTestAccess::test_unit_abs_pulse();
 }
 
-static void test_wheel_slip_ratio_helper() {
+TEST_CASE(test_wheel_slip_ratio_helper, "Internal") {
     std::cout << "\nTest: calculate_wheel_slip_ratio Helper (v0.6.36)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
@@ -437,7 +437,7 @@ static void test_wheel_slip_ratio_helper() {
     ASSERT_NEAR(slip, 0.2, 0.001);
 }
 
-static void test_signal_conditioning_helper() {
+TEST_CASE(test_signal_conditioning_helper, "Internal") {
     std::cout << "\nTest: apply_signal_conditioning Helper (v0.6.36)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
@@ -449,7 +449,7 @@ static void test_signal_conditioning_helper() {
     ASSERT_NEAR(result, 10.0, 0.01);
 }
 
-static void test_unconditional_vert_accel_update() {
+TEST_CASE(test_unconditional_vert_accel_update, "Internal") {
     std::cout << "\nTest: Unconditional m_prev_vert_accel Update (v0.6.36)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
@@ -490,16 +490,6 @@ static void test_unconditional_vert_accel_update() {
     }
 }
 
-void Run_Internal() {
-    std::cout << "\n=== Internal & Refactoring Tests ===" << std::endl;
-    test_snapshot_data_integrity();
-    test_snapshot_data_v049();
-    test_zero_effects_leakage();
-    test_refactor_snapshot_sop();
-    test_refactor_units();
-    test_wheel_slip_ratio_helper();
-    test_signal_conditioning_helper();
-    test_unconditional_vert_accel_update();
-}
+
 
 } // namespace FFBEngineTests
