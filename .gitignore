@@ -11,6 +11,7 @@ python_prototype/
 tmp/
 
 # LocalOnly folders/files
+Documents/
 .local/
 .cache/
 .next-devtools-mcp/
@@ -22,10 +23,17 @@ subagents/
 .semantic-memory/
 .npm/
 .env
+.cmake/
+.claude/
+.bun/
 .envrc
 .gitconfig
 .bash_history
 .checkpoint.md
+.bash_history
+/CMakeSettings.json
+/builderr.log
+/test*output.txt
 
 # VS Code CMake build directories
 out/
@@ -41,11 +49,12 @@ cmake-build-*/
 *.a
 *.lib
 
-# imgui
-vendor/imgui/**
-!vendor/imgui/README.md
-
-#extras
-docs/dev_docs/code_reviews/CRITICAL_FIXES_REQUIRED_v0.4.49.md
-/CMakeSettings.json
-/builderr.log
+#vendors
+/vendor/
+/vendor/*/examples/
+/vendor/*/example/
+/vendor/*/.github/
+/vendor/*/.git/
+/vendor/*/.git*
+/vendor/*/.editorconfig
+/vendor/*/.clang-format
