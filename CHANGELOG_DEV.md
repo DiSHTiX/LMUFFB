@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.7.10] - 2026-02-04
+### Added
+- **Log Analyzer Tool**:
+  - **Standalone Python Tool**: Created a comprehensive diagnostic tool in `tools/lmuffb_log_analyzer/` for processing telemetry logs.
+  - **Advanced Diagnostics**: Analyzes slope stability, detects oscillation events, and identifies potential FFB issues (e.g., stuck understeer, frequent floor hits).
+  - **Visualizations**: Generates multi-panel time-series plots, tire curves (Slip Angle vs Lat G), and dAlpha/dt histograms using Matplotlib.
+  - **Automated Reporting**: Produces formatted text reports with session metadata, physics statistics, and prioritized issue lists.
+  - **CLI Interface**: Includes `info`, `analyze`, `plots`, and `report` commands for flexible workflow integration.
+- **Documentation**: 
+  - Created detailed `README.md` for the Log Analyzer tool.
+  - Linked the Log Analyzer in the main project `README.md`.
+  - Updated `plan_log_analyzer.md` with implementation notes and final status.
+### Testing
+- **Unit Tests**: Implemented 6 new test suites in `tools/lmuffb_log_analyzer/tests/` covering parsing, analysis math, and plot generation.
+- **Verification**: All 6 Log Analyzer tests passing; manual CLI end-to-end verification completed.
+
 ## [0.7.9] - 2026-02-04
 ### Added
 - **Telemetry Logger Integration**:

@@ -1,0 +1,17 @@
+# LMUFFB Telemetry Log: 1.0.0
+# Date: 2026-02-04 22:00:00
+# App Version: v0.7.9
+# Driver: Test Driver
+# Vehicle: Test Car
+# Track: Test Track
+# Gain: 0.8
+# Understeer Effect: 0.5
+# SOP Effect: 0.4
+# Slope Detection: Enabled
+# Slope Sensitivity: 0.6
+# Slope Threshold: -0.3
+Time,LatAccel,Speed,calc_slip_angle_front,SlopeCurrent,SlopeSmoothed,GripFactor,Marker
+0.0,0.0,10.0,0.0,0.0,1.0,1.0,0
+0.1,1.0,20.0,0.01,0.5,0.9,0.9,0
+0.2,2.0,30.0,0.02,1.0,0.8,0.8,0
+0.3,3.0,40.0,0.03,1.5,0.7,0.7,1

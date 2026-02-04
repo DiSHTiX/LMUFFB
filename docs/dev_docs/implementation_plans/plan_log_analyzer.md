@@ -720,13 +720,22 @@ if __name__ == '__main__':
 - [ ] Update project README to mention analyzer tool
 - [ ] Create usage examples in README.md
 
-### 6.4 Implementation Notes (To Be Updated)
+### 6.4 Implementation Notes
 
 **Unforeseen Issues:**
-- *(To be filled in)*
+- **Unicode Encoding Errors:** The CLI initially used emojis (✅, ⚠️) for status indicators. This caused `UnicodeEncodeError` on Windows when output was redirected or run in legacy consoles. Replaced with ASCII `[OK]`, `[HIGH]`, etc.
+- **Python Import Path:** Relative imports in tests required running pytest with the `-m` flag from the `tools` directory to correctly resolve the `lmuffb_log_analyzer` package.
+- **Matplotlib Backend:** Added `show=False` to plot generation in CLI/tests to ensure it works in non-interactive environments without crashing.
+
+**Plan Deviations:**
+- Changed emoji status indicators to ASCII text for reliability on Windows.
+- Added explicitly typed conversions (e.g., `float()`, `int()`) in `slope_analyzer.py` to ensure Pydantic models receive standard Python types from Numpy/Pandas.
+
+**Challenges Encountered:**
+- Debugging redirected output encoding issues on Windows required converting temporary output files to UTF-8 for inspection.
 
 **Recommendations:**
-- *(To be filled in)*
+- Future CLI tools for Windows should avoid non-ASCII characters in primary output paths unless UTF-8 support is guaranteed.
 
 ---
 
@@ -751,4 +760,4 @@ python -m lmuffb_log_analyzer report path/to/log.csv --output analysis_report.tx
 ---
 
 *Plan Created: 2026-02-03*
-*Status: Ready for Implementation*
+*Status: Completed (2026-02-04)*

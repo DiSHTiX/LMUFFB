@@ -40,3 +40,6 @@ test_config.ini
 test_stability.ini
 tmp_invalid.ini
 test_val.ini
+tools/lmuffb_log_analyzer/tests/__pycache__/*
+tools/lmuffb_log_analyzer/__pycache__/* 
+tools/lmuffb_log_analyzer/analyzers/__pycache__/*

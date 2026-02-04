@@ -5,6 +5,21 @@ This document contains all version release posts by ErwinMoss from the [url=http
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
 [size=5][b]February 4, 2026[/b][/size]
+[b]Version 0.7.10 - Python Log Analyzer[/b]
+
+[b]New release[/b] (0.7.10): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Added[/b]
+[list]
+[*][b]lmuFFB Log Analyzer Tool[/b]: A powerful new standalone tool for diagnosing Force Feedback issues. It processes your telemetry logs to find stability problems in the slope detection algorithm and provides deep insight into tire behavior.
+[*][b]Visual Diagnostics[/b]: Automatically generate plots including time-series data, tire curves (Slip Angle vs Grip), and statistical distributions of your driving data.
+[*][b]Automated Performance Reports[/b]: Generate full text reports that highlight "sticky" understeer, unstable slope calculations, and frequent grip-floor hits.
+[*][b]Easy Command-Line Workflow[/b]: Simple commands like [code]analyze[/code], [code]plots[/code], and [code]report[/code] make it easy to get professional-grade diagnostics in seconds.
+[/list]
+
+---
+ 
+[size=5][b]February 4, 2026[/b][/size]
 [b]Version 0.7.9 - Telemetry Logger[/b]
 
 [b]New release[/b] (0.7.9): https://github.com/coasting-nc/LMUFFB/releases
