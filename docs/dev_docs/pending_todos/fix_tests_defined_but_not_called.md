@@ -256,15 +256,196 @@ TEST_CASE(test_grip_modulation, "CorePhysics") {
 // Run_CorePhysics() is DELETED - no longer needed
 ```
 
-### Migration Steps (Revised)
+### Incremental Migration Strategy
 
-1.  **Define Infrastructure:** Add the improved code above to `common.h` and `common.cpp`.
-2.  **Migrate One File at a Time:**
-    *   Convert all `static void test_xxx()` to `TEST_CASE(test_xxx, "Category")`.
-    *   Add tags where appropriate (e.g., `{"Physics", "Regression"}`).
-    *   Delete the `Run_Category()` function.
-3.  **Verify After Each File:** Build and run tests. The count should remain stable.
-4.  **Final Cleanup:** Remove `Run_Category()` declarations from `common.h`.
+**Yes, this can be implemented incrementally!** During the transition period, both the old manual `Run_Category()` calls and the new auto-registered tests can coexist. This is the safest approach.
+
+#### Key Insight: Hybrid Run() Function
+
+During migration, modify `Run()` to execute **both** systems:
+
+```cpp
+void Run() {
+    std::cout << "\n--- FFTEngine Regression Suite ---" << std::endl;
+    
+    // ========================================
+    // PHASE 1: Run legacy (not yet migrated) tests
+    // Comment out each line as you migrate that file
+    // ========================================
+    Run_CorePhysics();       // TODO: Migrate
+    Run_SlopeDetection();    // TODO: Migrate
+    Run_Understeer();        // TODO: Migrate
+    Run_SpeedGate();         // TODO: Migrate
+    Run_YawGyro();           // TODO: Migrate
+    Run_Coordinates();       // TODO: Migrate
+    Run_RoadTexture();       // TODO: Migrate
+    Run_Texture();           // TODO: Migrate
+    Run_LockupBraking();     // TODO: Migrate
+    Run_Config();            // TODO: Migrate
+    Run_SlipGrip();          // TODO: Migrate
+    Run_Internal();          // TODO: Migrate
+
+    // ========================================
+    // PHASE 2: Run auto-registered tests
+    // These are tests that have been migrated to TEST_CASE()
+    // ========================================
+    auto& registry = TestRegistry::Instance();
+    if (!registry.GetTests().empty()) {
+        registry.SortByCategory();
+        auto& tests = registry.GetTests();
+        
+        std::cout << "\n--- Auto-Registered Tests (" << tests.size() << ") ---" << std::endl;
+        
+        std::string current_category;
+        for (const auto& test : tests) {
+            if (test.category != current_category) {
+                current_category = test.category;
+                std::cout << "\n=== " << current_category << " Tests ===" << std::endl;
+            }
+            
+            if (!ShouldRunTest(test.tags, test.category)) continue;
+
+            try {
+                test.func();
+            } catch (const std::exception& e) {
+                std::cout << "[FAIL] " << test.name << " threw exception: " << e.what() << std::endl;
+                g_tests_failed++;
+            } catch (...) {
+                std::cout << "[FAIL] " << test.name << " threw unknown exception" << std::endl;
+                g_tests_failed++;
+            }
+        }
+    }
+
+    std::cout << "\n--- Physics Engine Test Summary ---" << std::endl;
+    std::cout << "Tests Passed: " << g_tests_passed << std::endl;
+    std::cout << "Tests Failed: " << g_tests_failed << std::endl;
+}
+```
+
+#### Phase-by-Phase Migration Plan
+
+| Phase | Action | Verification |
+|-------|--------|--------------|
+| **0. Infrastructure** | Add `TestRegistry`, `TestEntry`, `AutoRegister`, and macros to `common.h/cpp`. Update `Run()` to hybrid mode. | Build succeeds. Test count unchanged (591). |
+| **1. Pilot File** | Migrate `test_ffb_internal.cpp` (smallest file, ~10 tests). | Build succeeds. Test count unchanged. |
+| **2-12. Remaining Files** | Migrate one file per commit. | After each: build + verify count. |
+| **13. Cleanup** | Remove all `Run_Category()` declarations and the hybrid `Run()` code. | Final architecture is clean. |
+
+---
+
+### File-by-File Migration Checklist
+
+Use this checklist to track progress. Migrate in order of increasing complexity:
+
+| Order | File | Tests | Category | Status |
+|-------|------|-------|----------|--------|
+| 1 | `test_ffb_internal.cpp` | ~10 | Internal | ⬜ |
+| 2 | `test_ffb_coordinates.cpp` | ~15 | Coordinates | ⬜ |
+| 3 | `test_ffb_road_texture.cpp` | ~20 | RoadTexture | ⬜ |
+| 4 | `test_ffb_features.cpp` | ~25 | Texture | ⬜ |
+| 5 | `test_ffb_lockup_braking.cpp` | ~30 | LockupBraking | ⬜ |
+| 6 | `test_ffb_yaw_gyro.cpp` | ~25 | YawGyro | ⬜ |
+| 7 | `test_ffb_smoothstep.cpp` | ~30 | SpeedGate | ⬜ |
+| 8 | `test_ffb_config.cpp` | ~40 | Config | ⬜ |
+| 9 | `test_ffb_understeer.cpp` | ~50 | Understeer | ⬜ |
+| 10 | `test_ffb_slip_grip.cpp` | ~60 | SlipGrip | ⬜ |
+| 11 | `test_ffb_slope_detection.cpp` | ~80 | SlopeDetection | ⬜ |
+| 12 | `test_ffb_core_physics.cpp` | ~100 | CorePhysics | ⬜ |
+
+**Legend:** ⬜ Not started | 🔄 In progress | ✅ Complete
+
+---
+
+### Step-by-Step Instructions for Each File
+
+For each file in the checklist, follow these steps:
+
+#### Step 1: Record Baseline
+```powershell
+.\build\tests\Release\run_combined_tests.exe 2>&1 | Select-String "Tests Passed"
+# Example output: Tests Passed: 591
+```
+
+#### Step 2: Convert Test Functions
+
+**Find (Regex):**
+```
+static void (test_\w+)\(\) \{
+```
+
+**Replace with:**
+```
+TEST_CASE($1, "CATEGORY_NAME") {
+```
+
+> ⚠️ **Important:** Replace `CATEGORY_NAME` with the actual category (e.g., `"CorePhysics"`).
+
+#### Step 3: Delete the `Run_Category()` Function
+
+Remove the entire `Run_Category()` function from the file. For example, delete:
+```cpp
+void Run_CorePhysics() {
+    std::cout << "\n=== Core Physics Tests ===" << std::endl;
+    test_base_force_modes();
+    test_grip_modulation();
+    // ... all calls ...
+}
+```
+
+#### Step 4: Comment Out the Call in `Run()`
+
+In `test_ffb_common.cpp`, comment out the corresponding line:
+```cpp
+// Run_CorePhysics();  // MIGRATED to auto-registration
+```
+
+#### Step 5: Build and Verify
+```powershell
+# Build
+cmake --build build --config Release
+
+# Run tests
+.\build\tests\Release\run_combined_tests.exe 2>&1 | Select-String "Tests Passed"
+
+# Verify count matches baseline (591)
+```
+
+#### Step 6: Commit (if using version control)
+```powershell
+# DO NOT use these commands directly - per GEMINI.md, user handles git
+# Just verify the build and tests pass, then inform the user
+```
+
+---
+
+### Rollback Strategy
+
+If a migration introduces issues:
+
+1.  **Revert the file** to its previous state (restore `static void test_xxx()` and `Run_Category()`).
+2.  **Uncomment** the `Run_Category()` call in `Run()`.
+3.  **Rebuild and verify** the test count is restored.
+
+The hybrid `Run()` function makes this safe because un-migrated files continue to work normally.
+
+---
+
+### Final Cleanup (After All Files Migrated)
+
+Once all 12 files are migrated:
+
+1.  **Remove legacy code from `Run()`:** Delete the entire "PHASE 1" block.
+2.  **Remove `Run_Category()` declarations from `common.h`:**
+    ```cpp
+    // DELETE ALL OF THESE:
+    void Run_CorePhysics();
+    void Run_SlipGrip();
+    void Run_Understeer();
+    // ... etc.
+    ```
+3.  **Simplify `Run()`:** The final version should only have the auto-registration loop.
+4.  **Bump version:** This is a significant refactor—increment to next minor version (e.g., `0.8.0`).
 
 ---
 
