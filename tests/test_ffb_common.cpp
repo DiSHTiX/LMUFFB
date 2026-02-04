@@ -178,6 +178,7 @@ void Run() {
     Run_YawGyro();
     Run_Coordinates();
     Run_Texture(); // Features
+    Run_LockupBraking();
     Run_Config();
     Run_SlipGrip();
     Run_Internal();

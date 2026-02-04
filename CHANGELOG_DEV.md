@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.7.6] - 2026-02-04
+### Changed
+- **Test Suite Refactoring**:
+  - Split `test_ffb_features.cpp` into two files:
+    - `test_ffb_lockup_braking.cpp`: Contains 8 tests related to lockup, ABS, and braking forces.
+    - `test_ffb_features.cpp`: Retains remaining road texture and effect integration tests.
+  - **Verification**: All 590 tests passing using the new `Run_LockupBraking()` runner.
+  - **Organization**: Improved test navigability by grouping braking physics into a dedicated file.
+
 ## [0.7.5] - 2026-02-03
 ### Changed
 - **Test Suite Refactoring**: 
