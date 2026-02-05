@@ -84,13 +84,46 @@ TEST_CASE(test_delete_user_preset, "Presets") {
     ASSERT_TRUE(index_to_delete != -1);
 
     // 2. Delete it
-    Config::DeletePreset(index_to_delete);
+    Config::DeletePreset(index_to_delete, engine);
     ASSERT_TRUE(Config::presets.size() == count_after_add - 1);
 
     // 3. Try to delete a builtin (should be ignored or handled safely)
     size_t count_before_builtin_delete = Config::presets.size();
-    Config::DeletePreset(0); // Default is builtin
+    Config::DeletePreset(0, engine); // Default is builtin
     ASSERT_TRUE(Config::presets.size() == count_before_builtin_delete);
+}
+
+TEST_CASE(test_delete_preset_preserves_global_config, "Presets") {
+    std::cout << "\nTest: Delete Preset Preserves Global Config" << std::endl;
+    FFBEngine engine;
+    Config::LoadPresets();
+
+    // 1. Set a non-default global value
+    engine.m_gain = 0.55f;
+    Config::Save(engine, "test_preservation.ini");
+    Config::m_config_path = "test_preservation.ini";
+
+    // 2. Add and then delete a preset
+    Config::AddUserPreset("TempPreset", engine);
+    int index = -1;
+    for (int i = 0; i < (int)Config::presets.size(); i++) {
+        if (Config::presets[i].name == "TempPreset") {
+            index = i;
+            break;
+        }
+    }
+    ASSERT_TRUE(index != -1);
+
+    Config::DeletePreset(index, engine);
+
+    // 3. Reload and verify global value
+    FFBEngine engine2;
+    Config::Load(engine2, "test_preservation.ini");
+
+    ASSERT_NEAR(engine2.m_gain, 0.55f, 0.001);
+
+    std::remove("test_preservation.ini");
+    Config::m_config_path = "config.ini"; // Reset
 }
 
 } // namespace FFBEngineTests

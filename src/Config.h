@@ -407,7 +407,7 @@ public:
     static void AddUserPreset(const std::string& name, const FFBEngine& engine);
 
     // NEW: Delete and Duplicate (v0.7.14)
-    static void DeletePreset(int index);
+    static void DeletePreset(int index, const FFBEngine& engine);
     static void DuplicatePreset(int index, const FFBEngine& engine);
     static bool IsEngineDirtyRelativeToPreset(int index, const FFBEngine& engine);
 

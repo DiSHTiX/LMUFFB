@@ -1026,7 +1026,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         bool can_delete = (selected_preset >= 0 && selected_preset < (int)Config::presets.size() && !Config::presets[selected_preset].is_builtin);
         if (!can_delete) ImGui::BeginDisabled();
         if (ImGui::Button("Delete")) {
-            Config::DeletePreset(selected_preset);
+            Config::DeletePreset(selected_preset, engine);
             selected_preset = 0;
             Config::ApplyPreset(0, engine);
         }
