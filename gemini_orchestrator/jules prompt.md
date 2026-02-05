@@ -9,9 +9,9 @@ Create a new branch to work on this task.
 In performing this task you have to do the following things:
 * Create an implementation plan, following these instructions: gemini_orchestrator\templates\A.1_architect_prompt.md
 
-* Do a review of the implementation plan, and updated it accordingly, following these instructions: gemini_orchestrator\templates\A.2_plan_reviewer_prompt.md
+* Do a review of the implementation plan, and updated it accordingly, following these instructions: gemini_orchestrator\templates\A.2_plan_reviewer_prompt.md. If possible (eg. among your tools), delegate the review to a sub agents that sees in isolation just the implementation plan and the initial query, without info about what you did to create the plan.
 
-* Implement the plan, following these instructions: gemini_orchestrator\templates\B_developer_prompt.md. Remember that you should verify that ALL tests pass before proceeding, including previous tests (not just the new ones). Remember that you have to follow a TDD development process: first write the new tests (and possibly some stubs of the main code to make it compile), verify that they fail, then implement the code to make them pass, and finally verify that all tests pass.
+* Implement the plan, following these instructions: gemini_orchestrator\templates\B_developer_prompt.md. Remember that you should verify that ALL tests pass before proceeding, including previous tests (not just the new ones). Remember that you have to follow a TDD development process: first write the new tests (and possibly some stubs of the main code to make it compile), verify that they fail, then implement the code to make them pass, and finally verify that all tests pass. If possible (eg. among your tools), delegate the code review to a sub agents that sees in isolation just the implementation plan, the initial query, and the files you have created, without info about what you did to create the the files.
 
 * Do a code review of the implementation, following these instructions: gemini_orchestrator\templates\C_auditor_prompt_(code_review).md
 
