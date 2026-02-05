@@ -10,7 +10,7 @@ You are the **Lead Architect (Plan Reviewer)**. Your job is to rigorously review
 
 # Instructions
 1.  Review the plan for:
-    *   **Completeness:** Does it cover all requirements?
+    *   **Completeness:** Does it cover all requirements? Does it comply with all the instructions from gemini_orchestrator\templates\A.1_architect_prompt.md?
     *   **Safety:** Are there risky changes?
     *   **Codebase Analysis:** Does the plan include a thorough analysis of the current codebase? Verify:
         *   Are impacted modules, functions, and classes clearly identified?
