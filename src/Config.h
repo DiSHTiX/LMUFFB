@@ -112,6 +112,10 @@ struct Preset {
     float slope_decay_rate = 5.0f;
     bool slope_confidence_enabled = true;
 
+    // v0.7.11: Min/Max Threshold System
+    float slope_min_threshold = -0.3f;
+    float slope_max_threshold = -2.0f;
+
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
     Preset() : name("Unnamed"), is_builtin(false) {} // Default constructor for file loading
@@ -187,11 +191,11 @@ struct Preset {
     Preset& SetYawSmoothing(float v) { yaw_smoothing = v; return *this; }
     Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
     
-    Preset& SetSlopeDetection(bool enabled, int window = 15, float sens = 0.5f, float thresh = -0.3f, float tau = 0.04f) {
+    Preset& SetSlopeDetection(bool enabled, int window = 15, float min_thresh = -0.3f, float max_thresh = -2.0f, float tau = 0.04f) {
         slope_detection_enabled = enabled;
         slope_sg_window = window;
-        slope_sensitivity = sens;
-        slope_negative_threshold = thresh;
+        slope_min_threshold = min_thresh;
+        slope_max_threshold = max_thresh;
         slope_smoothing_tau = tau;
         return *this;
     }
@@ -298,6 +302,10 @@ struct Preset {
         engine.m_slope_alpha_threshold = slope_alpha_threshold;
         engine.m_slope_decay_rate = slope_decay_rate;
         engine.m_slope_confidence_enabled = slope_confidence_enabled;
+
+        // v0.7.11: Min/Max thresholds
+        engine.m_slope_min_threshold = slope_min_threshold;
+        engine.m_slope_max_threshold = slope_max_threshold;
     }
 
     // NEW: Capture current engine state into this preset
@@ -373,6 +381,10 @@ struct Preset {
         slope_alpha_threshold = engine.m_slope_alpha_threshold;
         slope_decay_rate = engine.m_slope_decay_rate;
         slope_confidence_enabled = engine.m_slope_confidence_enabled;
+
+        // v0.7.11: Min/Max thresholds
+        slope_min_threshold = engine.m_slope_min_threshold;
+        slope_max_threshold = engine.m_slope_max_threshold;
     }
 };
 

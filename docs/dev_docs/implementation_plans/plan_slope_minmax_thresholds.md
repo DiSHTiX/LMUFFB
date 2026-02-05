@@ -117,7 +117,7 @@ Telemetry → calculate_slope_grip() → grip_factor → Understeer Effect
 **Location:** After line 790 (helper functions section)
 
 ```cpp
-// Helper: Inverse linear interpolation - v0.8.0
+// Helper: Inverse linear interpolation - v0.7.11
 // Returns normalized position of value between min and max
 // Returns 0 if value >= min, 1 if value <= max (for negative threshold use)
 // Clamped to [0, 1] range
@@ -136,14 +136,14 @@ inline double inverse_lerp(double min_val, double max_val, double value) {
 **Location:** After line 320 (slope detection settings section)
 
 ```cpp
-// ===== SLOPE DETECTION (v0.7.0 → v0.8.0 enhancements) =====
+// ===== SLOPE DETECTION (v0.7.0 → v0.7.11 enhancements) =====
 bool m_slope_detection_enabled = false;
 int m_slope_sg_window = 15;
-float m_slope_sensitivity = 0.5f;            // DEPRECATED v0.8.0 - kept for migration
-float m_slope_negative_threshold = -0.3f;    // DEPRECATED v0.8.0 - use min_threshold
+float m_slope_sensitivity = 0.5f;            // DEPRECATED v0.7.11 - kept for migration
+float m_slope_negative_threshold = -0.3f;    // DEPRECATED v0.7.11 - use min_threshold
 float m_slope_smoothing_tau = 0.04f;
 
-// NEW v0.8.0: Min/Max Threshold System
+// NEW v0.7.11: Min/Max Threshold System
 float m_slope_min_threshold = -0.3f;   // Effect starts here (dead zone edge)
 float m_slope_max_threshold = -2.0f;   // Effect saturates here (100%)
 ```
@@ -197,8 +197,8 @@ if (m_slope_current < (double)m_slope_min_threshold) {
 
 ```cpp
 // After line 108
-float slope_min_threshold = -0.3f;   // v0.8.0
-float slope_max_threshold = -2.0f;   // v0.8.0
+float slope_min_threshold = -0.3f;   // v0.7.11
+float slope_max_threshold = -2.0f;   // v0.7.11
 ```
 
 ### Config.h SetSlopeDetection() Update
@@ -237,7 +237,7 @@ slope_max_threshold = engine.m_slope_max_threshold;
 **File:** `Config.cpp` (in Load validation section)
 
 ```cpp
-// Migration: v0.7.x sensitivity → v0.8.0 thresholds
+// Migration: v0.7.x sensitivity → v0.7.11 thresholds
 // If loading old config with sensitivity but at default thresholds
 if (engine.m_slope_min_threshold == -0.3f && 
     engine.m_slope_max_threshold == -2.0f &&
@@ -303,7 +303,7 @@ FloatSetting("  Effect Full", &engine.m_slope_max_threshold, -5.0f, -0.1f, "%.2f
 **Test Script:**
 ```cpp
 static void test_inverse_lerp_helper() {
-    std::cout << "\nTest: InverseLerp Helper Function (v0.8.0)" << std::endl;
+    std::cout << "\nTest: InverseLerp Helper Function (v0.7.11)" << std::endl;
     FFBEngine engine;
     
     // Note: For slope thresholds, min is less negative (-0.3), max is more negative (-2.0)
@@ -338,7 +338,7 @@ static void test_inverse_lerp_helper() {
 **Test Script:**
 ```cpp
 static void test_slope_minmax_dead_zone() {
-    std::cout << "\nTest: Slope Min/Max Dead Zone (v0.8.0)" << std::endl;
+    std::cout << "\nTest: Slope Min/Max Dead Zone (v0.7.11)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
     engine.m_slope_detection_enabled = true;
@@ -379,7 +379,7 @@ static void test_slope_minmax_dead_zone() {
 **Test Script:**
 ```cpp
 static void test_slope_minmax_linear_response() {
-    std::cout << "\nTest: Slope Min/Max Linear Response (v0.8.0)" << std::endl;
+    std::cout << "\nTest: Slope Min/Max Linear Response (v0.7.11)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
     engine.m_slope_detection_enabled = true;
@@ -420,7 +420,7 @@ static void test_slope_minmax_linear_response() {
 **Test Script:**
 ```cpp
 static void test_slope_minmax_saturation() {
-    std::cout << "\nTest: Slope Min/Max Saturation (v0.8.0)" << std::endl;
+    std::cout << "\nTest: Slope Min/Max Saturation (v0.7.11)" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
     engine.m_slope_detection_enabled = true;
@@ -447,7 +447,7 @@ static void test_slope_minmax_saturation() {
 **Test Script:**
 ```cpp
 static void test_slope_threshold_config_persistence() {
-    std::cout << "\nTest: Slope Threshold Config Persistence (v0.8.0)" << std::endl;
+    std::cout << "\nTest: Slope Threshold Config Persistence (v0.7.11)" << std::endl;
     std::string test_file = "test_slope_minmax.ini";
     
     FFBEngine engine_save;
@@ -473,7 +473,7 @@ static void test_slope_threshold_config_persistence() {
 **Test Script:**
 ```cpp
 static void test_slope_sensitivity_migration() {
-    std::cout << "\nTest: Slope Sensitivity Migration (v0.8.0)" << std::endl;
+    std::cout << "\nTest: Slope Sensitivity Migration (v0.7.11)" << std::endl;
     std::string test_file = "test_slope_migration.ini";
     
     // Create legacy config
@@ -505,7 +505,7 @@ static void test_slope_sensitivity_migration() {
 **Test Script:**
 ```cpp
 static void test_inverse_lerp_edge_cases() {
-    std::cout << "\nTest: InverseLerp Edge Cases (v0.8.0)" << std::endl;
+    std::cout << "\nTest: InverseLerp Edge Cases (v0.7.11)" << std::endl;
     FFBEngine engine;
     
     // Min == Max (degenerate)
@@ -528,44 +528,47 @@ static void test_inverse_lerp_edge_cases() {
 
 ### Code Changes
 
-- [ ] Add `inverse_lerp()` helper function to FFBEngine.h
-- [ ] Add `m_slope_min_threshold` and `m_slope_max_threshold` settings
-- [ ] Modify `calculate_slope_grip()` to use min/max thresholds
-- [ ] Update Preset struct with new settings
-- [ ] Update `SetSlopeDetection()` fluent setter
-- [ ] Update `Preset::Apply()` and `UpdateFromEngine()`
-- [ ] Update `Config::Save()` and `Config::Load()`
-- [ ] Add migration logic for legacy sensitivity values
-- [ ] Update GUI with new threshold sliders
+- [x] Add `inverse_lerp()` helper function to FFBEngine.h
+- [x] Add `m_slope_min_threshold` and `m_slope_max_threshold` settings
+- [x] Modify `calculate_slope_grip()` to use min/max thresholds
+- [x] Update Preset struct with new settings
+- [x] Update `SetSlopeDetection()` fluent setter
+- [x] Update `Preset::Apply()` and `UpdateFromEngine()`
+- [x] Update `Config::Save()` and `Config::Load()`
+- [x] Add migration logic for legacy sensitivity values
+- [x] Update GUI with new threshold sliders
 
 ### Tests
 
-- [ ] test_inverse_lerp_helper
-- [ ] test_slope_minmax_dead_zone
-- [ ] test_slope_minmax_linear_response
-- [ ] test_slope_minmax_saturation
-- [ ] test_slope_threshold_config_persistence
-- [ ] test_slope_sensitivity_migration
-- [ ] test_inverse_lerp_edge_cases
+- [x] test_inverse_lerp_helper
+- [x] test_slope_minmax_dead_zone
+- [x] test_slope_minmax_linear_response
+- [x] test_slope_minmax_saturation
+- [x] test_slope_threshold_config_persistence
+- [x] test_slope_sensitivity_migration
+- [x] test_inverse_lerp_edge_cases
 
 ### Documentation
 
-- [ ] Update CHANGELOG.md with v0.8.0 entry
-- [ ] Update Slope Detection user guide with new settings
+- [x] Update CHANGELOG.md with v0.7.11 entry
+- [x] Update Slope Detection user guide with new settings
 
 ---
 
 ## Implementation Notes
 
-*This section should be filled in by the developer during implementation.*
+Implementation completed and verified with the test suite.
 
 ### Issues Encountered
 
-*(Document any unforeseen issues)*
+1. **Division by Zero Warnings**: MSVC issued warning C4723 in `inverse_lerp` and `smoothstep`. This was addressed by restructuring the zero-range checks to be more explicit, although the user requested to postpone further suppression if it still appears.
+2. **Test Expectations**: The switch from the old sensitivity formula to a linear min/max mapping changed the output values for identical slope inputs. Updated `test_ffb_slope_detection.cpp` to match the new v0.7.11 formula.
+3. **Floating Point Precision**: Initial `inverse_lerp` tests failed on tiny ranges; corrected the logic to handle the "direction" of the threshold (negative slope) correctly.
 
 ### Deviations from Plan
 
-*(Document any necessary deviations)*
+1. **Version Number**: Per USER request, version was incremented to **v0.7.11** instead of v0.8.0 to follow the "minimal increment" rule.
+2. **Helper Function Refactor**: Slightly modified the `inverse_lerp` implementation from the plan to handle the degenerate case where `max_val` < `min_val` more robustly for negative thresholds.
 
 ---
 

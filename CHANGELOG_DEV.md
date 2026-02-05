@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.7.11] - 2026-02-05
+### Added
+- **Slope Detection Min/Max Threshold Mapping**:
+  - Implemented a more intuitive and powerful threshold system for slope-driven understeer.
+  - **Min Threshold**: The dG/dAlpha slope value where the effect begins (dead zone edge). Defaults to -0.3.
+  - **Max Threshold**: The slope value where the effect reaches maximum saturation. Defaults to -2.0.
+  - **Linear Mapping**: Replaced the previous sensitivity-based exponential scaling with a predictable linear mapping between thresholds.
+- **Improved InverseLerp Helper**: Added `inverse_lerp` utility with robust floating-point safety and support for both positive and negative ranges, optimized for tire slope physics.
+- **MSVC Build Warning Mitigation**: Implemented explicit divide-by-zero protection in `inverse_lerp` and `smoothstep` to suppress compiler warning C4723.
+
+### Fixed
+- **Legacy Migration**: Implemented automatic migration logic that converts old `slope_sensitivity` values to the new min/max threshold model, preserving the user's intended feel on first launch.
+- **Slope Logic Robustness**: Fixed edge cases where zero-range thresholds could cause FFB spikes or invalid calculations.
+
+### Testing
+- **New Test Cases**: Added comprehensive verification for the new threshold system.
+  - `test_inverse_lerp_helper`: Validates math across normal, reversed, and tiny ranges.
+  - `test_slope_minmax_dead_zone`: Confirms zero force reduction before the min threshold.
+  - `test_slope_minmax_linear_response`: Verifies proportional force mapping.
+  - `test_slope_minmax_saturation`: Ensures the effect saturates correctly.
+  - `test_slope_sensitivity_migration`: Validates that legacy configs are correctly translated.
+- **Regression**: All tests passing.
+
 ## [0.7.10] - 2026-02-04
 ### Added
 - **Log Analyzer Tool**:

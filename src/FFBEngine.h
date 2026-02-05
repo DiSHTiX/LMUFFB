@@ -325,6 +325,10 @@ public:
     float m_slope_decay_rate = 5.0f;          // NEW: Decay rate toward 0 when not cornering
     bool m_slope_confidence_enabled = true;   // NEW: Enable confidence-based grip scaling
 
+    // NEW v0.7.11: Min/Max Threshold System
+    float m_slope_min_threshold = -0.3f;   // Effect starts here (dead zone edge)
+    float m_slope_max_threshold = -2.0f;   // Effect saturates here (100%)
+
     // Signal Diagnostics
     double m_debug_freq = 0.0; // Estimated frequency for GUI
     double m_theoretical_freq = 0.0; // Theoretical wheel frequency for GUI
@@ -864,17 +868,17 @@ public:
         }
 
         double current_grip_factor = 1.0;
-
-        // FIX 3: Confidence-based grip scaling (optional)
-        // Use extracted helper to avoid duplication with logging code
         double confidence = calculate_slope_confidence(dAlpha_dt);
 
-        if (m_slope_current < (double)m_slope_negative_threshold) {
-            // Slope is negative -> tire is sliding
-            double excess = (double)m_slope_negative_threshold - m_slope_current;
-            double raw_loss = excess * 0.1 * (double)m_slope_sensitivity;
-            current_grip_factor = 1.0 - (raw_loss * confidence); // Apply confidence
-        }
+        // v0.7.11: InverseLerp based threshold mapping
+        // m_slope_min_threshold: Effect starts (e.g., -0.3)
+        // m_slope_max_threshold: Effect saturates (e.g., -2.0)
+        double loss_percent = inverse_lerp((double)m_slope_min_threshold, (double)m_slope_max_threshold, m_slope_current);
+        
+        // Scale loss by confidence and apply floor (0.2)
+        // 0% loss (loss_percent=0) -> 1.0 factor
+        // 100% loss (loss_percent=1) -> 0.2 factor
+        current_grip_factor = 1.0 - (loss_percent * 0.8 * confidence);
 
         // Apply Floor (Safety)
         current_grip_factor = (std::max)(0.2, (std::min)(1.0, current_grip_factor));
@@ -895,17 +899,34 @@ public:
         return (std::min)(1.0, conf_raw);
     }
 
+    // Helper: Inverse linear interpolation - v0.7.11
+    // Returns normalized position of value between min and max
+    // Returns 0 if value >= min, 1 if value <= max (for negative threshold use)
+    // Clamped to [0, 1] range
+    inline double inverse_lerp(double min_val, double max_val, double value) {
+        double range = max_val - min_val;
+        if (std::abs(range) >= 0.0001) {
+            double t = (value - min_val) / (std::abs(range) >= 0.0001 ? range : 1.0);
+            return (std::max)(0.0, (std::min)(1.0, t));
+        }
+        
+        // Degenerate case when range is zero or near-zero
+        if (max_val >= min_val) return (value >= min_val) ? 1.0 : 0.0;
+        return (value <= min_val) ? 1.0 : 0.0;
+    }
+
     // Helper: Smoothstep interpolation - v0.7.2
     // Returns smooth S-curve interpolation from 0 to 1
     // Uses Hermite polynomial: t² × (3 - 2t)
     // Zero derivative at both endpoints for seamless transitions
     inline double smoothstep(double edge0, double edge1, double x) {
         double range = edge1 - edge0;
-        if (range < 0.0001) return (x < edge0) ? 0.0 : 1.0;
-        
-        double t = (x - edge0) / range;
-        t = (std::max)(0.0, (std::min)(1.0, t));
-        return t * t * (3.0 - 2.0 * t);
+        if (std::abs(range) >= 0.0001) {
+            double t = (x - edge0) / (std::abs(range) >= 0.0001 ? range : 1.0);
+            t = (std::max)(0.0, (std::min)(1.0, t));
+            return t * t * (3.0 - 2.0 * t);
+        }
+        return (x < edge0) ? 0.0 : 1.0;
     }
 
     // Helper: Calculate Slip Ratio from wheel (v0.6.36 - Extracted from lambdas)

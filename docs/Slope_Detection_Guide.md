@@ -1,8 +1,8 @@
 # Slope Detection Algorithm - Technical Guide
 
-**Version:** 0.7.3  
+**Version:** 0.7.11  
 **Status:** Stable / Recommended  
-**Last Updated:** February 3, 2026
+**Last Updated:** February 5, 2026
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## Overview
 
-**Slope Detection** is an adaptive algorithm in lmuFFB v0.7.3 that dynamically estimates tire grip by monitoring the **rate of change** (slope) of the tire's performance curve in real-time, rather than using static thresholds.
+**Slope Detection** is an adaptive algorithm in lmuFFB v0.7.11 that dynamically estimates tire grip by monitoring the **rate of change** (slope) of the tire's performance curve in real-time, rather than using static thresholds.
 
 **Key Benefits:**
 - 🎯 **Adaptive** - Automatically adjusts to different tire compounds, temperatures, and wear states
@@ -99,8 +99,8 @@ Slope Detection monitors this slope in real-time to provide accurate grip feedba
    ```
    
 4. **Grip Factor Estimation:**
-   - **Positive slope** → Grip Factor = 1.0 (100% grip)
-   - **Negative slope** → Grip Factor decreases based on how steep the decline is
+   - **Slope > Min Threshold** → Grip Factor = 1.0 (100% grip)
+   - **Slope < Min Threshold** → Grip Factor decreases linearly towards the **Max Threshold**.
 
 5. **FFB Adjustment:** The Understeer Effect is scaled by the grip factor:
    ```
@@ -176,43 +176,35 @@ Window = 31  → 38.75 ms latency  (Very Smooth, Sluggish)
 
 ---
 
-### Sensitivity
-**Range:** 0.1x - 5.0x  
-**Default:** 0.5x (v0.7.1)
-**Unit:** Multiplier
+### Min/Max Threshold System (v0.7.11)
+The core of the updated algorithm is the move from a single "Sensitivity" multiplier to a predictable **linear mapping** between two threshold values.
 
-**What it does:** Scales how aggressively the slope is converted to grip loss.
+#### Min Threshold
+**Range:** -5.0 to 0.0  
+**Default:** -0.3
+**Unit:** (Lateral G / Slip Angle rad)
 
-**Effect:**
-- **1.0x:** Normal sensitivity (recommended starting point)
-- **<1.0x:** Less sensitive - wheel stays heavier even when sliding
-- **>1.0x:** More sensitive - wheel lightens more dramatically when sliding
+**What it does:** The slope value where the understeer effect **begins**.
+- If the tire curve is steeper than this (e.g., -0.1), you have 100% FFB weight.
+- Think of this as the "Dead Zone" edge for slope detection.
+- **Tuning:** Move closer to 0.0 (e.g., -0.1) for earlier warnings. Move further away (e.g., -0.8) if the wheel feels light too easily.
 
-**Example:**
-```
-Slope = -0.15 (tire is past peak)
-Sensitivity = 1.0x  →  Grip Factor = 0.85 (wheel lightens 15%)
-Sensitivity = 2.0x  →  Grip Factor = 0.70 (wheel lightens 30%)
-Sensitivity = 0.5x  →  Grip Factor = 0.92 (wheel lightens 8%)
-```
+#### Max Threshold
+**Range:** -10.0 to -0.1  
+**Default:** -2.0
+**Unit:** (Lateral G / Slip Angle rad)
 
-**Tuning Guidance:**
-- Increase if you want a more pronounced "light wheel" warning
-- Decrease if the understeer effect feels too exaggerated
-- Interacts with "Understeer Effect" slider - adjust both together
+**What it does:** The slope value where the understeer effect **fully saturates**.
+- If the slope is equal to or more negative than this (e.g., -3.5), the grip loss reaches its maximum (limited by the floor setting).
+- **Tuning:** Move closer to Min (e.g., -1.0) for a "sharper" drop-off. Move further away (e.g., -5.0) for a more gradual, progressive lightening.
+
+> 💡 **Legacy Note:** If you are upgrading from v0.7.3, lmuFFB will automatically migrate your old "Sensitivity" setting into an equivalent Max Threshold.
 
 ---
 
 ### Advanced Settings (Collapsed by Default)
 
-#### Slope Threshold
-**Range:** -1.0 to 0.0  
-**Default:** -0.3 (v0.7.1)
-**Unit:** (Lateral G / Slip Angle)
-
-The slope value below which grip loss begins. More negative = later detection.
-
-**Most users should leave this at default.** This is a safety parameter to prevent false positives from measurement noise.
+*(Section merged into Min/Max Threshold System above)*
 
 ---
 
@@ -454,14 +446,15 @@ Window = 31 (39ms latency):
 
 ### Quick Start (Recommended Settings)
 
-**For Most Users (v0.7.3 Recommended):**
+**For Most Users (v0.7.11 Recommended):**
 ```
 Enable Slope Detection: ON
 Filter Window: 15
-Sensitivity: 0.5
-Alpha Threshold: 0.02 (Default)
-Decay Rate: 5.0 (Default)
-Confidence Gate: ON (Default)
+Min Threshold: -0.3
+Max Threshold: -2.0
+Alpha Threshold: 0.02
+Decay Rate: 5.0
+Confidence Gate: ON
 ```
 
 Then adjust "Understeer Effect" slider (in the main Front Axle section) to taste:
@@ -491,17 +484,15 @@ Then adjust "Understeer Effect" slider (in the main Front Axle section) to taste
 
 ---
 
-#### Step 2: Adjust Sensitivity
-
-Once window size feels right:
+#### Step 2: Adjust Thresholds
 
 **If wheel doesn't lighten enough when understeering:**
-- Increase Sensitivity: 1.0 → 1.5 → 2.0
-- OR increase "Understeer Effect" in the main settings
+- Move **Max Threshold** closer to Min (e.g., -2.0 → -1.2) - makes the drop steeper.
+- OR move **Min Threshold** closer to zero (e.g., -0.3 → -0.15) - makes the effect start sooner.
 
 **If wheel becomes too light, feels unrealistic:**
-- Decrease Sensitivity: 1.0 → 0.7 → 0.5
-- OR decrease "Understeer Effect" in the main settings
+- Move **Max Threshold** further from Min (e.g., -2.0 → -5.0) - makes the drop more gradual.
+- OR move **Min Threshold** further from zero (e.g., -0.3 → -0.6) - adds a larger dead-zone.
 
 ---
 
@@ -521,7 +512,8 @@ If slope detection adapts well to these changing conditions without manual adjus
 #### Direct Drive (High Bandwidth, Low Noise)
 ```
 Filter Window: 11
-Sensitivity: 1.2
+Min Threshold: -0.2
+Max Threshold: -1.5
 Output Smoothing: 0.015s
 ```
 DD wheels can handle faster response without feeling twitchy.
@@ -541,7 +533,8 @@ Balanced settings work best.
 #### Gear Drive (Lower Bandwidth, More Noise)
 ```
 Filter Window: 21
-Sensitivity: 0.8
+Min Threshold: -0.4  (larger dead-zone)
+Max Threshold: -3.0  (more gradual)
 Output Smoothing: 0.030s
 ```
 Gear-driven wheels benefit from more smoothing to hide mechanical noise.
@@ -655,23 +648,21 @@ Derivative = Σ(w[k] × G[k]) / (Δt × Σ|w[k]|)
 ### Grip Factor Calculation
 
 ```cpp
-// Calculate slope
-double slope = dG_dt / dAlpha_dt;  // Units: G-force per radian
+// 1. Calculate current slope (from SG filter derivatives)
+double slope = dG_dt / dAlpha_dt;
 
-// Convert slope to grip loss
-if (slope < m_slope_negative_threshold) {
-    double raw_loss = -slope × m_slope_sensitivity;
-    current_grip_factor = 1.0 - raw_loss;
-} else {
-    current_grip_factor = 1.0;  // Full grip
-}
+// 2. Perform Linear Mapping (v0.7.11)
+// Clamp value between min and max, then normalize to 0.0-1.0
+double loss_percent = inverse_lerp(m_slope_min_threshold, m_slope_max_threshold, slope);
 
-// Safety clamp
-current_grip_factor = max(0.2, min(1.0, current_grip_factor));
+// 3. Apply Scaling and Safety Floor
+// 0% loss (loss_percent=0) -> 1.0 factor
+// 100% loss (loss_percent=1) -> 0.2 factor (default floor)
+double current_grip_factor = 1.0 - (loss_percent * 0.8 * confidence);
 
-// Apply smoothing (EMA)
+// 4. Apply Final Smoothing (EMA)
 double alpha = dt / (m_slope_smoothing_tau + dt);
-m_slope_smoothed_output = m_slope_smoothed_output + alpha × (current_grip_factor - m_slope_smoothed_output);
+m_slope_smoothed_output = lerp(m_slope_smoothed_output, current_grip_factor, alpha);
 ```
 
 **Safety Features:**
@@ -771,23 +762,7 @@ This will be an **optional enhancement** - the default will remain at window=15 
 
 ---
 
-## What's Next? (Planned for v0.7.1)
-
-We're actively improving Slope Detection based on early feedback:
-
-### Ultra-Low Latency Option
-**Coming Soon:** Filter Window minimum will be lowered from 5 to 3 samples, providing:
-- **3.75ms minimum latency** (down from 6.25ms)
-- Dynamic warning tooltips for aggressive settings
-- Better suited for high-bandwidth Direct Drive wheels
-
-### Your Feedback Matters
-This feature is **experimental in v0.7.0**. Please share your experiences:
-- What window size works best for your wheel?
-- Does the default sensitivity (1.0x) feel realistic?
-- Any scenarios where slope detection doesn't work well?
-
-Your input helps shape the next version! 🏁
+*(Section removed: Low-latency enhancements were implemented in v0.7.4)*
 
 ---
 
@@ -801,20 +776,18 @@ Slope Detection represents a significant advancement in FFB grip estimation, mov
 3. Fine-tune sensitivity to match your preference
 4. Let the algorithm adapt - avoid constant tweaking
 
-**Remember:** This feature is **experimental** in v0.7.0. Your feedback helps improve it for future releases. Share your findings on the forum!
+**Remember:** Slope Detection is an evolving feature. Your feedback helps improve it for future releases. Share your findings on the forum!
 
 ---
 
 ## Additional Resources
 
-- **Implementation Plan:** `docs/dev_docs/plans/plan_slope_detection.md`
-- **Code Review:** `docs/dev_docs/code_reviews/code_review_slope_detection.md`
-- **Source Code:** `src/FFBEngine.h` (lines 784-818, 862-934)
-- **Forum Thread:** [Link to be added]
+- **Implementation Plan:** `docs/dev_docs/implementation_plans/plan_slope_minmax_thresholds.md`
+- **Source Code:** `src/FFBEngine.h` (calculate_slope_grip)
 
 ---
 
-**Document Version:** 1.2 (v0.7.3)
-**lmuFFB Version:** 0.7.3  
+**Document Version:** 1.3 (v0.7.11)
+**lmuFFB Version:** 0.7.11  
 **Author:** lmuFFB Development Team  
 **License:** This document is distributed with lmuFFB under the same MIT license.

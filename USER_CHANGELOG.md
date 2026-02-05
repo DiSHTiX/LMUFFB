@@ -4,6 +4,25 @@ This document contains all version release posts by ErwinMoss from the [url=http
 
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
+[size=5][b]February 5, 2026[/b][/size]
+[b]Version 0.7.11 - Advanced Threshold Mapping[/b]
+
+[b]New release[/b] (0.7.11): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Improved[/b]
+[list]
+[*][b]New Slope Threshold System[/b]: Replaced the old "Sensitivity" slider with a more powerful [b]Min/Max Threshold[/b] system. You can now define exactly where the understeer effect begins (Min) and where it reaches full strength (Max).
+[*][b]Predictable Feedback[/b]: The new linear mapping provides a much more intuitive feeling through the wheel. As the tire curve slope drops between your two thresholds, the FFB lightens in a perfectly proportional way.
+[*][b]Seamless Migration[/b]: Your existing "Sensitivity" settings are automatically converted to the new threshold system on first launch, so your current FFB feel is preserved while unlocking the new tuning capabilities.
+[/list]
+
+[b]Fixed[/b]
+[list]
+[*][b]Physics Stability[/b]: Hardened the slope detection math against edge cases and tiny value fluctuations, ensuring a smoother understeer cue during aggressive steering maneuvers.
+[/list]
+
+---
+ 
 [size=5][b]February 4, 2026[/b][/size]
 [b]Version 0.7.10 - Python Log Analyzer[/b]
 

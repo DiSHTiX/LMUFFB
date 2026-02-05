@@ -426,7 +426,8 @@ TEST_CASE(test_slope_detection_less_aggressive_v071, "SlopeDetection") {
     }
     
     ASSERT_NEAR(engine.m_slope_current, -1.0, 0.1);
-    ASSERT_TRUE(engine.m_slope_smoothed_output > 0.9);
+    // v0.7.11: With min=-0.3, max=-2.0, slope -1.0 results in ~41% loss of 0.8 range -> ~0.67 grit
+    ASSERT_TRUE(engine.m_slope_smoothed_output > 0.6); 
 }
 
 TEST_CASE(test_slope_decay_on_straight, "SlopeDetection") {
@@ -608,6 +609,178 @@ TEST_CASE(test_slope_alpha_threshold_validation, "SlopeDetection") {
     ASSERT_NEAR(engine.m_slope_alpha_threshold, 0.02f, 0.0001);
 }
 
+TEST_CASE(test_inverse_lerp_helper, "SlopeDetection") {
+    std::cout << "\nTest: InverseLerp Helper Function (v0.7.11)" << std::endl;
+    FFBEngine engine;
+    
+    // Note: For slope thresholds, min is less negative (-0.3), max is more negative (-2.0)
+    // slope=-0.3 → 0%, slope=-2.0 → 100%
+    
+    // At min (start of range)
+    double at_min = engine.inverse_lerp(-0.3, -2.0, -0.3);
+    ASSERT_NEAR(at_min, 0.0, 0.001);
+    
+    // At max (end of range)
+    double at_max = engine.inverse_lerp(-0.3, -2.0, -2.0);
+    ASSERT_NEAR(at_max, 1.0, 0.001);
+    
+    // At midpoint (-1.15)
+    double at_mid = engine.inverse_lerp(-0.3, -2.0, -1.15);
+    ASSERT_NEAR(at_mid, 0.5, 0.001);
+    
+    // Above min (dead zone)
+    double dead_zone = engine.inverse_lerp(-0.3, -2.0, 0.0);
+    ASSERT_NEAR(dead_zone, 0.0, 0.001);
+    
+    // Below max (saturated)
+    double saturated = engine.inverse_lerp(-0.3, -2.0, -5.0);
+    ASSERT_NEAR(saturated, 1.0, 0.001);
+}
 
+TEST_CASE(test_slope_minmax_dead_zone, "SlopeDetection") {
+    std::cout << "\nTest: Slope Min/Max Dead Zone (v0.7.11)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    engine.m_slope_detection_enabled = true;
+    engine.m_slope_min_threshold = -0.3f;
+    engine.m_slope_max_threshold = -2.0f;
+    
+    // Simulate slopes in dead zone
+    for (double slope : {0.0, -0.1, -0.2, -0.29}) {
+        engine.m_slope_current = slope;
+        engine.m_slope_smoothed_output = 1.0;  // Reset
+        
+        // Run multiple frames to settle smoothing
+        for (int i = 0; i < 20; i++) {
+            engine.calculate_slope_grip(0.5, 0.05, 0.01);
+        }
+        
+        // Should remain at 1.0 (full grip)
+        ASSERT_GE(engine.m_slope_smoothed_output, 0.98);
+    }
+}
+
+TEST_CASE(test_slope_minmax_linear_response, "SlopeDetection") {
+    std::cout << "\nTest: Slope Min/Max Linear Response (v0.7.11)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    engine.m_slope_detection_enabled = true;
+    engine.m_slope_min_threshold = -0.3f;
+    engine.m_slope_max_threshold = -2.0f;
+    engine.m_slope_smoothing_tau = 0.001f;  // Fast smoothing for test
+    engine.m_slope_alpha_threshold = 0.0001f; // Ensure it doesn't decay
+    
+    auto fill_buffers_for_slope = [&](double target_slope) {
+        double dt = 0.01;
+        for (int i = 0; i < 20; i++) {
+            double alpha = (double)i * 0.1;
+            double g = target_slope * alpha;
+            engine.calculate_slope_grip(g, alpha, dt);
+        }
+    };
+
+    fill_buffers_for_slope(-0.725);
+    ASSERT_NEAR(engine.m_slope_current, -0.725, 0.05);
+    // Expected loss: 25% of 0.8 = 0.2 -> Grip: 0.8
+    ASSERT_NEAR(engine.m_slope_smoothed_output, 0.8, 0.05);
+    
+    // At 50% into range: slope = -1.15
+    fill_buffers_for_slope(-1.15);
+    ASSERT_NEAR(engine.m_slope_current, -1.15, 0.05);
+    // Expected loss: 50% of 0.8 = 0.4 -> Grip: 0.6
+    ASSERT_NEAR(engine.m_slope_smoothed_output, 0.6, 0.05);
+    
+    // At 100% (max): grip should hit floor
+    fill_buffers_for_slope(-2.0);
+    ASSERT_NEAR(engine.m_slope_current, -2.0, 0.05);
+    ASSERT_NEAR(engine.m_slope_smoothed_output, 0.2, 0.05);  // Floor
+}
+
+TEST_CASE(test_slope_minmax_saturation, "SlopeDetection") {
+    std::cout << "\nTest: Slope Min/Max Saturation (v0.7.11)" << std::endl;
+    FFBEngine engine;
+    InitializeEngine(engine);
+    engine.m_slope_detection_enabled = true;
+    engine.m_slope_min_threshold = -0.3f;
+    engine.m_slope_max_threshold = -2.0f;
+    engine.m_slope_smoothing_tau = 0.001f;
+    
+    auto fill_buffers_for_slope = [&](double target_slope) {
+        double dt = 0.01;
+        for (int i = 0; i < 20; i++) {
+            double alpha = (double)i * 0.1;
+            double g = target_slope * alpha;
+            engine.calculate_slope_grip(g, alpha, dt);
+        }
+    };
+
+    // Extreme slope (way beyond max)
+    fill_buffers_for_slope(-10.0);
+    
+    // Should saturate at floor (0.2), not go negative or beyond
+    ASSERT_NEAR(engine.m_slope_smoothed_output, 0.2, 0.02);
+}
+
+TEST_CASE(test_slope_threshold_config_persistence, "SlopeDetection") {
+    std::cout << "\nTest: Slope Threshold Config Persistence (v0.7.11)" << std::endl;
+    std::string test_file = "test_slope_minmax.ini";
+    
+    FFBEngine engine_save;
+    engine_save.m_slope_min_threshold = -0.5f;
+    engine_save.m_slope_max_threshold = -3.0f;
+    Config::Save(engine_save, test_file);
+    
+    FFBEngine engine_load;
+    InitializeEngine(engine_load);
+    Config::Load(engine_load, test_file);
+    
+    ASSERT_NEAR(engine_load.m_slope_min_threshold, -0.5f, 0.001);
+    ASSERT_NEAR(engine_load.m_slope_max_threshold, -3.0f, 0.001);
+    
+    std::remove(test_file.c_str());
+}
+
+TEST_CASE(test_slope_sensitivity_migration, "SlopeDetection") {
+    std::cout << "\nTest: Slope Sensitivity Migration (v0.7.11)" << std::endl;
+    std::string test_file = "test_slope_migration.ini";
+    
+    // Create legacy config
+    {
+        std::ofstream file(test_file);
+        file << "slope_detection_enabled=1\n";
+        file << "slope_sensitivity=1.0\n";           // Legacy
+        file << "slope_negative_threshold=-0.3\n";   // Legacy
+        // No slope_min_threshold or slope_max_threshold
+    }
+    
+    FFBEngine engine;
+    InitializeEngine(engine);
+    Config::Load(engine, test_file);
+    
+    // With sensitivity=1.0, max_threshold should be calculated
+    // Formula: max = min - (8/sens) = -0.3 - 8 = -8.3
+    ASSERT_TRUE(engine.m_slope_max_threshold < engine.m_slope_min_threshold);
+    ASSERT_NEAR(engine.m_slope_max_threshold, -8.3f, 0.5);
+    
+    std::remove(test_file.c_str());
+}
+
+TEST_CASE(test_inverse_lerp_edge_cases, "SlopeDetection") {
+    std::cout << "\nTest: InverseLerp Edge Cases (v0.7.11)" << std::endl;
+    FFBEngine engine;
+    
+    // Min == Max (degenerate)
+    double same = engine.inverse_lerp(-0.3, -0.3, -0.3);
+    ASSERT_TRUE(same == 0.0 || same == 1.0);
+    
+    // Very small range
+    // value = -0.30001. Since it's < min, it should be 1.0 in negative direction context
+    double tiny = engine.inverse_lerp(-0.3, -0.30001, -0.30001);
+    ASSERT_NEAR(tiny, 1.0, 0.01);
+    
+    // Reversed order (should still work or be caught)
+    double reversed = engine.inverse_lerp(-2.0, -0.3, -1.15);
+    ASSERT_TRUE(reversed >= 0.0 && reversed <= 1.0);
+}
 
 } // namespace FFBEngineTests

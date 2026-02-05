@@ -732,6 +732,8 @@ void Config::LoadPresets() {
                         else if (key == "slope_sensitivity") current_preset.slope_sensitivity = std::stof(value);
                         else if (key == "slope_negative_threshold") current_preset.slope_negative_threshold = std::stof(value);
                         else if (key == "slope_smoothing_tau") current_preset.slope_smoothing_tau = std::stof(value);
+                        else if (key == "slope_min_threshold") current_preset.slope_min_threshold = std::stof(value);
+                        else if (key == "slope_max_threshold") current_preset.slope_max_threshold = std::stof(value);
                         else if (key == "slope_alpha_threshold") current_preset.slope_alpha_threshold = std::stof(value);
                         else if (key == "slope_decay_rate") current_preset.slope_decay_rate = std::stof(value);
                         else if (key == "slope_confidence_enabled") current_preset.slope_confidence_enabled = (value == "1");
@@ -852,6 +854,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "slope_sensitivity=" << engine.m_slope_sensitivity << "\n";
         file << "slope_negative_threshold=" << engine.m_slope_negative_threshold << "\n";
         file << "slope_smoothing_tau=" << engine.m_slope_smoothing_tau << "\n";
+        file << "slope_min_threshold=" << engine.m_slope_min_threshold << "\n";
+        file << "slope_max_threshold=" << engine.m_slope_max_threshold << "\n";
         file << "slope_alpha_threshold=" << engine.m_slope_alpha_threshold << "\n";
         file << "slope_decay_rate=" << engine.m_slope_decay_rate << "\n";
         file << "slope_confidence_enabled=" << engine.m_slope_confidence_enabled << "\n";
@@ -925,6 +929,8 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
                 file << "slope_sensitivity=" << p.slope_sensitivity << "\n";
                 file << "slope_negative_threshold=" << p.slope_negative_threshold << "\n";
                 file << "slope_smoothing_tau=" << p.slope_smoothing_tau << "\n";
+                file << "slope_min_threshold=" << p.slope_min_threshold << "\n";
+                file << "slope_max_threshold=" << p.slope_max_threshold << "\n";
                 file << "slope_alpha_threshold=" << p.slope_alpha_threshold << "\n";
                 file << "slope_decay_rate=" << p.slope_decay_rate << "\n";
                 file << "slope_confidence_enabled=" << p.slope_confidence_enabled << "\n";
@@ -1077,6 +1083,8 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "slope_sensitivity") engine.m_slope_sensitivity = std::stof(value);
                     else if (key == "slope_negative_threshold") engine.m_slope_negative_threshold = std::stof(value);
                     else if (key == "slope_smoothing_tau") engine.m_slope_smoothing_tau = std::stof(value);
+                    else if (key == "slope_min_threshold") engine.m_slope_min_threshold = std::stof(value);
+                    else if (key == "slope_max_threshold") engine.m_slope_max_threshold = std::stof(value);
                     else if (key == "slope_alpha_threshold") engine.m_slope_alpha_threshold = std::stof(value);
                     else if (key == "slope_decay_rate") engine.m_slope_decay_rate = std::stof(value);
                     else if (key == "slope_confidence_enabled") engine.m_slope_confidence_enabled = (value == "1");
@@ -1125,6 +1133,30 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
         std::cerr << "[Config] Invalid slope_decay_rate (" << engine.m_slope_decay_rate 
                   << "), resetting to 5.0f" << std::endl;
         engine.m_slope_decay_rate = 5.0f; // Safe default
+    }
+
+    // Migration: v0.7.x sensitivity → v0.7.11 thresholds
+    // If loading old config with sensitivity but at default thresholds
+    if (engine.m_slope_min_threshold == -0.3f && 
+        engine.m_slope_max_threshold == -2.0f &&
+        engine.m_slope_sensitivity != 0.5f) {
+        
+        // Old formula: factor = 1 - (excess * 0.1 * sens)
+        // At factor=0.2 (floor): excess * 0.1 * sens = 0.8
+        // excess = 0.8 / (0.1 * sens) = 8 / sens
+        // max = min - excess = -0.3 - (8/sens)
+        double sens = (double)engine.m_slope_sensitivity;
+        if (sens > 0.01) {
+            engine.m_slope_max_threshold = (float)(engine.m_slope_min_threshold - (8.0 / sens));
+            std::cout << "[Config] Migrated slope_sensitivity " << sens 
+                      << " to max_threshold " << engine.m_slope_max_threshold << std::endl;
+        }
+    }
+
+    // Validation: max should be more negative than min
+    if (engine.m_slope_max_threshold > engine.m_slope_min_threshold) {
+        std::swap(engine.m_slope_min_threshold, engine.m_slope_max_threshold);
+        std::cout << "[Config] Swapped slope thresholds (min should be > max)" << std::endl;
     }
     
     // v0.6.20: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges (Expanded)
