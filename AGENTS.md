@@ -9,9 +9,13 @@ This file provides SOP, build commands, code style, and patterns for AI agents w
 **Perform these steps for EVERY task to ensure quality and consistency.**
 
 ### 1. 🧠 Consult Memory
-*   **Action**: Use the hivemind tool.
+*   **Action**: Query the hivemind memories.
 *   **Why**: It contains workarounds (like Git fixes) and architectural lessons learned from previous sessions.
-
+*   **When**: ALWAYS query memory BEFORE:
+*      * Starting complex debugging
+*      * Making architectural decisions
+*      * Using unfamiliar tools/libraries
+*      * Implementing cross-cutting features
 ---
 
 ### 2. 🔄 Context
@@ -24,7 +28,7 @@ This file provides SOP, build commands, code style, and patterns for AI agents w
 *   `docs/dev_docs/telemetry_data_reference.md` - API source of truth
 *   `docs/dev_docs/FFB_formulas.md` - Physics and scaling constants
 *   `docs/architecture.md` - System design and components
-*    use `hivemind` tool - Previous session learnings
+*   `hivemind` memory tool - Catch up on learnings of Previous sessions
 
 ---
 
@@ -179,11 +183,21 @@ This file provides SOP, build commands, code style, and patterns for AI agents w
 ---
 
 ## 10. Hivemind - Unified Memory System
-
 The hive remembers everything. Learnings, sessions, patterns—all searchable.
 
-### Tools
+**What to Store: ✅ Good memories:**
+   * Root causes of tricky bugs (with context)
+   * Architectural decisions (with reasoning and tradeoffs)
+   * Domain-specific patterns (with examples)
+   * Tool/library gotchas (with workarounds)
+   * Failed approaches (to avoid repeating)
+**What NOT to Store: ❌ Bad memories:**
+   * Generic knowledge (already in docs)
+   * Implementation details that change frequently
+   * Vague descriptions ("fixed the thing")
+   * Duplicate information
 
+### Tools
 | Tool | Purpose |
 |------|---------|
 | `hivemind_store` | Store a memory (learnings, decisions, patterns) |
