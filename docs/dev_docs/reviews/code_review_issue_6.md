@@ -1,96 +1,47 @@
-# Code Review Report - Preset Handling Improvements
+# Code Review Report - Preset Handling Improvements (Revision 2)
 
 **Task ID:** Issue #6
 **Review Date:** 2026-02-06
 **Branch:** fix/preset-handling-improvements-15068727691974390498
-**Commit:** bf59b1d4a415e48c8a5cdf1460902cd13b4f3ab5
+**Commit:** bd11c57 (Fix Verification)
 
 ## 1. Summary
-This review covers the implementation of preset handling improvements, including:
-- Persistence of the last used preset.
-- Dirty state indication (*) in the UI.
-- "Save Current Config" behavior updates.
-- New "Delete" and "Duplicate" reset functionality.
-- Associated tests and version increment.
+This is a re-review of the preset handling improvements. The previous review (Commit `bf59b1d`) identified a critical bug in `Config::DeletePreset` where user settings were reset to defaults. The developer has updated the code to address this issue and added regression tests.
 
-## 2. Findings
+## 2. Findings (Verification)
 
-### Critical Issues 🛑
-1.  **Data Loss / Configuration Reset in `DeletePreset`**
-    - **File:** `src/Config.cpp`
-    - **Method:** `Config::DeletePreset(int index)`
-    - **Description:** The function creates a default-constructed `FFBEngine` object (`FFBEngine temp;`) and passes it to `Config::Save(temp)`.
-    - **Impact:** `Config::Save` writes the *entire* `config.ini` file, including global settings (Gain, Min Force, Effect Toggles, etc.). Because `temp` is initialized with default values (e.g., Gain=1.0), calling `Save(temp)` will **overwrite the user's current global FFB settings with factory defaults**. This results in data loss for the user whenever they delete a preset.
-    - **Recommendation:** Modify `DeletePreset` to accept the current `FFBEngine& engine` as a parameter (similar to `DuplicatePreset`) and pass the active engine state from `GuiLayer`.
+### 1. Critical Bug Fix: `DeletePreset` 🛑 -> ✅ Fixed
+*   **Original Issue:** `DeletePreset` used a default-constructed `FFBEngine` for saving, causing data loss.
+*   **Fix Verification:** The function signature has been updated to `Config::DeletePreset(int index, const FFBEngine& engine)`, and it now passes the active `engine` instance to `Config::Save(engine)`. This ensures that global configuration settings (Gain, etc.) are preserved when rewriting the config file.
+    *   **Status:** **VERIFIED**
 
-### Major Issues ⚠️
-1.  **Missing Test Coverage for Global Config Preservation**
-    - **File:** `tests/test_preset_improvements.cpp`
-    - **Test:** `test_delete_user_preset`
-    - **Description:** The test verifies that the preset is removed from the vector but does not check if other configuration values in the saved file are preserved. It would pass despite the critical bug identified above.
-    - **Recommendation:** Update the test to:
-        1. Set a non-default global value (e.g., `engine.m_gain = 0.5f`).
-        2. Save the config.
-        3. Delete a preset.
-        4. Reload the config and assert that `m_gain` is still 0.5f.
+### 2. Test Coverage ⚠️ -> ✅ Fixed
+*   **Original Issue:** Missing tests for global config preservation.
+*   **Fix Verification:** A new test case `test_delete_preset_preserves_global_config` has been added. It explicitly verifies that `m_gain` is preserved after a preset deletion cycle.
+    *   **Status:** **VERIFIED**
 
-### Minor Issues ℹ️
-1.  **Maintenance Burden in `IsEngineDirtyRelativeToPreset`**
-    - **File:** `src/Config.cpp`
-    - **Description:** The dirty check manually compares over 40 individual fields. This is prone to drift; if a developer adds a new FFB parameter but forgets to update this function, the dirty flag logic will be incomplete.
-    - **Recommendation:** Add a prominent comment at the top of `Config::IsEngineDirtyRelativeToPreset` (and near the `FFBEngine` class definition) warning developers to update this function when adding new parameters.
+### 3. Maintenance Warnings ℹ️ -> ✅ Added
+*   **Original Issue:** Risk of `IsEngineDirtyRelativeToPreset` drifting out of sync.
+*   **Fix Verification:** Prominent warning comments have been added to both `Config::IsEngineDirtyRelativeToPreset` and the `FFBEngine` class definition, alerting developers to update verify logic when adding parameters.
+    *   **Status:** **VERIFIED**
 
-2.  **Redundant `Save` Call Logic**
-    - **File:** `src/Config.cpp`
-    - **Method:** `AddUserPreset`
-    - **Description:** `AddUserPreset` calls `Save(engine)`. `ApplyPreset` also calls `Save(engine)`. This is generally fine but ensures strict io syncing. No action needed, just noted.
-
-## 3. Checklist Results
+## 3. Checklist Results (Updated)
 
 ### Functional Correctness
-*   **Plan Adherence:** ✅ Yes (Mostly, except for the bug logic)
-*   **Completeness:** ✅ Yes
-*   **Logic:** ❌ FAIL (DeletePreset logic is flawed)
+*   **Plan Adherence:** ✅ Yes
+*   **Logic:** ✅ PASS (Bug logic corrected)
 
 ### Implementation Quality
-*   **Clarity:** ✅ Good
-*   **Simplicity:** ✅ Good
-*   **Robustness:** ❌ FAIL (Data loss scenario)
-*   **Performance:** ✅ Good (Dirty check is efficient enough)
-*   **Maintainability:** ⚠️ Warning (Manual field comparison)
-
-### Code Style & Consistency
-*   **Style:** ✅ Good
-*   **Consistency:** ✅ Good
-*   **Constants:** ✅ Good
+*   **Robustness:** ✅ PASS (Data loss scenario prevented)
+*   **Maintainability:** ✅ Good (Warnings added)
 
 ### Testing
-*   **Test Coverage:** ⚠️ Partial (Missing regression test for config integrity)
-*   **TDD Compliance:** ✅ Tests were written
-*   **Test Quality:** ⚠️ Tests missed the side-effect bug
-
-### Configuration & Settings
-*   **User Settings:** ✅ Presets updated correctly
-*   **Migration:** ✅ Logic exists
-*   **New Parameters:** ✅ `m_last_preset_name` handle correctly
-
-### Versioning & Documentation
-*   **Version Increment:** ✅ 0.7.13 -> 0.7.14
-*   **Documentation:** ✅ Plan updated
-*   **Changelog:** ✅ Updated
-
-### Safety & Integrity
-*   **Unintended Deletions:** ✅ None found in code (logic preserves built-ins)
-*   **Security:** ✅ N/A
-*   **Resource Management:** ✅ Safe
-
-### Build Verification
-*   **Compilation:** ✅ PASS
+*   **Test Coverage:** ✅ Complete (Regression test added)
 *   **Tests Pass:** ✅ PASS
 
 ## 4. Verdict
 
-**Outcome:** **FAIL**
+**Outcome:** **PASS**
 
 **Justification:**
-The implementation of `DeletePreset` introduces a critical regression that wipes out the user's global FFB configuration settings logic by overwriting them with defaults during the save operation. This must be fixed before merging.
+The critical regression causing data loss has been correctly resolved. The fix is verified by code inspection and a new targeted unit test. The code is ready for integration.
