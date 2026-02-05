@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+﻿cmake_minimum_required(VERSION 3.10)
 project(LMUFFB_Tests)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -26,6 +26,7 @@ set(TEST_SOURCES
     test_persistence_v0625.cpp
     test_persistence_v0628.cpp
     test_async_logger.cpp
+    test_versioned_presets.cpp
     ../src/Config.cpp
 )
 
@@ -50,3 +51,4 @@ endif()
 
 # Add to CTest
 add_test(NAME CombinedTests COMMAND run_combined_tests)
+

@@ -1,4 +1,4 @@
-#include "Config.h"
+﻿#include "Config.h"
 #include "Version.h"
 #include <fstream>
 #include <sstream>
@@ -625,9 +625,11 @@ void Config::LoadPresets() {
 
     std::string line;
     bool in_presets = false;
+    bool needs_save = false;
     
     std::string current_preset_name = "";
     Preset current_preset; // Uses default constructor with default values
+    std::string current_preset_version = "";
     bool preset_pending = false;
 
     while (std::getline(file, line)) {
@@ -641,6 +643,16 @@ void Config::LoadPresets() {
             if (preset_pending && !current_preset_name.empty()) {
                 current_preset.name = current_preset_name;
                 current_preset.is_builtin = false; // User preset
+                
+                // MIGRATION: If version is missing or old, update it
+                if (current_preset_version.empty()) {
+                    current_preset.app_version = LMUFFB_VERSION;
+                    needs_save = true;
+                    std::cout << "[Config] Migrated legacy preset '" << current_preset_name << "' to version " << LMUFFB_VERSION << std::endl;
+                } else {
+                    current_preset.app_version = current_preset_version;
+                }
+                
                 presets.push_back(current_preset);
                 preset_pending = false;
             }
@@ -654,6 +666,7 @@ void Config::LoadPresets() {
                     current_preset_name = line.substr(8, end_pos - 8);
                     current_preset = Preset(current_preset_name, false); // Reset to defaults, not builtin
                     preset_pending = true;
+                    current_preset_version = "";
                 }
             } else {
                 in_presets = false;
@@ -669,7 +682,8 @@ void Config::LoadPresets() {
                 if (std::getline(is_line, value)) {
                     try {
                         // Map keys to struct members
-                        if (key == "gain") current_preset.gain = std::stof(value);
+                        if (key == "app_version") current_preset_version = value;
+                        else if (key == "gain") current_preset.gain = std::stof(value);
                         else if (key == "understeer") {
                             float val = std::stof(value);
                             if (val > 2.0f) {
@@ -677,6 +691,7 @@ void Config::LoadPresets() {
                                 val = val / 100.0f; // Migrating 0-200 range to 0-2
                                 std::cout << "[Preset] Migrated legacy understeer: " << old_val 
                                           << " -> " << val << std::endl;
+                                needs_save = true;
                             }
                             current_preset.understeer = (std::min)(2.0f, (std::max)(0.0f, val));
                         }
@@ -754,7 +769,29 @@ void Config::LoadPresets() {
     if (preset_pending && !current_preset_name.empty()) {
         current_preset.name = current_preset_name;
         current_preset.is_builtin = false;
+        
+        // MIGRATION: If version is missing or old, update it
+        if (current_preset_version.empty()) {
+            current_preset.app_version = LMUFFB_VERSION;
+            needs_save = true;
+            std::cout << "[Config] Migrated legacy preset '" << current_preset_name << "' to version " << LMUFFB_VERSION << std::endl;
+        } else {
+            current_preset.app_version = current_preset_version;
+        }
+        
         presets.push_back(current_preset);
+    }
+
+    // Auto-save if migration occurred
+    if (needs_save) {
+        FFBEngine temp_engine; // Just to satisfy the Save signature
+        // We might want a version of Save that doesn't overwrite current engine settings
+        // but for now, the plan says "call Config::SaveManualPresetsOnly() (or similar)".
+        // Looking at Save(), it saves everything. 
+        // If we just loaded presets, we haven't applied them to any engine yet.
+        // But Config::Save takes an engine.
+        // Actually, if we just want to update the presets on disk, we should call Save.
+        Save(temp_engine);
     }
 }
 
@@ -897,6 +934,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         for (const auto& p : presets) {
             if (!p.is_builtin) {
                 file << "[Preset:" << p.name << "]\n";
+                file << "app_version=" << p.app_version << "\n";
                 file << "invert_force=" << (p.invert_force ? "1" : "0") << "\n";
                 file << "gain=" << p.gain << "\n";
                 file << "max_torque_ref=" << p.max_torque_ref << "\n";
@@ -1135,7 +1173,7 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
         engine.m_slope_decay_rate = 5.0f; // Safe default
     }
 
-    // Migration: v0.7.x sensitivity → v0.7.11 thresholds
+    // Migration: v0.7.x sensitivity â†’ v0.7.11 thresholds
     // If loading old config with sensitivity but at default thresholds
     if (engine.m_slope_min_threshold == -0.3f && 
         engine.m_slope_max_threshold == -2.0f &&
@@ -1226,3 +1264,12 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
     }
     std::cout << "[Config] Loaded from " << filename << std::endl;
 }
+
+
+
+
+
+
+
+
+

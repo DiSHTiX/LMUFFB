@@ -170,4 +170,34 @@ TEST_CASE_TAGGED(test_logger_performance_impact, "Diagnostics", {"Logger"}) {
     ASSERT_TRUE(overhead_per_call < 10.0);
 }
 
+TEST_CASE_TAGGED(test_logger_header_version_check, "Diagnostics", {"Logger"}) {
+    std::cout << "\nTest: AsyncLogger Header Version Check" << std::endl;
+    AsyncLogger::Get().Stop();
+    
+    SessionInfo info;
+    info.driver_name = "VersionTest";
+    info.vehicle_name = "TestCar";
+    info.track_name = "TestTrack";
+    info.app_version = LMUFFB_VERSION;
+    
+    AsyncLogger::Get().Start(info, "test_logs");
+    std::string filename = AsyncLogger::Get().GetFilename();
+    AsyncLogger::Get().Stop();
+    
+    // Read the file and check header
+    std::ifstream file(filename);
+    ASSERT_TRUE(file.is_open());
+    
+    std::string line;
+    std::getline(file, line); // # Telemetry Log Header
+    std::getline(file, line); // # App Version: ...
+    
+    std::cout << "Header line 2: " << line << std::endl;
+    std::string expected_start = "# App Version: " + std::string(LMUFFB_VERSION);
+    ASSERT_TRUE(line.find(expected_start) == 0);
+    
+    file.close();
+    std::remove(filename.c_str());
+}
+
 } // namespace FFBEngineTests

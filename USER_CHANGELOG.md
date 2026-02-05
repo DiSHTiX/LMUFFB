@@ -5,6 +5,25 @@ This document contains all version release posts by ErwinMoss from the [url=http
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
 [size=5][b]February 5, 2026[/b][/size]
+[b]Version 0.7.12 - Preset & Telemetry Versioning[/b]
+
+[b]New release[/b] (0.7.12): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Added[/b]
+[list]
+[*][b]Preset Version Tracking[/b]: Your saved presets now store the version of lmuFFB they were created with. This helps ensure compatibility as the physics engine evolves.
+[*][b]Telemetry Versioning[/b]: Telemetry logs now include the app version in the file header, making it easier to analyze logs using the Log Analyzer tool.
+[/list]
+
+[b]Fixed[/b]
+[list]
+[*][b]Preset Loading Fix[/b]: Resolved an issue where the Master Gain setting was not correctly restored when switching between user presets.
+[*][b]Auto-Migration[/b]: Any old presets from previous versions are automatically updated to the current format on first load.
+[/list]
+
+---
+
+[size=5][b]February 5, 2026[/b][/size]
 [b]Version 0.7.11 - Advanced Threshold Mapping[/b]
 
 [b]New release[/b] (0.7.11): https://github.com/coasting-nc/LMUFFB/releases

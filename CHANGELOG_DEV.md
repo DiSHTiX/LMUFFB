@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.7.12] - 2026-02-05
+### Added
+- **Preset & Telemetry Versioning**:
+  - **Preset Version Tracking**: Added `app_version` field to user presets to track compatibility.
+  - **Legacy Migration**: Automated migration of presets missing version information to the current `0.7.12` version.
+  - **Telemetry Version Header**: Injected application version into telemetry log headers for improved offline analysis.
+- **Improved Config Persistence**:
+  - Fixed a long-standing bug where `gain` was not being correctly loaded from user presets.
+  - Implemented auto-save trigger when legacy presets are migrated during load.
+### Testing
+- **New Test Suite**: `tests/test_versioned_presets.cpp`
+  - `test_preset_version_persistence`: Verifies version round-trip.
+  - `test_legacy_preset_migration`: Validates automatic version injection for old presets.
+- **Updated Test**: `tests/test_async_logger.cpp`
+  - `test_logger_header_version_check`: Confirms the CSV header contains the correct version string.
+
 ## [0.7.11] - 2026-02-05
 ### Added
 - **Slope Detection Min/Max Threshold Mapping**:

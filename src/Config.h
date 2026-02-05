@@ -1,14 +1,16 @@
-#ifndef CONFIG_H
+﻿#ifndef CONFIG_H
 #define CONFIG_H
 
 #include "FFBEngine.h"
 #include <string>
 #include <vector>
 #include <chrono>
+#include "Version.h"
 
 struct Preset {
     std::string name;
-    bool is_builtin = false; // NEW: Track if this is hardcoded or user-created
+    bool is_builtin = false;
+    std::string app_version = LMUFFB_VERSION; // NEW: Track if this is hardcoded or user-created
     
     // 1. SINGLE SOURCE OF TRUTH: Default Preset Values
     // These defaults are used by:
@@ -17,7 +19,7 @@ struct Preset {
     // - "Reset Defaults" button in GUI
     // - Test presets that don't explicitly set these values
     //
-    // ⚠️ IMPORTANT: When changing these defaults, you MUST also update:
+    // âš ï¸ IMPORTANT: When changing these defaults, you MUST also update:
     // 1. SetAdvancedBraking() default parameters below (abs_f, lockup_f)
     // 2. test_ffb_engine.cpp: expected_abs_freq and expected_lockup_freq_scale
     // 3. Any test presets in Config.cpp that rely on these defaults
@@ -100,7 +102,7 @@ struct Preset {
     float road_fallback_scale = 0.05f;      // Planned: Road texture fallback scaling
     bool understeer_affects_sop = false;     // Planned: Understeer modulation of SoP
 
-    // ===== SLOPE DETECTION (v0.7.0 → v0.7.1 defaults) =====
+    // ===== SLOPE DETECTION (v0.7.0 â†’ v0.7.1 defaults) =====
     bool slope_detection_enabled = false;
     int slope_sg_window = 15;
     float slope_sensitivity = 0.5f;          // Reduced from 1.0 (less aggressive)
@@ -117,8 +119,8 @@ struct Preset {
     float slope_max_threshold = -2.0f;
 
     // 2. Constructors
-    Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin) {}
-    Preset() : name("Unnamed"), is_builtin(false) {} // Default constructor for file loading
+    Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin), app_version(LMUFFB_VERSION) {}
+    Preset() : name("Unnamed"), is_builtin(false), app_version(LMUFFB_VERSION) {} // Default constructor for file loading
 
     // 3. Fluent Setters (The "Python Dictionary" feel)
     Preset& SetGain(float v) { gain = v; return *this; }
@@ -208,7 +210,7 @@ struct Preset {
     }
 
     // Advanced Braking (v0.6.0)
-    // ⚠️ IMPORTANT: Default parameters (abs_f, lockup_f) must match Config.h defaults!
+    // âš ï¸ IMPORTANT: Default parameters (abs_f, lockup_f) must match Config.h defaults!
     // When changing Config.h defaults, update these values to match.
     // Current: abs_f=25.5, lockup_f=1.02 (GT3 DD 15 Nm defaults - v0.6.35)
     Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g, float abs_f = 25.5f, float lockup_f = 1.02f) {
@@ -385,6 +387,7 @@ struct Preset {
         // v0.7.11: Min/Max thresholds
         slope_min_threshold = engine.m_slope_min_threshold;
         slope_max_threshold = engine.m_slope_max_threshold;
+        app_version = LMUFFB_VERSION;
     }
 };
 
@@ -427,3 +430,7 @@ inline FFBEngine::FFBEngine() {
 }
 
 #endif
+
+
+
+
