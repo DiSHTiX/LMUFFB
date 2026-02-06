@@ -1,0 +1,72 @@
+name: LMUFFB Tests run
+
+on:
+  workflow_dispatch:
+
+env:
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  test-windows:
+    name: Test on Windows (Unit Tests)
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Download and setup vJoy SDK
+      run: |
+        # Note: In a real deployment, you'd need to obtain the vJoy SDK legally
+        # For now, we'll skip vJoy integration in CI
+        echo "VJOY_SDK_DIR=C:\fake\vjoy" >> $env:GITHUB_ENV
+
+    - name: Configure main build
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build application
+      run: |
+        cd build
+        cmake --build . --config Release --parallel
+        
+    - name: Install Google Test
+      run: |
+        vcpkg install gtest:x64-windows
+        echo "CMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+
+    - name: Configure and build tests
+      run: |
+        mkdir build_tests
+        cd build_tests
+        cmake ../tests -DCMAKE_BUILD_TYPE=Release -DBUILD_GTESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        cmake --build . --config Release --parallel
+
+    - name: Run Google Test suite
+      run: |
+        cd build_tests/Release
+        ./run_gtests.exe --gtest_output=xml:test_results.xml
+        
+    - name: Upload Gtest results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: windows-Gtest-results
+        path: build_tests/Release/test_results.xml
+
+    - name: Run Combined test suite
+      run: |
+        cd build_tests/Release
+        ./run_combined_tests.exe > combined_results.txt
+
+    - name: Upload Ctest results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: windows-combinedtest-results
+        path: build_tests/Release/combined_results.txt

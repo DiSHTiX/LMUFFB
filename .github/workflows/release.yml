@@ -1,0 +1,83 @@
+name: LMUFFB Release
+
+on:
+#  push:
+#    branches: [ main, master ]
+#  pull_request:
+#    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_id:
+        required: true
+        type: number
+
+env:
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  build-windows:
+    name: Build Windows Application
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Download and setup vJoy SDK
+      run: |
+        # Note: In a real deployment, you'd need to obtain the vJoy SDK legally
+        # For now, we'll skip vJoy integration in CI
+        echo "VJOY_SDK_DIR=C:\fake\vjoy" >> $env:GITHUB_ENV
+
+    - name: Configure main build
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build application
+      run: |
+        cd build
+        cmake --build . --config Release --parallel
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: lmuffb-windows-build
+        path: |
+          build/Release/LMUFFB.exe
+          build/Release/README.txt
+
+  release:
+    name: Create Release
+    runs-on: windows-latest
+    needs: [build-windows]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      run: |
+        VERSION=$(cat VERSION).${{ inputs.build_id }}
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+    - name: Create release notes
+      run: |
+        # Extract changelog for this version
+        awk "/## \[$VERSION\]/,/## \[.*\]/{if (!/## \[.*\]/ || /## \[$VERSION\]/) print; else exit}" CHANGELOG.md > release_notes.md
+
+    - name: Create GitHub release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ env.VERSION }}
+        release_name: LMUFFB v${{ env.VERSION }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false

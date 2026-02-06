@@ -1,0 +1,177 @@
+name: LMUFFB DONTUSE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-linux:
+    name: Test on Linux (Unit Tests)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential libgtest-dev libbenchmark-dev
+
+    - name: Configure and build tests
+      run: |
+        mkdir -p build_tests
+        cd build_tests
+        cmake ../tests -DCMAKE_BUILD_TYPE=Release -DBUILD_GTESTS=ON
+        make -j$(nproc)
+
+    - name: Run Google Test suite
+      run: |
+        cd build_tests
+        ./run_gtests --gtest_output=xml:test_results.xml
+
+    - name: Run legacy test suite
+      run: |
+        cd build_tests
+        ./run_combined_tests
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: linux-test-results
+        path: build_tests/test_results.xml
+
+  test-windows:
+    name: Test on Windows (Unit Tests)
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Install Google Test
+      run: |
+        vcpkg install gtest:x64-windows
+        echo "CMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+
+    - name: Configure and build tests
+      run: |
+        mkdir build_tests
+        cd build_tests
+        cmake ../tests -DCMAKE_BUILD_TYPE=Release -DBUILD_GTESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        cmake --build . --config Release --parallel
+
+    - name: Run Google Test suite
+      run: |
+        cd build_tests/Release
+        ./run_gtests.exe --gtest_output=xml:test_results.xml
+
+    - name: Run legacy test suite
+      run: |
+        cd build_tests/Release
+        ./run_combined_tests.exe
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: windows-test-results
+        path: build_tests/Release/test_results.xml
+
+  build-windows:
+    name: Build Windows Application
+    runs-on: windows-latest
+    needs: [test-windows]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Download and setup vJoy SDK
+      run: |
+        # Note: In a real deployment, you'd need to obtain the vJoy SDK legally
+        # For now, we'll skip vJoy integration in CI
+        echo "VJOY_SDK_DIR=C:\fake\vjoy" >> $env:GITHUB_ENV
+
+    - name: Configure main build
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_HEADLESS=ON
+
+    - name: Build application
+      run: |
+        cd build
+        cmake --build . --config Release --parallel
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: lmuffb-windows-build
+        path: |
+          build/Release/LMUFFB.exe
+          build/Release/*.dll
+
+  regression-check:
+    name: Regression Analysis
+    runs-on: ubuntu-latest
+    needs: [test-linux]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3 python3-pip
+
+    - name: Run regression analysis
+      run: |
+        # Compare test results with baseline
+        # This would compare current test results with stored baseline
+        echo "Regression analysis would go here"
+        # For now, just verify tests pass
+        mkdir -p build_tests
+        cd build_tests
+        cmake ../tests -DCMAKE_BUILD_TYPE=Release -DBUILD_GTESTS=ON
+        make -j$(nproc)
+        ./run_gtests
+        ./run_combined_tests
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [test-linux, test-windows, build-windows, regression-check]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      run: |
+        VERSION=$(cat VERSION)
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+    - name: Create release notes
+      run: |
+        # Extract changelog for this version
+        awk "/## \[$VERSION\]/,/## \[.*\]/{if (!/## \[.*\]/ || /## \[$VERSION\]/) print; else exit}" CHANGELOG.md > release_notes.md
+
+    - name: Create GitHub release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ env.VERSION }}
+        release_name: LMUFFB v${{ env.VERSION }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false

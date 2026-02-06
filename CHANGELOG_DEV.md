@@ -2,6 +2,110 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.13] - 2026-02-02
+### Critical Bug Fixes
+- **ABS Detection Fix (Bug B1)**: Changed `ABS_PEDAL_THRESHOLD` from 0.5 to 0.05 to correctly detect ABS activation on normalized brake input (0-1 scale). Changed `ABS_PRESSURE_RATE_THRESHOLD` from 2.0 to 100.0 to match kPa/s units.
+- **Kinematic Load Low-Speed Fix (Bug B3)**: Added velocity-scaled static weight in `calculate_kinematic_load()`. At 0 m/s, static weight is now 0 (previously full 2695N per wheel). At 10+ m/s, full static weight applies. Prevents excessive FFB when stationary or moving slowly.
+- **Downforce Calculation (Bug B2)**: Verified velocity-squared downforce calculation is correctly implemented using `m_approx_aero_coeff * (speed * speed)`.
+
+### Architecture Improvements
+- **TelemetryProcessor Class (I1)**: Created new centralized telemetry processing class in `src/TelemetryProcessor.h` with:
+  - `SanitizedLoad` struct for validated telemetry data
+  - `FallbackState` struct for tracking missing data
+  - `EMAFilter` class for exponential moving average smoothing
+  - `KinematicParams` struct for configurable vehicle parameters
+  - `WeightDistribution` struct for load distribution calculations
+  - `WeatherData` struct for weather-based grip modulation
+  - Methods: `SanitizeLoad()`, `DetectFallbacks()`, `EstimateKinematicLoad()`, `CalculateWeightDistribution()`, `ExtractWeather()`, `EstimateGripFromSlip()`, `ValidateTelemetry()`
+
+- **DataSanitizer Class**: Created `src/DataSanitizer.h` with comprehensive telemetry validation:
+  - Range checking for all telemetry values
+  - NaN/Infinity detection
+  - Clamping to valid ranges
+  - Moving average, median, and Wiener filter implementations
+  - Hysteresis and deadzone functions
+
+- **Weather-Aware FFB (I3)**: Added new settings to FFBEngine and Config:
+  - `m_weather_enabled` / `weather_enabled`
+  - `m_weather_rain_grip_penalty` / `weather_rain_grip_penalty`
+  - `m_weather_temp_grip_factor` / `weather_temp_grip_factor`
+  - `m_weather_texture_modifier` / `weather_texture_modifier`
+
+- **Terrain-Aware Texture (I4)**: Added new settings:
+  - `m_terrain_enabled` / `terrain_enabled`
+  - `m_terrain_gravel_intensity` / `terrain_gravel_intensity`
+  - `m_terrain_dirt_intensity` / `terrain_dirt_intensity`
+  - `m_terrain_cobbles_intensity` / `terrain_cobbles_intensity`
+
+- **Tire Compound Awareness (I5)**: Added new settings:
+  - `m_compound_awareness_enabled` / `compound_awareness_enabled`
+  - `m_compound_dry_grip_scale` / `compound_dry_grip_scale`
+  - `m_compound_wet_grip_scale` / `compound_wet_grip_scale`
+  - `m_compound_intermediate_grip_scale` / `compound_intermediate_grip_scale`
+
+- **Configurable Filter Modes (I6)**: Added new FilterMode enum and settings:
+  - `FilterMode` enum: Off, MovingAverage_3, MovingAverage_5, EMA, Median, Wiener
+  - `m_road_filter_mode` / `road_filter_mode`
+  - `m_lockup_filter_mode` / `lockup_filter_mode`
+  - `m_road_filter_tau` / `road_filter_tau`
+  - `m_lockup_filter_tau` / `lockup_filter_tau`
+
+### New Test Files
+- `tests/test_kinematic_fixes.cpp`: Unit tests for kinematic load fixes (ABS, downforce, low-speed clamping)
+- `tests/test_telemetry_processor.cpp`: Unit tests for TelemetryProcessor class
+
+## [0.7.0] - 2026-02-02
+### Critical Bug Fixes
+- **ABS Detection Fix (Bug B1)**: Changed `ABS_PEDAL_THRESHOLD` from 0.5 to 0.05 to correctly detect ABS activation on normalized brake input (0-1 scale). Changed `ABS_PRESSURE_RATE_THRESHOLD` from 2.0 to 100.0 to match kPa/s units.
+- **Kinematic Load Low-Speed Fix (Bug B3)**: Added velocity-scaled static weight in `calculate_kinematic_load()`. At 0 m/s, static weight is now 0 (previously full 2695N per wheel). At 10+ m/s, full static weight applies. Prevents excessive FFB when stationary or moving slowly.
+- **Downforce Calculation (Bug B2)**: Verified velocity-squared downforce calculation is correctly implemented using `m_approx_aero_coeff * (speed * speed)`.
+
+### Architecture Improvements
+- **TelemetryProcessor Class (I1)**: Created new centralized telemetry processing class in `src/TelemetryProcessor.h` with:
+  - `SanitizedLoad` struct for validated telemetry data
+  - `FallbackState` struct for tracking missing data
+  - `EMAFilter` class for exponential moving average smoothing
+  - `KinematicParams` struct for configurable vehicle parameters
+  - `WeightDistribution` struct for load distribution calculations
+  - `WeatherData` struct for weather-based grip modulation
+  - Methods: `SanitizeLoad()`, `DetectFallbacks()`, `EstimateKinematicLoad()`, `CalculateWeightDistribution()`, `ExtractWeather()`, `EstimateGripFromSlip()`, `ValidateTelemetry()`
+
+- **DataSanitizer Class**: Created `src/DataSanitizer.h` with comprehensive telemetry validation:
+  - Range checking for all telemetry values
+  - NaN/Infinity detection
+  - Clamping to valid ranges
+  - Moving average, median, and Wiener filter implementations
+  - Hysteresis and deadzone functions
+
+- **Weather-Aware FFB (I3)**: Added new settings to FFBEngine and Config:
+  - `m_weather_enabled` / `weather_enabled`
+  - `m_weather_rain_grip_penalty` / `weather_rain_grip_penalty`
+  - `m_weather_temp_grip_factor` / `weather_temp_grip_factor`
+  - `m_weather_texture_modifier` / `weather_texture_modifier`
+
+- **Terrain-Aware Texture (I4)**: Added new settings:
+  - `m_terrain_enabled` / `terrain_enabled`
+  - `m_terrain_gravel_intensity` / `terrain_gravel_intensity`
+  - `m_terrain_dirt_intensity` / `terrain_dirt_intensity`
+  - `m_terrain_cobbles_intensity` / `terrain_cobbles_intensity`
+
+- **Tire Compound Awareness (I5)**: Added new settings:
+  - `m_compound_awareness_enabled` / `compound_awareness_enabled`
+  - `m_compound_dry_grip_scale` / `compound_dry_grip_scale`
+  - `m_compound_wet_grip_scale` / `compound_wet_grip_scale`
+  - `m_compound_intermediate_grip_scale` / `compound_intermediate_grip_scale`
+
+- **Configurable Filter Modes (I6)**: Added new FilterMode enum and settings:
+  - `FilterMode` enum: Off, MovingAverage_3, MovingAverage_5, EMA, Median, Wiener
+  - `m_road_filter_mode` / `road_filter_mode`
+  - `m_lockup_filter_mode` / `lockup_filter_mode`
+  - `m_road_filter_tau` / `road_filter_tau`
+  - `m_lockup_filter_tau` / `lockup_filter_tau`
+
+### New Test Files
+- `tests/test_kinematic_fixes.cpp`: Unit tests for kinematic load fixes (ABS, downforce, low-speed clamping)
+- `tests/test_telemetry_processor.cpp`: Unit tests for TelemetryProcessor class
+
 
 ## [0.7.12] - 2026-02-05
 ### Added

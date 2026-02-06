@@ -3,6 +3,37 @@ build/
 Build/
 BUILD/
 build_tests/
+build_gtests/
+build_test/
+tests/build-tests/
+tests/build/
+python_prototype/
+tmp/
+
+# LocalOnly folders/files
+Documents/
+.local/
+.cache/
+.next-devtools-mcp/
+.vs/
+.specstory/
+.hive/
+.vscode/
+subagents/
+.semantic-memory/
+.npm/
+.env
+.cmake/
+.claude/
+.bun/
+.envrc
+.gitconfig
+.bash_history
+.checkpoint.md
+.bash_history
+/CMakeSettings.json
+/builderr.log
+/test*output.txt
 
 # VS Code CMake build directories
 out/
@@ -18,28 +49,12 @@ cmake-build-*/
 *.a
 *.lib
 
-# imgui
-vendor/imgui/**
-!vendor/imgui/README.md
-
-
-python_prototype/LMUFFB/__pycache__/ffb_engine.cpython-312.pyc
-python_prototype/LMUFFB/__pycache__/ffb_output.cpython-312.pyc
-python_prototype/LMUFFB/__pycache__/shared_memory.cpython-312.pyc
-tests/build-tests/
-.specstory/.gitignore
-.specstory/.project.json
-.specstory/history/2025-12-06_08-39Z-please-fix-this-\[build]-main-cpp.md
-tmp/**
-tests/build/
-build_test/
-build_pr_*/
-test_full_output.txt
-test_output.txt
-test_config.ini
-test_stability.ini
-tmp_invalid.ini
-test_val.ini
-tools/lmuffb_log_analyzer/tests/__pycache__/*
-tools/lmuffb_log_analyzer/__pycache__/* 
-tools/lmuffb_log_analyzer/analyzers/__pycache__/*
+#vendors
+/vendor/
+/vendor/*/examples/
+/vendor/*/example/
+/vendor/*/.github/
+/vendor/*/.git/
+/vendor/*/.git*
+/vendor/*/.editorconfig
+/vendor/*/.clang-format

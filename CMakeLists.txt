@@ -6,7 +6,10 @@ set(CMAKE_CXX_STANDARD 17)
 # vJoy SDK Location - Users should set this
 # We link against the installed vJoy SDK (headers/libs), we do NOT compile vJoy itself.
 # ImGui Detection
+#            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_demo.cpp
+
 set(IMGUI_DIR "vendor/imgui")
+set(IMPLOT_DIR "vendor/implot")
 option(BUILD_HEADLESS "Build without GUI support" OFF)
 
 if(NOT BUILD_HEADLESS)
@@ -15,7 +18,6 @@ if(NOT BUILD_HEADLESS)
         add_definitions(-DENABLE_IMGUI)
         set(IMGUI_SOURCES
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_demo.cpp
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_draw.cpp
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_tables.cpp
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_widgets.cpp
@@ -30,11 +32,22 @@ if(NOT BUILD_HEADLESS)
     else()
         message(FATAL_ERROR "ImGui not found in vendor/imgui. To build headless, use -DBUILD_HEADLESS=ON.")
     endif()
+    if(EXISTS "${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot.cpp")
+        message(STATUS "ImPlot found. Enabling ImPlot plugin.")
+        set(IMGUI_SOURCES
+            ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot.h
+            ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot_internal.h
+            ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot.cpp
+            ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot_items.cpp
+        )
+        include_directories(${IMPLOT_DIR})
+    else()
+        message(FATAL_ERROR "ImPlot not found in vendor/implot. To build headless, use -DBUILD_HEADLESS=ON.")
+    endif()
 else()
     message(STATUS "Building in Headless mode (User Request).")
     set(IMGUI_SOURCES "")
 endif()
-
 # include_directories(${VJOY_SDK_DIR}/inc)
 
 # Detect platform and use appropriate vJoy library
