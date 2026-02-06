@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD 17)
 # vJoy SDK Location - Users should set this
 # We link against the installed vJoy SDK (headers/libs), we do NOT compile vJoy itself.
 # ImGui Detection
-#            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_demo.cpp
 
 set(IMGUI_DIR "vendor/imgui")
 set(IMPLOT_DIR "vendor/implot")
@@ -21,6 +20,7 @@ if(NOT BUILD_HEADLESS)
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_draw.cpp
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_tables.cpp
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_widgets.cpp
+            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_demo.cpp
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_win32.cpp
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
         )
