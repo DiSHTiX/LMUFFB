@@ -50,11 +50,9 @@ cmake-build-*/
 *.lib
 
 #vendors
-/vendor/
+#/vendor/
 /vendor/*/examples/
 /vendor/*/example/
 /vendor/*/.github/
-/vendor/*/.git/
-/vendor/*/.git*
-/vendor/*/.editorconfig
-/vendor/*/.clang-format
+#/vendor/*/.editorconfig
+#/vendor/*/.clang-format
