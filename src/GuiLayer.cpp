@@ -6,6 +6,7 @@
 #include "GuiWidgets.h"
 #include "AsyncLogger.h"
 #include <windows.h>
+#include <commdlg.h>
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -54,7 +55,10 @@ static const int LATENCY_WARNING_THRESHOLD_MS = 15; // Green if < 15ms, Red if >
 static constexpr std::chrono::seconds CONNECT_ATTEMPT_INTERVAL(2);
 
   // Forward declarations of helper functions
-  bool CreateDeviceD3D(HWND hWnd);
+bool OpenPresetFileDialog(HWND hwnd, std::string& outPath);
+bool SavePresetFileDialog(HWND hwnd, std::string& outPath, const std::string& defaultName);
+
+bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
@@ -941,9 +945,28 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     // --- 2. PRESETS AND CONFIGURATION ---
     if (ImGui::TreeNodeEx("Presets and Configuration", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         if (Config::presets.empty()) Config::LoadPresets();
+
+        // Initialize selected_preset from last saved name if first run
+        static bool first_run = true;
+        if (first_run && !Config::presets.empty()) {
+            for (int i = 0; i < (int)Config::presets.size(); i++) {
+                if (Config::presets[i].name == Config::m_last_preset_name) {
+                    selected_preset = i;
+                    break;
+                }
+            }
+            first_run = false;
+        }
         
-        const char* preview_value = (selected_preset >= 0 && selected_preset < Config::presets.size()) 
-                                    ? Config::presets[selected_preset].name.c_str() : "Custom";
+        static std::string preview_buf;
+        const char* preview_value = "Custom";
+        if (selected_preset >= 0 && selected_preset < (int)Config::presets.size()) {
+            preview_buf = Config::presets[selected_preset].name;
+            if (Config::IsEngineDirtyRelativeToPreset(selected_preset, engine)) {
+                preview_buf += "*";
+            }
+            preview_value = preview_buf.c_str();
+        }
         
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
         if (ImGui::BeginCombo("Load Preset", preview_value)) {
@@ -975,12 +998,62 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             }
         }
         
-        if (ImGui::Button("Save Current Config")) Config::Save(engine);
+        if (ImGui::Button("Save Current Config")) {
+            if (selected_preset >= 0 && selected_preset < (int)Config::presets.size() && !Config::presets[selected_preset].is_builtin) {
+                Config::AddUserPreset(Config::presets[selected_preset].name, engine);
+            } else {
+                Config::Save(engine);
+            }
+        }
         ImGui::SameLine();
         if (ImGui::Button("Reset Defaults")) {
             Config::ApplyPreset(0, engine);
             selected_preset = 0;
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Duplicate")) {
+            if (selected_preset >= 0) {
+                Config::DuplicatePreset(selected_preset, engine);
+                // Select the newly added preset
+                for (int i = 0; i < (int)Config::presets.size(); i++) {
+                    if (Config::presets[i].name == Config::m_last_preset_name) {
+                        selected_preset = i;
+                        break;
+                    }
+                }
+            }
+        }
+        ImGui::SameLine();
+        bool can_delete = (selected_preset >= 0 && selected_preset < (int)Config::presets.size() && !Config::presets[selected_preset].is_builtin);
+        if (!can_delete) ImGui::BeginDisabled();
+        if (ImGui::Button("Delete")) {
+            Config::DeletePreset(selected_preset, engine);
+            selected_preset = 0;
+            Config::ApplyPreset(0, engine);
+        }
+        if (!can_delete) ImGui::EndDisabled();
+
+        ImGui::Separator();
+        if (ImGui::Button("Import Preset...")) {
+            std::string path;
+            if (OpenPresetFileDialog(g_hwnd, path)) {
+                if (Config::ImportPreset(path, engine)) {
+                    // Success! The new preset is at the end of the list
+                    selected_preset = (int)Config::presets.size() - 1;
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Export Selected...")) {
+            if (selected_preset >= 0 && selected_preset < Config::presets.size()) {
+                std::string path;
+                std::string defaultName = Config::presets[selected_preset].name + ".ini";
+                if (SavePresetFileDialog(g_hwnd, path, defaultName)) {
+                    Config::ExportPreset(selected_preset, path);
+                }
+            }
+        }
+
         ImGui::TreePop();
     }
 
@@ -1436,6 +1509,49 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     
     ImGui::End();
 }
+
+// --- FILE DIALOG HELPERS ---
+
+bool OpenPresetFileDialog(HWND hwnd, std::string& outPath) {
+    char filename[MAX_PATH] = "";
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = hwnd;
+    ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    ofn.lpstrDefExt = "ini";
+
+    if (GetOpenFileNameA(&ofn)) {
+        outPath = filename;
+        return true;
+    }
+    return false;
+}
+
+bool SavePresetFileDialog(HWND hwnd, std::string& outPath, const std::string& defaultName) {
+    char filename[MAX_PATH] = "";
+    strncpy_s(filename, defaultName.c_str(), _TRUNCATE);
+
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = hwnd;
+    ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
+    ofn.lpstrDefExt = "ini";
+
+    if (GetSaveFileNameA(&ofn)) {
+        outPath = filename;
+        return true;
+    }
+    return false;
+}
+
 // Win32 message handler
 // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
 // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
@@ -1533,7 +1649,7 @@ bool GuiLayer::Render(FFBEngine& engine) { return false; } // Always lazy
 #endif
 
 // --- CONFIGURABLE PLOT SETTINGS ---
-const float PLOT_HISTORY_SEC = 30.0f;   // 10 Seconds History
+const float PLOT_HISTORY_SEC = 30.0f;   // 30 Seconds History
 const int PHYSICS_RATE_HZ = 400;        // Fixed update rate
 const int PLOT_BUFFER_SIZE = (int)(PLOT_HISTORY_SEC * PHYSICS_RATE_HZ); // 4000 points
 
@@ -2000,7 +2116,7 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
 
         if (engine.m_slope_detection_enabled) { 
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 1.0f, 0.0f, 1.0f));  //Yellow
-            PlotWithStats("Slope (dG/dAlpha)", plot_slope_current, -12.0f, 12.0f, ImVec2(0, 40),
+            PlotWithStats("Slope (dG/dAlpha)", plot_slope_current, -5.0f, 5.0f, ImVec2(0, 40),
                 "Slope detection derivative value.\n"
                 "Positive = building grip.\n"
                 "Near zero = at peak grip.\n"
