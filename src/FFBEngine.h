@@ -622,14 +622,14 @@ private:
     
     // ABS Detection Thresholds (v0.6.0)
     // These constants control when the ABS pulse effect is triggered.
-    //static constexpr double ABS_PEDAL_THRESHOLD = 0.5;  // 50% pedal input required to detect ABS
-    //static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 2.0;  // bar/s pressure modulation rate
+    static constexpr double ABS_PEDAL_THRESHOLD = 0.5;  // 50% pedal input required to detect ABS
+    static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 2.0;  // bar/s pressure modulation rate
     
     // mUnfilteredBrake is normalized (0-1), mBrakePressure is in kPa
     // Use lower threshold for normalized brake input (5% pedal movement to detect ABS)
     //static constexpr double ABS_PEDAL_THRESHOLD = 0.05;
     //static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 100.0;  // kPa/s pressure modulation rate
-    
+
     // Predictive Lockup Gating Thresholds (v0.6.0)
     // These constants define the conditions under which predictive logic is enabled.
     static constexpr double PREDICTION_BRAKE_THRESHOLD = 0.02;  // 2% brake deadzone
