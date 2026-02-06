@@ -118,25 +118,25 @@ struct Preset {
     float slope_min_threshold = -0.3f;
     float slope_max_threshold = -2.0f;
     
-    // v0.7.0: Weather-Aware FFB Settings
+    // Weather-Aware FFB Settings
     bool weather_enabled = true;
     float weather_rain_grip_penalty = 0.3f;
     float weather_temp_grip_factor = 1.0f;
     float weather_texture_modifier = 1.0f;
     
-    // v0.7.0: Terrain-Aware Settings
+    // Terrain-Aware Settings
     bool terrain_enabled = false;
     float terrain_gravel_intensity = 1.5f;
     float terrain_dirt_intensity = 1.0f;
     float terrain_cobbles_intensity = 2.0f;
     
-    // v0.7.0: Tire Compound Awareness Settings
+    // Tire Compound Awareness Settings
     bool compound_awareness_enabled = false;
     float compound_dry_grip_scale = 1.0f;
     float compound_wet_grip_scale = 0.65f;
     float compound_intermediate_grip_scale = 0.85f;
     
-    // v0.7.0: Configurable Filter Modes
+    // Configurable Filter Modes
     int road_filter_mode = 1;  // 1 = MovingAverage_3
     int lockup_filter_mode = 3;  // 3 = EMA
     float road_filter_tau = 0.1f;
@@ -333,25 +333,25 @@ struct Preset {
         engine.m_slope_min_threshold = slope_min_threshold;
         engine.m_slope_max_threshold = slope_max_threshold;
 
-        // v0.7.0: Weather-Aware FFB Settings
+        // Weather-Aware FFB Settings
         engine.m_weather_enabled = weather_enabled;
         engine.m_weather_rain_grip_penalty = weather_rain_grip_penalty;
         engine.m_weather_temp_grip_factor = weather_temp_grip_factor;
         engine.m_weather_texture_modifier = weather_texture_modifier;
 
-        // v0.7.0: Terrain-Aware Settings
+        // Terrain-Aware Settings
         engine.m_terrain_enabled = terrain_enabled;
         engine.m_terrain_gravel_intensity = terrain_gravel_intensity;
         engine.m_terrain_dirt_intensity = terrain_dirt_intensity;
         engine.m_terrain_cobbles_intensity = terrain_cobbles_intensity;
 
-        // v0.7.0: Tire Compound Awareness Settings
+        // Tire Compound Awareness Settings
         engine.m_compound_awareness_enabled = compound_awareness_enabled;
         engine.m_compound_dry_grip_scale = compound_dry_grip_scale;
         engine.m_compound_wet_grip_scale = compound_wet_grip_scale;
         engine.m_compound_intermediate_grip_scale = compound_intermediate_grip_scale;
 
-        // v0.7.0: Configurable Filter Modes
+        // Configurable Filter Modes
         engine.m_road_filter_mode = static_cast<FFBEngine::FilterMode>(road_filter_mode);
         engine.m_lockup_filter_mode = static_cast<FFBEngine::FilterMode>(lockup_filter_mode);
         engine.m_road_filter_tau = road_filter_tau;
@@ -437,25 +437,25 @@ struct Preset {
         slope_max_threshold = engine.m_slope_max_threshold;
         app_version = LMUFFB_VERSION;
 
-        // v0.7.0: Weather-Aware FFB Settings
+        // Weather-Aware FFB Settings
         weather_enabled = engine.m_weather_enabled;
         weather_rain_grip_penalty = engine.m_weather_rain_grip_penalty;
         weather_temp_grip_factor = engine.m_weather_temp_grip_factor;
         weather_texture_modifier = engine.m_weather_texture_modifier;
 
-        // v0.7.0: Terrain-Aware Settings
+        // Terrain-Aware Settings
         terrain_enabled = engine.m_terrain_enabled;
         terrain_gravel_intensity = engine.m_terrain_gravel_intensity;
         terrain_dirt_intensity = engine.m_terrain_dirt_intensity;
         terrain_cobbles_intensity = engine.m_terrain_cobbles_intensity;
 
-        // v0.7.0: Tire Compound Awareness Settings
+        // Tire Compound Awareness Settings
         compound_awareness_enabled = engine.m_compound_awareness_enabled;
         compound_dry_grip_scale = engine.m_compound_dry_grip_scale;
         compound_wet_grip_scale = engine.m_compound_wet_grip_scale;
         compound_intermediate_grip_scale = engine.m_compound_intermediate_grip_scale;
 
-        // v0.7.0: Configurable Filter Modes
+        //Configurable Filter Modes
         road_filter_mode = static_cast<int>(engine.m_road_filter_mode);
         lockup_filter_mode = static_cast<int>(engine.m_lockup_filter_mode);
         road_filter_tau = engine.m_road_filter_tau;
@@ -471,11 +471,21 @@ public:
     
     // Preset Management
     static std::vector<Preset> presets;
+    static std::string m_last_preset_name; // NEW (v0.7.14)
     static void LoadPresets(); // Populates presets vector
     static void ApplyPreset(int index, FFBEngine& engine);
     
     // NEW: Add a user preset
     static void AddUserPreset(const std::string& name, const FFBEngine& engine);
+
+    // NEW: Delete and Duplicate (v0.7.14)
+    static void DeletePreset(int index, const FFBEngine& engine);
+    static void DuplicatePreset(int index, const FFBEngine& engine);
+    static bool IsEngineDirtyRelativeToPreset(int index, const FFBEngine& engine);
+
+    // NEW: Import/Export (v0.7.12)
+    static void ExportPreset(int index, const std::string& filename);
+    static bool ImportPreset(const std::string& filename, const FFBEngine& engine);
 
     // NEW: Persist selected device
     static std::string m_last_device_guid;
@@ -493,6 +503,12 @@ public:
     static int win_w_small, win_h_small; // Dimensions for Config Only
     static int win_w_large, win_h_large; // Dimensions for Config + Graphs
     static bool show_graphs;             // Remember if graphs were open
+    
+private:
+// Helper for parsing preset lines (v0.7.12)
+static void ParsePresetLine(const std::string& line, Preset& p, std::string& version, bool& needs_save);
+// Helper for writing preset fields (v0.7.12)
+static void WritePresetFields(std::ofstream& file, const Preset& p);
 };
 
 

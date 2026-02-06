@@ -8,7 +8,7 @@
 #include <iostream>
 #include <chrono>
 #include <array>
-#include "lmu_sm_interface/InternalsPlugin.hpp"
+#include "lmu_sm_interface/InternalsPluginWrapper.h"
 #include "AsyncLogger.h"
 #include "TelemetryProcessor.h"
 
@@ -225,6 +225,13 @@ struct FFBCalculationContext {
     
 // FFB Engine Class
 class FFBEngine {
+    // ⚠ IMPORTANT MAINTENANCE WARNING:
+    // When adding new FFB parameters to this class, you MUST also update:
+    // 1. Preset struct in Config.h
+    // 2. Preset::Apply() and Preset::UpdateFromEngine() in Config.h
+    // 3. Config::Save() and Config::Load() in Config.cpp
+    // 4. Config::IsEngineDirtyRelativeToPreset() in Config.cpp (for the '*' indicator)
+
 public:
     // Settings (GUI Sliders)
     // NOTE: These are initialized by Preset::ApplyDefaultsToEngine() in the constructor
@@ -334,26 +341,30 @@ public:
     // NEW v0.7.11: Min/Max Threshold System
     float m_slope_min_threshold = -0.3f;   // Effect starts here (dead zone edge)
     float m_slope_max_threshold = -2.0f;   // Effect saturates here (100%)
-    
-    // v0.7.0: Weather-Aware FFB Settings (I3)
+
+    // Signal Diagnostics
+    double m_debug_freq = 0.0; // Estimated frequency for GUI
+    double m_theoretical_freq = 0.0; // Theoretical wheel frequency for GUI
+
+    //  Weather-Aware FFB Settings (I3)
     bool m_weather_enabled = true;
     float m_weather_rain_grip_penalty = 0.3f;
     float m_weather_temp_grip_factor = 1.0f;
     float m_weather_texture_modifier = 1.0f;
     
-    // v0.7.0: Terrain-Aware Settings (I4)
+    // Terrain-Aware Settings (I4)
     bool m_terrain_enabled = false;
     float m_terrain_gravel_intensity = 1.5f;
     float m_terrain_dirt_intensity = 1.0f;
     float m_terrain_cobbles_intensity = 2.0f;
     
-    // v0.7.0: Tire Compound Awareness Settings (I5)
+    // Tire Compound Awareness Settings (I5)
     bool m_compound_awareness_enabled = false;
     float m_compound_dry_grip_scale = 1.0f;
     float m_compound_wet_grip_scale = 0.65f;
     float m_compound_intermediate_grip_scale = 0.85f;
     
-    // v0.7.0: Configurable Filter Modes (I6)
+    // Configurable Filter Modes (I6)
     enum class FilterMode {
         Off = 0,
         MovingAverage_3,
@@ -362,14 +373,11 @@ public:
         Median,
         Wiener
     };
+
     FilterMode m_road_filter_mode = FilterMode::MovingAverage_3;
     FilterMode m_lockup_filter_mode = FilterMode::EMA;
     float m_road_filter_tau = 0.1f;
     float m_lockup_filter_tau = 0.05f;
-
-    // Signal Diagnostics
-    double m_debug_freq = 0.0; // Estimated frequency for GUI
-    double m_theoretical_freq = 0.0; // Theoretical wheel frequency for GUI
 
     // Warning States (Console logging)
     bool m_warned_load = false;
@@ -612,12 +620,15 @@ private:
     // Rear lockup is only triggered when rear slip exceeds front slip by this margin (1% slip).
     static constexpr double AXLE_DIFF_HYSTERESIS = 0.01;  // 1% slip buffer to prevent mode chattering
     
-    // ABS Detection Thresholds (v0.6.0, v0.7.0 fix B1)
+    // ABS Detection Thresholds (v0.6.0)
+    // These constants control when the ABS pulse effect is triggered.
+    static constexpr double ABS_PEDAL_THRESHOLD = 0.5;  // 50% pedal input required to detect ABS
+    static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 2.0;  // bar/s pressure modulation rate
+    
     // mUnfilteredBrake is normalized (0-1), mBrakePressure is in kPa
     // Use lower threshold for normalized brake input (5% pedal movement to detect ABS)
     static constexpr double ABS_PEDAL_THRESHOLD = 0.05;
     static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 100.0;  // kPa/s pressure modulation rate
-    
     // Predictive Lockup Gating Thresholds (v0.6.0)
     // These constants define the conditions under which predictive logic is enabled.
     static constexpr double PREDICTION_BRAKE_THRESHOLD = 0.02;  // 2% brake deadzone
@@ -782,11 +793,11 @@ public:
         return w.mSuspForce + 300.0;
     }
 
-    // Helper: Calculate Kinematic Load (v0.4.39, v0.7.0 fix B3)
+    // Helper: Calculate Kinematic Load (v0.4.39, fix B3)
     // Estimates tire load from chassis physics when telemetry (mSuspForce) is missing.
     // This is critical for encrypted DLC content where suspension sensors are blocked.
     double calculate_kinematic_load(const TelemInfoV01* data, int wheel_index) {
-        // 0. Velocity Scaling Factor (v0.7.0 fix B3)
+        // 0. Velocity Scaling Factor (fix B3)
         // Scale static weight by velocity - 0 at standstill, full at 10+ m/s
         double speed = std::abs(data->mLocalVel.z);
         double velocity_factor = (std::min)(1.0, speed / 10.0);
@@ -797,6 +808,7 @@ public:
         double static_weight = (m_approx_mass_kg * 9.81 * bias * velocity_factor) / 2.0;
 
         // 2. Aerodynamic Load (Velocity Squared)
+        double speed = std::abs(data->mLocalVel.z);
         double aero_load = m_approx_aero_coeff * (speed * speed);
         double wheel_aero = aero_load / 4.0; 
 
@@ -1050,7 +1062,7 @@ public:
             last_log_time = now;
         }
 
-        // --- 3.5 ENVIRONMENTAL PROCESSING (v0.7.0) ---
+        // --- ENVIRONMENTAL PROCESSING  ---
 
         // Weather-Aware FFB (I3)
         ctx.weather_grip_modifier = 1.0;
