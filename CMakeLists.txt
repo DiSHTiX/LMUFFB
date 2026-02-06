@@ -34,9 +34,7 @@ if(NOT BUILD_HEADLESS)
     endif()
     if(EXISTS "${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot.cpp")
         message(STATUS "ImPlot found. Enabling ImPlot plugin.")
-        set(IMGUI_SOURCES
-            ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot.h
-            ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot_internal.h
+        list(APPEND IMGUI_SOURCES
             ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot.cpp
             ${CMAKE_SOURCE_DIR}/${IMPLOT_DIR}/implot_items.cpp
         )

@@ -4,13 +4,13 @@
 #include "DirectInputFFB.h"
 #include "GameConnector.h"
 #include "GuiWidgets.h"
-#include "AsyncLogger.h"
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <iostream>
 #include <vector>
 #include <algorithm>
 #include <mutex>
-#include <chrono>
 
 // Define STB_IMAGE_WRITE_IMPLEMENTATION only once in the project (here is fine)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -25,17 +25,16 @@
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
-//#include "implot.h"
 #include <d3d11.h>
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
 #include <tchar.h>
 
 // Global DirectX variables (Simplified for brevity, usually managed in a separate backend class)
-static ID3D11Device*            g_pd3dDevice = NULL;
-static ID3D11DeviceContext*     g_pd3dDeviceContext = NULL;
-static IDXGISwapChain*          g_pSwapChain = NULL;
-static ID3D11RenderTargetView*  g_mainRenderTargetView = NULL;
+static ID3D11Device* g_pd3dDevice = NULL;
+static ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
+static IDXGISwapChain* g_pSwapChain = NULL;
+static ID3D11RenderTargetView* g_mainRenderTargetView = NULL;
 static HWND                     g_hwnd = NULL;
 
 // v0.5.5 Layout Constants
@@ -51,15 +50,13 @@ static const int LATENCY_WARNING_THRESHOLD_MS = 15; // Green if < 15ms, Red if >
 #define PW_RENDERFULLCONTENT 0x00000002
 #endif
 
-static constexpr std::chrono::seconds CONNECT_ATTEMPT_INTERVAL(2);
-
-  // Forward declarations of helper functions
-  bool CreateDeviceD3D(HWND hWnd);
+// Forward declarations of helper functions
+bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-void SetWindowAlwaysOnTop(HWND hwnd, bool enabled); 
+void SetWindowAlwaysOnTop(HWND hwnd, bool enabled);
 
 // v0.5.5 Window Management Helpers
 
@@ -71,14 +68,14 @@ void ResizeWindow(HWND hwnd, int x, int y, int w, int h) {
     // Enforce minimum dimensions to prevent UI from becoming unusable
     if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
     if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
-    
+
     ::SetWindowPos(hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 /**
  * Saves current window geometry to Config static variables.
  * Stores position and dimensions based on current mode (small vs large).
- * 
+ *
  * @param is_graph_mode If true, saves to win_w_large/win_h_large; otherwise to win_w_small/win_h_small
  */
 void SaveCurrentWindowGeometry(bool is_graph_mode) {
@@ -96,7 +93,8 @@ void SaveCurrentWindowGeometry(bool is_graph_mode) {
         if (is_graph_mode) {
             Config::win_w_large = w;
             Config::win_h_large = h;
-        } else {
+        }
+        else {
             Config::win_w_small = w;
             Config::win_h_small = h;
         }
@@ -116,52 +114,53 @@ extern std::mutex g_engine_mutex;
 // NEW: Professional "Flat Dark" Theme
 void GuiLayer::SetupGUIStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
-    
+
     // 1. Geometry
     style.WindowRounding = 5.0f;
     style.FrameRounding = 4.0f;
     style.GrabRounding = 4.0f;
     style.FramePadding = ImVec2(8, 4);
     style.ItemSpacing = ImVec2(8, 6);
-    
+
+
     // 2. Colors
     ImVec4* colors = style.Colors;
-    
+
     // Backgrounds: Deep Grey
-    colors[ImGuiCol_WindowBg]       = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_ChildBg]        = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
-    colors[ImGuiCol_PopupBg]        = ImVec4(0.15f, 0.15f, 0.15f, 0.98f);
-    
+    colors[ImGuiCol_WindowBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.15f, 0.15f, 0.15f, 0.98f);
+
     // Headers: Transparent (Just text highlight)
-    colors[ImGuiCol_Header]         = ImVec4(0.20f, 0.20f, 0.20f, 0.00f); // Transparent!
-    colors[ImGuiCol_HeaderHovered]  = ImVec4(0.25f, 0.25f, 0.25f, 0.50f);
-    colors[ImGuiCol_HeaderActive]   = ImVec4(0.30f, 0.30f, 0.30f, 0.50f);
-    
+    colors[ImGuiCol_Header] = ImVec4(0.20f, 0.20f, 0.20f, 0.00f); // Transparent!
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.25f, 0.25f, 0.50f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.30f, 0.30f, 0.30f, 0.50f);
+
     // Controls (Sliders/Buttons): Dark Grey container
-    colors[ImGuiCol_FrameBg]        = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
     colors[ImGuiCol_FrameBgHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]  = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
-    
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+
     // Accents (The Data): Bright Blue/Teal
     // This draws the eye ONLY to the values
-    ImVec4 accent = ImVec4(0.00f, 0.60f, 0.85f, 1.00f); 
-    colors[ImGuiCol_SliderGrab]     = accent;
+    ImVec4 accent = ImVec4(0.00f, 0.60f, 0.85f, 1.00f);
+    colors[ImGuiCol_SliderGrab] = accent;
     colors[ImGuiCol_SliderGrabActive] = ImVec4(0.00f, 0.70f, 0.95f, 1.00f);
-    colors[ImGuiCol_Button]         = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_ButtonHovered]  = accent;
-    colors[ImGuiCol_ButtonActive]   = ImVec4(0.00f, 0.50f, 0.75f, 1.00f);
-    colors[ImGuiCol_CheckMark]      = accent;
-    
+    colors[ImGuiCol_Button] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = accent;
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.00f, 0.50f, 0.75f, 1.00f);
+    colors[ImGuiCol_CheckMark] = accent;
+
     // Text
-    colors[ImGuiCol_Text]           = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
-    colors[ImGuiCol_TextDisabled]   = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
 }
 
 bool GuiLayer::Init() {
     // Create Application Window
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"lmuFFB", NULL };
     ::RegisterClassExW(&wc);
-    
+
     // Construct Title with Version
     // We need wide string for CreateWindowW. 
     // Simplified conversion for version string (assumes ASCII version)
@@ -172,19 +171,19 @@ bool GuiLayer::Init() {
     // 1. Determine startup size with validation
     int start_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
     int start_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
-    
+
     // Enforce minimum dimensions
     if (start_w < MIN_WINDOW_WIDTH) start_w = MIN_WINDOW_WIDTH;
     if (start_h < MIN_WINDOW_HEIGHT) start_h = MIN_WINDOW_HEIGHT;
-    
+
     // 2. Validate window position (ensure it's on-screen)
     int pos_x = Config::win_pos_x;
     int pos_y = Config::win_pos_y;
-    
+
     // Get primary monitor work area
     RECT workArea;
     SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-    
+
     // If saved position would place window completely off-screen, reset to default
     if (pos_x < workArea.left - 100 || pos_x > workArea.right - 100 ||
         pos_y < workArea.top - 100 || pos_y > workArea.bottom - 100) {
@@ -195,9 +194,9 @@ bool GuiLayer::Init() {
     }
 
     // 3. Create Window with validated position and size
-    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, 
-        pos_x, pos_y, 
-        start_w, start_h, 
+    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW,
+        pos_x, pos_y,
+        start_w, start_h,
         NULL, NULL, wc.hInstance, NULL);
 
     // Initialize Direct3D
@@ -263,7 +262,7 @@ bool GuiLayer::Render(FFBEngine& engine) {
             return false;
         }
     }
-    
+
     // If minimized, sleep to save CPU (Lazy Rendering)
     // Note: In a real app we'd check IsIconic(g_hwnd) outside this logic or return a 'should_sleep' flag
     if (g_running == false) return false;
@@ -275,7 +274,7 @@ bool GuiLayer::Render(FFBEngine& engine) {
 
     // Draw Tuning Window
     DrawTuningWindow(engine);
-    
+
     // Draw Debug Window (if enabled)
     if (Config::show_graphs) {
         DrawDebugWindow(engine);
@@ -301,62 +300,62 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
         std::cout << "[DEBUG] CaptureWindowToBuffer failed: Invalid window handle" << std::endl;
         return false;
     }
-    
+
     // Get window dimensions
     RECT rect;
     if (!GetWindowRect(hwnd, &rect)) {
         std::cout << "[DEBUG] CaptureWindowToBuffer failed: GetWindowRect failed, error: " << GetLastError() << std::endl;
         return false;
     }
-    
-    std::cout << "[DEBUG] GetWindowRect returned: left=" << rect.left << ", top=" << rect.top 
-              << ", right=" << rect.right << ", bottom=" << rect.bottom << std::endl;
-    
+
+    std::cout << "[DEBUG] GetWindowRect returned: left=" << rect.left << ", top=" << rect.top
+        << ", right=" << rect.right << ", bottom=" << rect.bottom << std::endl;
+
     width = rect.right - rect.left;
     height = rect.bottom - rect.top;
-    
+
     // Special case: Console windows sometimes return (0,0,0,0) from GetWindowRect
     // even though they have a valid handle. Try GetClientRect as fallback.
     if (width <= 0 || height <= 0) {
         std::cout << "[DEBUG] GetWindowRect returned invalid dimensions, trying GetClientRect..." << std::endl;
-        
+
         RECT clientRect;
         if (GetClientRect(hwnd, &clientRect)) {
             width = clientRect.right - clientRect.left;
             height = clientRect.bottom - clientRect.top;
-            
+
             std::cout << "[DEBUG] GetClientRect returned: " << width << "x" << height << std::endl;
-            
+
             // If we got valid dimensions from GetClientRect, we need to convert to screen coordinates
             if (width > 0 && height > 0) {
-                POINT topLeft = {0, 0};
+                POINT topLeft = { 0, 0 };
                 if (ClientToScreen(hwnd, &topLeft)) {
                     rect.left = topLeft.x;
                     rect.top = topLeft.y;
                     rect.right = topLeft.x + width;
                     rect.bottom = topLeft.y + height;
-                    std::cout << "[DEBUG] Converted to screen coordinates: (" << rect.left << "," << rect.top 
-                              << ") to (" << rect.right << "," << rect.bottom << ")" << std::endl;
+                    std::cout << "[DEBUG] Converted to screen coordinates: (" << rect.left << "," << rect.top
+                        << ") to (" << rect.right << "," << rect.bottom << ")" << std::endl;
                 }
             }
         }
     }
-    
+
     std::cout << "[DEBUG] Final calculated dimensions: " << width << "x" << height << std::endl;
-    
+
     if (width <= 0 || height <= 0) {
         std::cout << "[DEBUG] CaptureWindowToBuffer failed: Invalid dimensions " << width << "x" << height << std::endl;
         std::cout << "[DEBUG] This usually means the window is minimized, hidden, or not properly initialized" << std::endl;
         return false;
     }
-    
+
     // Get screen DC for creating compatible bitmap
     HDC hdcScreen = GetDC(NULL);
     if (!hdcScreen) {
         std::cout << "[DEBUG] CaptureWindowToBuffer failed: GetDC(NULL) failed" << std::endl;
         return false;
     }
-    
+
     // Create compatible DC and bitmap
     HDC hdcMemDC = CreateCompatibleDC(hdcScreen);
     if (!hdcMemDC) {
@@ -364,7 +363,7 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
         ReleaseDC(NULL, hdcScreen);
         return false;
     }
-    
+
     HBITMAP hbmScreen = CreateCompatibleBitmap(hdcScreen, width, height);
     if (!hbmScreen) {
         std::cout << "[DEBUG] CaptureWindowToBuffer failed: CreateCompatibleBitmap failed" << std::endl;
@@ -372,32 +371,35 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
         ReleaseDC(NULL, hdcScreen);
         return false;
     }
-    
+
     // Select bitmap into memory DC
     HBITMAP hbmOld = (HBITMAP)SelectObject(hdcMemDC, hbmScreen);
-    
+
     // Try PrintWindow first (works for most windows)
     bool captureSuccess = false;
     std::string captureMethod = "";
-    
+
     if (PrintWindow(hwnd, hdcMemDC, PW_RENDERFULLCONTENT)) {
         captureSuccess = true;
         captureMethod = "PrintWindow with PW_RENDERFULLCONTENT";
-    } else if (PrintWindow(hwnd, hdcMemDC, 0)) {
+    }
+    else if (PrintWindow(hwnd, hdcMemDC, 0)) {
         captureSuccess = true;
         captureMethod = "PrintWindow without flags";
-    } else {
+    }
+    else {
         // Fallback: Use BitBlt to capture from screen coordinates
         // This works for console windows and other special windows
         std::cout << "[DEBUG] PrintWindow failed, trying BitBlt fallback..." << std::endl;
         if (BitBlt(hdcMemDC, 0, 0, width, height, hdcScreen, rect.left, rect.top, SRCCOPY)) {
             captureSuccess = true;
             captureMethod = "BitBlt from screen coordinates";
-        } else {
+        }
+        else {
             std::cout << "[DEBUG] BitBlt also failed! Error code: " << GetLastError() << std::endl;
         }
     }
-    
+
     if (!captureSuccess) {
         std::cout << "[DEBUG] CaptureWindowToBuffer failed: All capture methods failed" << std::endl;
         SelectObject(hdcMemDC, hbmOld);
@@ -406,9 +408,9 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
         ReleaseDC(NULL, hdcScreen);
         return false;
     }
-    
+
     std::cout << "[DEBUG] Capture successful using: " << captureMethod << std::endl;
-    
+
     // Get bitmap data
     BITMAPINFOHEADER bi = {};
     bi.biSize = sizeof(BITMAPINFOHEADER);
@@ -417,10 +419,10 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
     bi.biPlanes = 1;
     bi.biBitCount = 32;
     bi.biCompression = BI_RGB;
-    
+
     // Allocate buffer
     buffer.resize(width * height * 4);
-    
+
     // Get bits from bitmap
     if (!GetDIBits(hdcMemDC, hbmScreen, 0, height, buffer.data(), (BITMAPINFO*)&bi, DIB_RGB_COLORS)) {
         std::cout << "[DEBUG] CaptureWindowToBuffer failed: GetDIBits failed" << std::endl;
@@ -430,7 +432,7 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
         ReleaseDC(NULL, hdcScreen);
         return false;
     }
-    
+
     // Convert BGRA to RGBA
     for (int i = 0; i < width * height; ++i) {
         int idx = i * 4;
@@ -440,13 +442,13 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
         buffer[idx + 2] = b;
         buffer[idx + 3] = 255; // Force opaque
     }
-    
+
     // Cleanup
     SelectObject(hdcMemDC, hbmOld);
     DeleteObject(hbmScreen);
     DeleteDC(hdcMemDC);
     ReleaseDC(NULL, hdcScreen);
-    
+
     return true;
 }
 
@@ -454,55 +456,55 @@ bool CaptureWindowToBuffer(HWND hwnd, std::vector<unsigned char>& buffer, int& w
 void SaveCompositeScreenshot(const char* filename) {
     HWND guiWindow = g_hwnd;
     HWND consoleWindow = GetConsoleWindow();
-    
+
     std::vector<unsigned char> guiBuffer, consoleBuffer;
     int guiWidth = 0, guiHeight = 0;
     int consoleWidth = 0, consoleHeight = 0;
-    
+
     // Capture GUI window
     bool hasGui = CaptureWindowToBuffer(guiWindow, guiBuffer, guiWidth, guiHeight);
     std::cout << "[GUI] GUI window capture: " << (hasGui ? "SUCCESS" : "FAILED") << std::endl;
-    
+
     // Capture Console window (if exists)
     bool hasConsole = false;
     if (consoleWindow) {
         // Check if console window is actually visible
         bool isVisible = IsWindowVisible(consoleWindow);
         std::cout << "[GUI] Console window found (HWND: " << consoleWindow << "), visible: " << (isVisible ? "YES" : "NO") << std::endl;
-        
+
         if (isVisible) {
             std::cout << "[GUI] Attempting to capture visible console window..." << std::endl;
-            
+
             // Try to get console screen buffer info to determine actual size
             HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
             CONSOLE_SCREEN_BUFFER_INFO csbi;
-            
+
             if (GetConsoleScreenBufferInfo(hConsole, &csbi)) {
                 // Calculate console window size from buffer info
                 int consoleWidthChars = csbi.srWindow.Right - csbi.srWindow.Left + 1;
                 int consoleHeightChars = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
-                
-                std::cout << "[DEBUG] Console buffer info: " << consoleWidthChars << " cols x " 
-                          << consoleHeightChars << " rows" << std::endl;
-                
+
+                std::cout << "[DEBUG] Console buffer info: " << consoleWidthChars << " cols x "
+                    << consoleHeightChars << " rows" << std::endl;
+
                 // Get console font size to calculate pixel dimensions
                 CONSOLE_FONT_INFO cfi;
                 int fontWidth = 8;   // Default Consolas/Courier font width
                 int fontHeight = 16; // Default font height
-                
+
                 if (GetCurrentConsoleFont(hConsole, FALSE, &cfi)) {
                     if (cfi.dwFontSize.X > 0) fontWidth = cfi.dwFontSize.X;
                     if (cfi.dwFontSize.Y > 0) fontHeight = cfi.dwFontSize.Y;
                 }
-                
+
                 // Estimate console window size in pixels
                 // Add some padding for window borders/title bar
                 int estimatedWidth = consoleWidthChars * fontWidth + 20;  // 20px for borders
                 int estimatedHeight = consoleHeightChars * fontHeight + 60; // 60px for title bar + borders
-                
-                std::cout << "[DEBUG] Estimated console size: " << estimatedWidth << "x" << estimatedHeight 
-                          << " (font: " << fontWidth << "x" << fontHeight << ")" << std::endl;
-                
+
+                std::cout << "[DEBUG] Estimated console size: " << estimatedWidth << "x" << estimatedHeight
+                    << " (font: " << fontWidth << "x" << fontHeight << ")" << std::endl;
+
                 // Try to find console window by enumerating all top-level windows
                 // and looking for one with similar dimensions
                 struct FindConsoleData {
@@ -511,29 +513,29 @@ void SaveCompositeScreenshot(const char* filename) {
                     int targetWidth;
                     int targetHeight;
                 } findData = { consoleWindow, NULL, estimatedWidth, estimatedHeight };
-                
+
                 EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
                     FindConsoleData* data = (FindConsoleData*)lParam;
-                    
+
                     if (!IsWindowVisible(hwnd)) return TRUE;
-                    
+
                     RECT rect;
                     if (GetWindowRect(hwnd, &rect)) {
                         int w = rect.right - rect.left;
                         int h = rect.bottom - rect.top;
-                        
+
                         // Look for window with dimensions close to our estimate (within 30%)
                         if (w > 0 && h > 0) {
                             int widthDiff = abs(w - data->targetWidth);
                             int heightDiff = abs(h - data->targetHeight);
-                            
+
                             if (widthDiff < data->targetWidth * 0.3 && heightDiff < data->targetHeight * 0.3) {
                                 char title[512];
                                 GetWindowTextA(hwnd, title, sizeof(title));
-                                
-                                std::cout << "[DEBUG] Found window with similar size: \"" << title 
-                                          << "\" (" << w << "x" << h << ", HWND: " << hwnd << ")" << std::endl;
-                                
+
+                                std::cout << "[DEBUG] Found window with similar size: \"" << title
+                                    << "\" (" << w << "x" << h << ", HWND: " << hwnd << ")" << std::endl;
+
                                 // Check if title contains our exe name or path
                                 std::string titleStr(title);
                                 if (titleStr.find("LMUFFB") != std::string::npos ||
@@ -547,51 +549,53 @@ void SaveCompositeScreenshot(const char* filename) {
                         }
                     }
                     return TRUE;
-                }, (LPARAM)&findData);
-                
+                    }, (LPARAM)&findData);
+
                 if (findData.foundHwnd) {
                     std::cout << "[GUI] Found console window by size matching, attempting capture..." << std::endl;
                     hasConsole = CaptureWindowToBuffer(findData.foundHwnd, consoleBuffer, consoleWidth, consoleHeight);
                 }
             }
-            
+
             std::cout << "[GUI] Console window capture: " << (hasConsole ? "SUCCESS" : "FAILED") << std::endl;
             if (hasConsole) {
                 std::cout << "[GUI] Console dimensions: " << consoleWidth << "x" << consoleHeight << std::endl;
             }
-        } else {
+        }
+        else {
             std::cout << "[GUI] Console window is not visible, skipping capture" << std::endl;
         }
-    } else {
+    }
+    else {
         std::cout << "[GUI] No console window found (GetConsoleWindow returned NULL)" << std::endl;
     }
-    
+
     if (!hasGui && !hasConsole) {
         std::cout << "[GUI] Screenshot failed: No windows to capture" << std::endl;
         return;
     }
-    
+
     // If only one window exists, save it directly
     if (!hasConsole) {
         stbi_write_png(filename, guiWidth, guiHeight, 4, guiBuffer.data(), guiWidth * 4);
         std::cout << "[GUI] Screenshot saved (GUI only) to " << filename << std::endl;
         return;
     }
-    
+
     if (!hasGui) {
         stbi_write_png(filename, consoleWidth, consoleHeight, 4, consoleBuffer.data(), consoleWidth * 4);
         std::cout << "[GUI] Screenshot saved (Console only) to " << filename << std::endl;
         return;
     }
-    
+
     // Composite both windows side-by-side
     // Layout: [GUI] [10px gap] [Console]
     const int gap = 10;
     int compositeWidth = guiWidth + gap + consoleWidth;
     int compositeHeight = (std::max)(guiHeight, consoleHeight);
-    
+
     std::vector<unsigned char> compositeBuffer(compositeWidth * compositeHeight * 4, 0);
-    
+
     // Fill background with dark gray
     for (int i = 0; i < compositeWidth * compositeHeight; ++i) {
         int idx = i * 4;
@@ -600,7 +604,7 @@ void SaveCompositeScreenshot(const char* filename) {
         compositeBuffer[idx + 2] = 30;  // B
         compositeBuffer[idx + 3] = 255; // A
     }
-    
+
     // Copy GUI window to left side
     for (int y = 0; y < guiHeight; ++y) {
         for (int x = 0; x < guiWidth; ++x) {
@@ -612,7 +616,7 @@ void SaveCompositeScreenshot(const char* filename) {
             compositeBuffer[dstIdx + 3] = guiBuffer[srcIdx + 3];
         }
     }
-    
+
     // Copy Console window to right side (after gap)
     int consoleOffsetX = guiWidth + gap;
     for (int y = 0; y < consoleHeight; ++y) {
@@ -625,13 +629,13 @@ void SaveCompositeScreenshot(const char* filename) {
             compositeBuffer[dstIdx + 3] = consoleBuffer[srcIdx + 3];
         }
     }
-    
+
     // Save composite image
     stbi_write_png(filename, compositeWidth, compositeHeight, 4, compositeBuffer.data(), compositeWidth * 4);
-    
-    std::cout << "[GUI] Composite screenshot saved to " << filename 
-              << " (GUI: " << guiWidth << "x" << guiHeight 
-              << ", Console: " << consoleWidth << "x" << consoleHeight << ")" << std::endl;
+
+    std::cout << "[GUI] Composite screenshot saved to " << filename
+        << " (GUI: " << guiWidth << "x" << guiHeight
+        << ", Console: " << consoleWidth << "x" << consoleHeight << ")" << std::endl;
 }
 
 // Screenshot Helper (DirectX 11) - Legacy single-window capture
@@ -668,7 +672,7 @@ void SaveScreenshot(const char* filename) {
         int width = desc.Width;
         int height = desc.Height;
         int channels = 4;
-        
+
         // Allocate buffer for the image
         std::vector<unsigned char> image_data(width * height * channels);
         unsigned char* src = (unsigned char*)mapped.pData;
@@ -697,7 +701,7 @@ void SaveScreenshot(const char* filename) {
     // Cleanup
     pStagingTexture->Release();
     pBackBuffer->Release();
-    
+
     std::cout << "[GUI] Screenshot saved to " << filename << std::endl;
 }
 
@@ -706,7 +710,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     std::lock_guard<std::mutex> lock(g_engine_mutex);
 
     // --- A. LAYOUT CALCULATION (v0.5.5 Smart Container) ---
-    ImGuiViewport* viewport = ImGui::GetMainViewport(); 
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     // Calculate width: Full viewport if graphs off, fixed width if graphs on
     float current_width = Config::show_graphs ? CONFIG_PANEL_WIDTH : viewport->Size.x;
@@ -714,7 +718,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     // Lock the ImGui window to the left side of the OS window
     ImGui::SetNextWindowPos(viewport->Pos);
     ImGui::SetNextWindowSize(ImVec2(current_width, viewport->Size.y));
-    
+
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
     ImGui::Begin("MainUI", nullptr, flags);
 
@@ -723,27 +727,23 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGui::Separator();
 
     // Connection Status
-    static std::chrono::steady_clock::time_point last_check_time =
-        std::chrono::steady_clock::now();
-    
-    if (!GameConnector::Get().IsConnected()) {
-      ImGui::TextColored(ImVec4(1, 1, 0, 1), "Connecting to LMU...");
-      if (std::chrono::steady_clock::now() - last_check_time >
-          CONNECT_ATTEMPT_INTERVAL) {
-        last_check_time = std::chrono::steady_clock::now();
-        GameConnector::Get().TryConnect();
-      }
-    } else {
-      ImGui::TextColored(ImVec4(0, 1, 0, 1), "Connected to LMU");
+    bool connected = GameConnector::Get().IsConnected();
+    if (connected) {
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), "Connected to LMU");
+    }
+    else {
+        ImGui::TextColored(ImVec4(1, 0, 0, 1), "Disconnected from LMU");
+        ImGui::SameLine();
+        if (ImGui::Button("Retry")) GameConnector::Get().TryConnect();
     }
 
     // --- 1. TOP BAR (System Status & Quick Controls) ---
     // Keep this outside columns for full width awareness
-    
+
     // Device Selection
     static std::vector<DeviceInfo> devices;
     static int selected_device_idx = -1;
-    
+
     if (devices.empty()) {
         devices = DirectInputFFB::Get().EnumerateDevices();
         if (selected_device_idx == -1 && !Config::m_last_device_guid.empty()) {
@@ -766,13 +766,13 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
                 selected_device_idx = i;
                 DirectInputFFB::Get().SelectDevice(devices[i].guid);
                 Config::m_last_device_guid = DirectInputFFB::GuidToString(devices[i].guid);
-                Config::Save(engine); 
+                Config::Save(engine);
             }
             if (is_selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
     }
-    
+
     ImGui::SameLine();
     if (ImGui::Button("Rescan")) {
         devices = DirectInputFFB::Get().EnumerateDevices();
@@ -789,7 +789,8 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         if (DirectInputFFB::Get().IsExclusive()) {
             ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Mode: EXCLUSIVE (Game FFB Blocked)");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("lmuFFB has exclusive control.\nThe game can read steering but cannot send FFB.\nThis prevents 'Double FFB' issues.");
-        } else {
+        }
+        else {
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Mode: SHARED (Potential Conflict)");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("lmuFFB is sharing the device.\nEnsure In-Game FFB is disabled\nto avoid LMU reacquiring the device.");
         }
@@ -800,79 +801,27 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         Config::Save(engine);
     }
     ImGui::SameLine();
-    
+
     // --- B. THE CHECKBOX LOGIC (v0.5.5 Reactive Resize) ---
     bool toggled = Config::show_graphs;
     if (ImGui::Checkbox("Graphs", &toggled)) {
         // 1. Save the geometry of the OLD state before switching
         SaveCurrentWindowGeometry(Config::show_graphs);
-        
+
         // 2. Update state
         Config::show_graphs = toggled;
-        
+
         // 3. Apply geometry of the NEW state
         int target_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
         int target_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
-        
+
         // Resize the OS window immediately
         ResizeWindow(g_hwnd, Config::win_pos_x, Config::win_pos_y, target_w, target_h);
-        
+
         // Force immediate save of state
         Config::Save(engine);
     }
-    
-    // --- Telemetry Logger ---
-    ImGui::Separator();
-    bool is_logging = AsyncLogger::Get().IsLogging();
-    if (is_logging) {
-         if (ImGui::Button("STOP LOG", ImVec2(80, 0))) {
-             AsyncLogger::Get().Stop();
-         }
-         ImGui::SameLine();
-         // Pulse effect or color
-         float time = (float)ImGui::GetTime();
-         bool blink = (fmod(time, 1.0f) < 0.5f);
-         ImGui::TextColored(blink ? ImVec4(1,0,0,1) : ImVec4(0.6f,0,0,1), "REC");
-         
-         ImGui::SameLine();
-         size_t bytes = AsyncLogger::Get().GetFileSizeBytes();
-         if (bytes < 1024 * 1024)
-             ImGui::Text("%zu f (%.0f KB)", AsyncLogger::Get().GetFrameCount(), (float)bytes / 1024.0f);
-         else
-             ImGui::Text("%zu f (%.1f MB)", AsyncLogger::Get().GetFrameCount(), (float)bytes / (1024.0f * 1024.0f));
-         
-         ImGui::SameLine();
-         if (ImGui::Button("MARKER")) {
-             AsyncLogger::Get().SetMarker();
-         }
-    } else {
-         if (ImGui::Button("START LOGGING", ImVec2(120, 0))) {
-             SessionInfo info;
-             info.app_version = LMUFFB_VERSION;
-             if (engine.m_vehicle_name[0] != '\0') info.vehicle_name = engine.m_vehicle_name;
-             else info.vehicle_name = "UnknownCar";
-             
-             if (engine.m_track_name[0] != '\0') info.track_name = engine.m_track_name;
-             else info.track_name = "UnknownTrack";
-             
-             info.driver_name = "User";
-             
-             // Snapshot critical FFB settings
-             info.gain = engine.m_gain;
-             info.understeer_effect = engine.m_understeer_effect;
-             info.sop_effect = engine.m_sop_effect;
-             info.slope_enabled = engine.m_slope_detection_enabled;
-             info.slope_sensitivity = engine.m_slope_sensitivity;
-             info.slope_threshold = (float)engine.m_slope_negative_threshold;
-             info.slope_alpha_threshold = engine.m_slope_alpha_threshold;
-             info.slope_decay_rate = engine.m_slope_decay_rate;
-             
-             AsyncLogger::Get().Start(info, Config::m_log_path);
-         }
-         ImGui::SameLine();
-         ImGui::TextDisabled("(Diagnostics)");
-    }
-    
+
     ImGui::SameLine();
     if (ImGui::Button("Save Screenshot")) {
         time_t now = time(0);
@@ -882,31 +831,31 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         strftime(buf, sizeof(buf), "screenshot_%Y-%m-%d_%H-%M-%S.png", &tstruct);
         SaveCompositeScreenshot(buf);
     }
-    
+
     ImGui::Separator();
 
     // --- HELPER LAMBDAS ---
     static int selected_preset = 0;
-    
+
     // val: The current slider value (0.0 - 2.0)
     // base_nm: The physical force this effect produces at Gain 1.0 (Physics Constant)
     auto FormatDecoupled = [&](float val, float base_nm) {
-        float scale = (engine.m_max_torque_ref / 20.0f); 
+        float scale = (engine.m_max_torque_ref / 20.0f);
         if (scale < 0.1f) scale = 0.1f;
         float estimated_nm = val * base_nm * scale;
         static char buf[64];
         // Use double percent (%%%%) because SliderFloat formats it again
         // Show 1 decimal to make arrow key adjustments visible (step 0.01 = 0.5%)
-        snprintf(buf, 64, "%.1f%%%% (~%.1f Nm)", val * 100.0f, estimated_nm); 
+        snprintf(buf, 64, "%.1f%%%% (~%.1f Nm)", val * 100.0f, estimated_nm);
         return (const char*)buf;
-    };
+        };
 
     auto FormatPct = [&](float val) {
         static char buf[32];
         // Show 1 decimal to make arrow key adjustments visible
         snprintf(buf, 32, "%.1f%%%%", val * 100.0f);
         return (const char*)buf;
-    };
+        };
 
     auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr, std::function<void()> decorator = nullptr) {
         GuiWidgets::Result res = GuiWidgets::Float(label, v, min, max, fmt, tooltip, decorator);
@@ -916,7 +865,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         if (res.deactivated) {
             Config::Save(engine);
         }
-    };
+        };
 
     auto BoolSetting = [&](const char* label, bool* v, const char* tooltip = nullptr) {
         GuiWidgets::Result res = GuiWidgets::Checkbox(label, v, tooltip);
@@ -926,7 +875,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         if (res.deactivated) {
             Config::Save(engine);
         }
-    };
+        };
 
     auto IntSetting = [&](const char* label, int* v, const char* const items[], int items_count, const char* tooltip = nullptr) {
         GuiWidgets::Result res = GuiWidgets::Combo(label, v, items, items_count, tooltip);
@@ -936,15 +885,15 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
         if (res.deactivated) {
             Config::Save(engine);
         }
-    };
+        };
 
     // --- 2. PRESETS AND CONFIGURATION ---
     if (ImGui::TreeNodeEx("Presets and Configuration", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         if (Config::presets.empty()) Config::LoadPresets();
-        
-        const char* preview_value = (selected_preset >= 0 && selected_preset < Config::presets.size()) 
-                                    ? Config::presets[selected_preset].name.c_str() : "Custom";
-        
+
+        const char* preview_value = (selected_preset >= 0 && selected_preset < Config::presets.size())
+            ? Config::presets[selected_preset].name.c_str() : "Custom";
+
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
         if (ImGui::BeginCombo("Load Preset", preview_value)) {
             for (int i = 0; i < Config::presets.size(); i++) {
@@ -974,7 +923,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
                 new_preset_name[0] = '\0';
             }
         }
-        
+
         if (ImGui::Button("Save Current Config")) Config::Save(engine);
         ImGui::SameLine();
         if (ImGui::Button("Reset Defaults")) {
@@ -993,34 +942,113 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     // --- GROUP: GENERAL ---
     if (ImGui::TreeNodeEx("General FFB", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
-        
+
         BoolSetting("Invert FFB Signal", &engine.m_invert_force, "Check this if the wheel pulls away from center instead of aligning.");
         FloatSetting("Master Gain", &engine.m_gain, 0.0f, 2.0f, FormatPct(engine.m_gain), "Global scale factor for all forces.\n100% = No attenuation.\nReduce if experiencing heavy clipping.");
-        FloatSetting("Max Torque Ref", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm", "The expected PEAK torque of the CAR in the game.\nGT3/LMP2 cars produce 30-60 Nm of torque.\nSet this to ~40-60 Nm to prevent clipping.\nHigher values = Less Clipping, Less Noise, Lighter Steering.\nLower values = More Clipping, More Noise, Heavier Steering.");
+        // AGC Status Display (replaces Max Torque Ref slider)
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Max Torque Ref");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("The expected PEAK torque of the CAR in the game.\n"
+                "GT3/LMP2 cars produce 30-60 Nm of torque. Set this to ~40-60 Nm to prevent clipping.\n"
+                "Higher values = Less Clipping, Less Noise, Lighter Steering.\n"
+                "Lower values = More Clipping, More Noise, Heavier Steering.\n"
+                "*** Replaced by AGC which determines the setting automatically ****");
+        }
+        ImGui::NextColumn();
+        ImGui::Text("AGC Level: %.2f | Clips: %.0f", engine.m_agc.getCurrentGain(), engine.m_agc.getClippingIntensity() * 100.0f);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Automatic Gain Control Status\n"
+                "Level: Current gain multiplier (0.3-3.0)\n"
+                "Clips: Recent clipping intensity (0-100)\n"
+                "AGC dynamically adjusts gain to prevent clipping while maintaining force feel.");
+        }
+        ImGui::NextColumn();
         FloatSetting("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f", "Boosts small forces to overcome the mechanical friction/deadzone of gear/belt driven wheels.\nPrevents the 'dead center' feeling.\nTypical: 0.0 for DD, 0.01-0.05 for Belt/Gear.");
-        
+
+        FloatSetting("Gyro Damping", &engine.m_gyro_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_gyro_gain, FFBEngine::BASE_NM_GYRO_DAMPING), "Simulates the gyroscopic solidity of the spinning wheels.\nResists rapid steering movements.\nPrevents oscillation and 'Tank Slappers'.\nActs like a steering damper.");
+
+        FloatSetting("Gyro Smoothing", &engine.m_gyro_smoothing, 0.000f, 0.050f, "%.3f s",
+            "Filters the steering velocity signal used for damping.\nReduces noise in the damping effect.\nLow = Crisper damping, High = Smoother.",
+            [&]() {
+                int ms = (int)(engine.m_gyro_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms <= 20) ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1);
+                ImGui::TextColored(color, "Latency: %d ms", ms);
+            });
+
+        // --- ADVANCED SETTINGS ---
+        if (ImGui::CollapsingHeader("Advanced")) {
+            ImGui::NextColumn(); ImGui::NextColumn();
+            const char* base_modes[] = { "Native (Steering Shaft Torque)", "Synthetic (Constant)", "Muted (Off)" };
+            IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes) / sizeof(base_modes[0]), "Debug tool to isolate effects.\nNative: Normal/Default.\nSynthetic: Constant force to test direction.\nMuted: Disables base physics (good for tuning vibrations).");
+            ImGui::Text("Stationary Vibration Gate");
+            ImGui::NextColumn();
+            ImGui::NextColumn();
+            ImGui::Text("    Mute Below");
+            ImGui::NextColumn();
+            float lower_kmh = engine.m_speed_gate_lower * 3.6f;
+            if (ImGui::SliderFloat("  ", &lower_kmh, 0.0f, 20.0f, "%.1f km/h")) {
+                engine.m_speed_gate_lower = lower_kmh / 3.6f;
+                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f)
+                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+                selected_preset = -1;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                Config::Save(engine);
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Speed where vibrations are disabled\n"
+                "to eliminate engine idle vibration.");
+
+            ImGui::NextColumn();
+            ImGui::Text("    Full Above");
+            ImGui::NextColumn();
+            float upper_kmh = engine.m_speed_gate_upper * 3.6f;
+            if (ImGui::SliderFloat(" ", &upper_kmh, 1.0f, 50.0f, "%.1f km/h")) {
+                engine.m_speed_gate_upper = upper_kmh / 3.6f;
+                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f)
+                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+                selected_preset = -1;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                Config::Save(engine);
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Speed where vibrations are enabled\n"
+                "CRITICAL: Speeds below this value will have SMOOTHING applied\n"
+                "Default: 18.0 km/h (Safe for all wheels).");
+            ImGui::NextColumn();
+
+            BoolSetting("Static Noise Filter", &engine.m_static_notch_enabled, "Fixed frequency notch filter to remove hardware resonance or specific noise.");
+            if (engine.m_static_notch_enabled) {
+                FloatSetting("    Filter Frequency", &engine.m_static_notch_freq, 10.0f, 100.0f, "%.1f Hz", "Center frequency to suppress.");
+                FloatSetting("    Filter Width", &engine.m_static_notch_width, 0.1f, 10.0f, "%.1f Hz", "Bandwidth of the notch filter.\nLarger = Blocks more frequencies around the target.");
+            }
+
+
+        }
+
         ImGui::TreePop();
-    } else { 
+    }
+    else {
         // Keep columns synchronized when section is collapsed
-        ImGui::NextColumn(); ImGui::NextColumn(); 
+        ImGui::NextColumn(); ImGui::NextColumn();
     }
 
-    // --- GROUP: FRONT AXLE ---
-    if (ImGui::TreeNodeEx("Front Axle (Understeer)", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+    // --- GROUP: BODY & AXLE ---
+    ImGui::Separator();
+    if (ImGui::TreeNodeEx("Steering & Vehicle Physics", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
-        
+
         FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 2.0f, FormatPct(engine.m_steering_shaft_gain), "Scales the raw steering torque from the physics engine.\n100% = 1:1 with game physics.\nLowering this allows other effects (SoP, Vibes) to stand out more without clipping.");
-        
-        FloatSetting("Steering Shaft Smoothing", &engine.m_steering_shaft_smoothing, 0.000f, 0.100f, "%.3f s", 
+        FloatSetting("  Steering Shaft Smoothing", &engine.m_steering_shaft_smoothing, 0.000f, 0.100f, "%.3f s",
             "Low Pass Filter applied ONLY to the raw game force (Steering Shaft Gain).\nSmoothes out grainy or noisy signals from the game engine.",
             [&]() {
                 int ms = (int)(engine.m_steering_shaft_smoothing * 1000.0f + 0.5f);
-                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1);
                 ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
             });
-
         // Display with percentage format for better clarity
-        FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 2.0f, FormatPct(engine.m_understeer_effect), 
+        FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 2.0f, FormatPct(engine.m_understeer_effect),
             "Scales how much front grip loss reduces steering force.\n\n"
             "SCALE:\n"
             "  0% = Disabled (no understeer feel)\n"
@@ -1031,409 +1059,166 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
             "  → First INCREASE 'Optimal Slip Angle' setting in the Physics section.\n"
             "  → Then reduce this slider if still too sensitive.\n\n"
             "Technical: Force = Base * (1.0 - GripLoss * Effect)");
-        
-        const char* base_modes[] = { "Native (Steering Shaft Torque)", "Synthetic (Constant)", "Muted (Off)" };
-        IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes)/sizeof(base_modes[0]), "Debug tool to isolate effects.\nNative: Normal Operation.\nSynthetic: Constant force to test direction.\nMuted: Disables base physics (good for tuning vibrations).");
-
-        if (ImGui::TreeNodeEx("Signal Filtering", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::NextColumn(); ImGui::NextColumn();
-            
-            BoolSetting("  Flatspot Suppression", &engine.m_flatspot_suppression, "Dynamic Notch Filter that targets wheel rotation frequency.\nSuppresses vibrations caused by tire flatspots.");
-            if (engine.m_flatspot_suppression) {
-                FloatSetting("    Filter Width (Q)", &engine.m_notch_q, 0.5f, 10.0f, "Q: %.2f", "Quality Factor of the Notch Filter.\nHigher = Narrower bandwidth (surgical removal).\nLower = Wider bandwidth (affects surrounding frequencies).");
-                FloatSetting("    Suppression Strength", &engine.m_flatspot_strength, 0.0f, 1.0f, "%.2f", "How strongly to mute the flatspot vibration.\n1.0 = 100% removal.");
-                ImGui::Text("    Est. / Theory Freq");
-                ImGui::NextColumn();
-                ImGui::TextDisabled("%.1f Hz / %.1f Hz", engine.m_debug_freq, engine.m_theoretical_freq);
-                ImGui::NextColumn();
-            }
-            
-            BoolSetting("  Static Noise Filter", &engine.m_static_notch_enabled, "Fixed frequency notch filter to remove hardware resonance or specific noise.");
-            if (engine.m_static_notch_enabled) {
-                FloatSetting("    Target Frequency", &engine.m_static_notch_freq, 10.0f, 100.0f, "%.1f Hz", "Center frequency to suppress.");
-                FloatSetting("    Filter Width", &engine.m_static_notch_width, 0.1f, 10.0f, "%.1f Hz", "Bandwidth of the notch filter.\nLarger = Blocks more frequencies around the target.");
-            }
-            
-            ImGui::TreePop();
-        } else {
-            // Keep columns synchronized when section is collapsed
-            ImGui::NextColumn(); ImGui::NextColumn();
-        }
-        
-        ImGui::TreePop();
-    } else { 
-        // Keep columns synchronized when section is collapsed
-        ImGui::NextColumn(); ImGui::NextColumn(); 
-    }
-
-    // --- GROUP: REAR AXLE ---
-    if (ImGui::TreeNodeEx("Rear Axle (Oversteer)", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
-        ImGui::NextColumn(); ImGui::NextColumn();
-        
-        FloatSetting("Lateral G Boost (Slide)", &engine.m_oversteer_boost, 0.0f, 4.0f, FormatPct(engine.m_oversteer_boost), "Increases the Lateral G (SoP) force when the rear tires lose grip.\nMakes the car feel heavier during a slide, helping you judge the momentum.\nShould build up slightly more gradually than Rear Align Torque,\nreflecting the inertia of the car's mass swinging out.\nIt's a sustained force that tells you about the magnitude of the slide\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
-        FloatSetting("Lateral G", &engine.m_sop_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_effect, FFBEngine::BASE_NM_SOP_LATERAL), "Represents Chassis Roll, simulates the weight of the car leaning in the corner.");
-        FloatSetting("SoP Self-Aligning Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_rear_align_effect, FFBEngine::BASE_NM_REAR_ALIGN), "Counter-steering force generated by rear tire slip.\nShould build up very quickly after the Yaw Kick, as the slip angle develops.\nThis is the active \"pull.\"\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
-        FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
-        FloatSetting("  Activation Threshold", &engine.m_yaw_kick_threshold, 0.0f, 10.0f, "%.2f rad/s²", "Minimum yaw acceleration required to trigger the kick.\nIncrease to filter out road noise and small vibrations.");
-        
-        FloatSetting("  Kick Response", &engine.m_yaw_accel_smoothing, 0.000f, 0.050f, "%.3f s",
+        FloatSetting("Oversteer Effect (SoP)", &engine.m_oversteer_boost, 0.0f, 4.0f, FormatPct(engine.m_oversteer_boost), "Increases the Lateral G (SoP) force when the rear tires lose grip.\nMakes the car feel heavier during a slide, helping you judge the momentum.\nShould build up slightly more gradually than Rear Align Torque,\nreflecting the inertia of the car's mass swinging out.\nIt's a sustained force that tells you about the magnitude of the slide\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
+        FloatSetting("Self-Align Effect (SoP)", &engine.m_rear_align_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_rear_align_effect, FFBEngine::BASE_NM_REAR_ALIGN), "Counter-steering force generated by rear tire slip.\nShould build up very quickly after the Yaw Kick, as the slip angle develops.\nThis is the active \"pull.\"\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
+        FloatSetting("Yaw Effect (SoP Kick)", &engine.m_sop_yaw_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK), "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
+        FloatSetting("Yaw Threshold (SoP Kick)", &engine.m_yaw_kick_threshold, 0.0f, 10.0f, "%.2f rad/s²", "Minimum yaw acceleration required to trigger the kick.\nIncrease to filter out road noise and small vibrations.\n1.4rad default");
+        FloatSetting("Yaw Smoothing (SoP Kick)", &engine.m_yaw_accel_smoothing, 0.000f, 0.050f, "%.3f s",
             "Low Pass Filter for the Yaw Kick signal.\nSmoothes out kick noise.\nLower = Sharper/Faster kick.\nHigher = Duller/Softer kick.",
             [&]() {
                 int ms = (int)(engine.m_yaw_accel_smoothing * 1000.0f + 0.5f);
-                ImVec4 color = (ms <= 15) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImVec4 color = (ms <= 15) ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1);
                 ImGui::TextColored(color, "Latency: %d ms", ms);
             });
+        // --- ADVANCED SoP SETTINGS ---
+        if (ImGui::CollapsingHeader("Advanced")) {
+            ImGui::TextColored(ImVec4(0.0f, 0.6f, 0.85f, 1.0f), "Advanced SoP Settings");
+            ImGui::NextColumn(); ImGui::NextColumn();
+            FloatSetting("  SoP Global Gain", &engine.m_sop_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_effect, FFBEngine::BASE_NM_SOP_LATERAL), "Represents Chassis Roll, simulates the weight of the car leaning in the corner.");
+            // SoP Smoothing with Latency Text above slider
+            FloatSetting("  SoP Global Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f",
+                "Filters the Lateral G signal.\nReduces jerkiness in the SoP effect.",
+                [&]() {
+                    int ms = (int)((1.0f - engine.m_sop_smoothing_factor) * 100.0f + 0.5f);
+                    ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1);
+                    ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+                });
+            FloatSetting("  SoP Global Scaling", &engine.m_sop_scale, 0.0f, 20.0f, "%.2f", "Multiplies the raw G-force signal before limiting.\nAdjusts the dynamic range of the SoP effect.");
 
-        FloatSetting("Gyro Damping", &engine.m_gyro_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_gyro_gain, FFBEngine::BASE_NM_GYRO_DAMPING), "Simulates the gyroscopic solidity of the spinning wheels.\nResists rapid steering movements.\nPrevents oscillation and 'Tank Slappers'.\nActs like a steering damper.");
-        
-        FloatSetting("  Gyro Smooth", &engine.m_gyro_smoothing, 0.000f, 0.050f, "%.3f s",
-            "Filters the steering velocity signal used for damping.\nReduces noise in the damping effect.\nLow = Crisper damping, High = Smoother.",
-            [&]() {
-                int ms = (int)(engine.m_gyro_smoothing * 1000.0f + 0.5f);
-                ImVec4 color = (ms <= 20) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
-                ImGui::TextColored(color, "Latency: %d ms", ms);
-            });
-        
-        ImGui::TextColored(ImVec4(0.0f, 0.6f, 0.85f, 1.0f), "Advanced SoP");
-        ImGui::NextColumn(); ImGui::NextColumn();
+            // --- GROUP: PHYSICS ---
+            ImGui::TextColored(ImVec4(0.0f, 0.6f, 0.85f, 1.0f), "Slip Angle & Grip Estimations");
+            ImGui::NextColumn(); ImGui::NextColumn();
+            FloatSetting("  Chassis Inertia (Load)", &engine.m_chassis_inertia_smoothing, 0.000f, 0.100f, "%.3f s",
+                "Simulation time for weight transfer.\nSimulates how fast the suspension settles.\nAffects calculated tire load magnitude.\n25ms = Stiff Race Car.\n50ms = Soft Road Car.",
+                [&]() {
+                    int ms = (int)(engine.m_chassis_inertia_smoothing * 1000.0f + 0.5f);
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 1.0f, 1.0f), "Simulation: %d ms", ms);
+                });
 
-        // SoP Smoothing with Latency Text above slider
-        FloatSetting("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f", 
-            "Filters the Lateral G signal.\nReduces jerkiness in the SoP effect.",
-            [&]() {
-                int ms = (int)((1.0f - engine.m_sop_smoothing_factor) * 100.0f + 0.5f);
-                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
-                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
-            });
+            FloatSetting("  Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad",
+                "The slip angle THRESHOLD above which grip loss begins.\n"
+                "Set this HIGHER than the car's physical peak slip angle.\n"
+                "Recommended: 0.10 for LMDh/LMP2, 0.12 for GT3.\n\n"
+                "Lower = More sensitive (force drops earlier).\n"
+                "Higher = More buffer zone before force drops.\n\n"
+                "NOTE: If the wheel feels too light at the limit, INCREASE this value.\n"
+                "Affects: Understeer Effect, Lateral G Boost (Slide), Slide Texture.");
 
-        FloatSetting("  SoP Scale", &engine.m_sop_scale, 0.0f, 20.0f, "%.2f", "Multiplies the raw G-force signal before limiting.\nAdjusts the dynamic range of the SoP effect.");
-        
+            FloatSetting("  Optimal Slip Ratio", &engine.m_optimal_slip_ratio, 0.05f, 0.20f, "%.2f",
+                "The longitudinal slip ratio (0.0-1.0) where peak braking/traction occurs.\n"
+                "Typical: 0.12 - 0.15 (12-15%).\n"
+                "Used to estimate grip loss under braking/acceleration.\n"
+                "Affects: How much braking/acceleration contributes to calculated grip loss.");
+
+            // Slip Smoothing with Latency Text above slider
+            FloatSetting("  Slip Angle Smoothing", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, "%.3f s",
+                "Applies a time-based filter (LPF) to the Calculated Slip Angle used to estimate tire grip.\n"
+                "Smooths the high fluctuations from lateral and longitudinal velocity,\nespecially over bumps or curbs.\n"
+                "Affects: Understeer effect, Rear Aligning Torque.",
+                [&]() {
+                    int ms = (int)(engine.m_slip_angle_smoothing * 1000.0f + 0.5f);
+                    ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1);
+                    ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+                });
+        }
         ImGui::TreePop();
-    } else { 
+    }
+    else {
         // Keep columns synchronized when section is collapsed
-        ImGui::NextColumn(); ImGui::NextColumn(); 
+        ImGui::NextColumn(); ImGui::NextColumn();
     }
 
-    // --- GROUP: PHYSICS ---
-    if (ImGui::TreeNodeEx("Grip & Slip Angle Estimation", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
-        ImGui::NextColumn(); ImGui::NextColumn();
-        
-        // Slip Smoothing with Latency Text above slider
-        FloatSetting("Slip Angle Smoothing", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, "%.3f s",
-            "Applies a time-based filter (LPF) to the Calculated Slip Angle used to estimate tire grip.\n"
-            "Smooths the high fluctuations from lateral and longitudinal velocity,\nespecially over bumps or curbs.\n"
-            "Affects: Understeer effect, Rear Aligning Torque.",
-            [&]() {
-                int ms = (int)(engine.m_slip_angle_smoothing * 1000.0f + 0.5f);
-                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
-                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
-            });
-
-        FloatSetting("Chassis Inertia (Load)", &engine.m_chassis_inertia_smoothing, 0.000f, 0.100f, "%.3f s",
-            "Simulation time for weight transfer.\nSimulates how fast the suspension settles.\nAffects calculated tire load magnitude.\n25ms = Stiff Race Car.\n50ms = Soft Road Car.",
-            [&]() {
-                int ms = (int)(engine.m_chassis_inertia_smoothing * 1000.0f + 0.5f);
-                ImGui::TextColored(ImVec4(0.5f, 0.5f, 1.0f, 1.0f), "Simulation: %d ms", ms);
-            });
-
-        FloatSetting("Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad", 
-            "The slip angle THRESHOLD above which grip loss begins.\n"
-            "Set this HIGHER than the car's physical peak slip angle.\n"
-            "Recommended: 0.10 for LMDh/LMP2, 0.12 for GT3.\n\n"
-            "Lower = More sensitive (force drops earlier).\n"
-            "Higher = More buffer zone before force drops.\n\n"
-            "NOTE: If the wheel feels too light at the limit, INCREASE this value.\n"
-            "Affects: Understeer Effect, Lateral G Boost (Slide), Slide Texture.");
-
-        FloatSetting("Optimal Slip Ratio", &engine.m_optimal_slip_ratio, 0.05f, 0.20f, "%.2f", 
-            "The longitudinal slip ratio (0.0-1.0) where peak braking/traction occurs.\n"
-            "Typical: 0.12 - 0.15 (12-15%).\n"
-            "Used to estimate grip loss under braking/acceleration.\n"
-            "Affects: How much braking/acceleration contributes to calculated grip loss.");
-        
-        // --- SLOPE DETECTION (v0.7.0) ---
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Slope Detection (Experimental)");
-        ImGui::NextColumn(); ImGui::NextColumn();
-
-        // Slope Detection Enable - with buffer reset on transition (v0.7.0)
-        bool prev_slope_enabled = engine.m_slope_detection_enabled;
-        GuiWidgets::Result slope_res = GuiWidgets::Checkbox("Enable Slope Detection", &engine.m_slope_detection_enabled,
-            "Replaces static 'Optimal Slip Angle' threshold with dynamic derivative monitoring.\n\n"
-            "When enabled:\n"
-            "• Grip is estimated by tracking the slope of lateral-G vs slip angle\n"
-            "• Automatically adapts to tire temperature, wear, and conditions\n"
-            "• 'Optimal Slip Angle' and 'Optimal Slip Ratio' settings are IGNORED\n\n"
-            "When disabled:\n"
-            "• Uses the static threshold method (default behavior)");
-        
-        if (slope_res.changed) {
-            selected_preset = -1;
-            
-            // Reset buffers when enabling slope detection (v0.7.0 - Prevents stale data)
-            if (!prev_slope_enabled && engine.m_slope_detection_enabled) {
-                engine.m_slope_buffer_count = 0;
-                engine.m_slope_buffer_index = 0;
-                engine.m_slope_smoothed_output = 1.0;  // Start at full grip
-                std::cout << "[SlopeDetection] Enabled - buffers cleared" << std::endl;
-            }
-        }
-        if (slope_res.deactivated) {
-            Config::Save(engine);
-        }
-        
-        if (engine.m_slope_detection_enabled && engine.m_oversteer_boost > 0.01f) {
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), 
-                "Note: Lateral G Boost (Slide) is auto-disabled when Slope Detection is ON.");
-            ImGui::NextColumn(); ImGui::NextColumn();
-        }
-
-        if (engine.m_slope_detection_enabled) {
-            // Filter Window
-            int window = engine.m_slope_sg_window;
-            if (ImGui::SliderInt("  Filter Window", &window, 5, 41)) {
-                if (window % 2 == 0) window++;  // Force odd
-                engine.m_slope_sg_window = window;
-                selected_preset = -1;
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip(
-                    "Savitzky-Golay filter window size (samples).\n\n"
-                    "Larger = Smoother but higher latency\n"
-                    "Smaller = Faster response but noisier\n\n"
-                    "Recommended:\n"
-                    "  Direct Drive: 11-15\n"
-                    "  Belt Drive: 15-21\n"
-                    "  Gear Drive: 21-31\n\n"
-                    "Must be ODD (enforced automatically).");
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
-            
-            ImGui::SameLine();
-            float latency_ms = (float)(engine.m_slope_sg_window / 2) * 2.5f;
-            ImVec4 color = (latency_ms < 25.0f) ? ImVec4(0,1,0,1) : ImVec4(1,0.5f,0,1);
-            ImGui::TextColored(color, "~%.0f ms latency", latency_ms);
-            ImGui::NextColumn(); ImGui::NextColumn();
-            
-            FloatSetting("  Sensitivity", &engine.m_slope_sensitivity, 0.1f, 5.0f, "%.1fx",
-                "Multiplier for slope-to-grip conversion.\n"
-                "Higher = More aggressive grip loss detection.\n"
-                "Lower = Smoother, less pronounced effect.");
-            
-            // Advanced (Collapsed by Default)
-            if (ImGui::TreeNode("Advanced Slope Settings")) {
-                ImGui::NextColumn(); ImGui::NextColumn();
-                FloatSetting("  Slope Threshold", &engine.m_slope_negative_threshold, -1.0f, 0.0f, "%.2f",
-                    "Slope value below which grip loss begins.\n"
-                    "More negative = Later detection (safer).");
-                FloatSetting("  Output Smoothing", &engine.m_slope_smoothing_tau, 0.005f, 0.100f, "%.3f s",
-                    "Time constant for grip factor smoothing.\n"
-                    "Prevents abrupt FFB changes.");
-                
-                // v0.7.3: Stability Fixes
-                ImGui::Separator();
-                ImGui::Text("Stability Fixes (v0.7.3)");
-                ImGui::NextColumn(); ImGui::NextColumn();
-                FloatSetting("  Alpha Threshold", &engine.m_slope_alpha_threshold, 0.001f, 0.100f, "%.3f",
-                    "Minimum change in slip angle (dAlpha/dt) to calculate slope.\n"
-                    "Larger = More stable on straights, but slower response.\n"
-                    "Default: 0.020");
-                FloatSetting("  Decay Rate", &engine.m_slope_decay_rate, 0.5f, 20.0f, "%.1f",
-                    "How fast the slope returns to zero when driving straight.\n"
-                    "Prevents 'sticky' understeer feel after a corner.\n"
-                    "Default: 5.0");
-                BoolSetting("  Confidence Gate", &engine.m_slope_confidence_enabled,
-                    "Scales the grip loss effect by how 'certain' the calculation is.\n"
-                    "Uses dAlpha/dt to determine confidence.\n"
-                    "Prevents random FFB jolts when slip is low.");
-                
-                ImGui::TreePop();
-            } else {
-                ImGui::NextColumn(); ImGui::NextColumn();
-            }
-            
-            // Live Diagnostics
-            ImGui::Text("  Live Slope: %.3f | Grip: %.0f%%", 
-                engine.m_slope_current, 
-                engine.m_slope_smoothed_output * 100.0f);
-            ImGui::NextColumn(); ImGui::NextColumn();
-        }
-        // ---------------------------------
-
-        
-        
-        ImGui::TreePop();
-    } else { 
-        // Keep columns synchronized when section is collapsed
-        ImGui::NextColumn(); ImGui::NextColumn(); 
-    }
-
+    ImGui::Separator();
     // --- GROUP: BRAKING & LOCKUP ---
-    if (ImGui::TreeNodeEx("Braking & Lockup", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
-        ImGui::NextColumn(); ImGui::NextColumn();
-
-        BoolSetting("Lockup Vibration", &engine.m_lockup_enabled, "Simulates tire judder when wheels are locked under braking.");
-        if (engine.m_lockup_enabled) {
-            FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 3.0f, FormatDecoupled(engine.m_lockup_gain, FFBEngine::BASE_NM_LOCKUP_VIBRATION));
-            FloatSetting("  Brake Load Cap", &engine.m_brake_load_cap, 1.0f, 10.0f, "%.2fx", "Scales vibration intensity based on tire load.\nPrevents weak vibrations during high-speed heavy braking.");
-            
-            FloatSetting("  Vibration Pitch", &engine.m_lockup_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of lockup and wheel spin vibrations.\nMatch to your hardware resonance.");
-            
-            
-            // Precision formatting rationale (v0.6.0):
-            // - Gamma: %.1f (1 decimal) - Allows fine-tuning of response curve
-            // - Sensitivity: %.0f (0 decimals) - Integer values are sufficient for threshold
-            // - Bump Rejection: %.1f m/s (1 decimal) - Balances precision with readability
-            // - ABS Gain: %.2f (2 decimals) - Standard gain precision across all effects
-            ImGui::Separator();
-            ImGui::Text("Response Curve");
-            ImGui::NextColumn(); ImGui::NextColumn();
-
-            FloatSetting("  Gamma", &engine.m_lockup_gamma, 0.1f, 3.0f, "%.1f", "Response Curve Non-Linearity.\n1.0 = Linear.\n>1.0 = Progressive (Starts weak, gets strong fast).\n<1.0 = Aggressive (Starts strong). 2.0=Quadratic, 3.0=Cubic (Late/Sharp)");
-            FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", "Slip percentage where vibration begins.\n1.0% = Immediate feedback.\n5.0% = Only on deep lock.");
-            FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", "Slip percentage where vibration reaches maximum intensity.");
-            
-            
-            // Precision formatting rationale (v0.6.0):
-            // - Gamma: %.1f (1 decimal) - Allows fine-tuning of response curve
-            // - Sensitivity: %.0f (0 decimals) - Integer values are sufficient for threshold
-            // - Bump Rejection: %.1f m/s (1 decimal) - Balances precision with readability
-            // - ABS Gain: %.2f (2 decimals) - Standard gain precision across all effects
-            ImGui::Separator();
-            ImGui::Text("Prediction (Advanced)");
-            ImGui::NextColumn(); ImGui::NextColumn();
-
-            FloatSetting("  Sensitivity", &engine.m_lockup_prediction_sens, 10.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nHow aggressively the system predicts a lockup before it physically occurs.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
-            FloatSetting("  Bump Rejection", &engine.m_lockup_bump_reject, 0.1f, 5.0f, "%.1f m/s", "Suspension velocity threshold.\nDisables prediction on bumpy surfaces to prevent false positives.\nIncrease for bumpy tracks (Sebring).");
-
-            FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 10.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.\nHelps distinguish rear locking (dangerous) from front locking (understeer).");
-        }
-
-        ImGui::Separator();
-        ImGui::Text("ABS & Hardware");
+    if (ImGui::TreeNodeEx("Braking Effects", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
 
         // ABS
-        BoolSetting("ABS Pulse", &engine.m_abs_pulse_enabled, "Simulates the pulsing of an ABS system.\nInjects high-frequency pulse when ABS modulates pressure.");
+        BoolSetting("ABS Vibration", &engine.m_abs_pulse_enabled, "Simulates the pulsing of an ABS system.\nInjects high-frequency pulse when ABS modulates pressure.");
         if (engine.m_abs_pulse_enabled) {
-            FloatSetting("  Pulse Gain", &engine.m_abs_gain, 0.0f, 10.0f, "%.2f", "Intensity of the ABS pulse.");
-            FloatSetting("  Pulse Frequency", &engine.m_abs_freq_hz, 10.0f, 50.0f, "%.1f Hz", "Rate of the ABS pulse oscillation.");
+            FloatSetting("  ABS Gain", &engine.m_abs_gain, 0.0f, 10.0f, "%.2f", "Intensity of the ABS pulse.");
+            FloatSetting("  ABS Pitch", &engine.m_abs_freq_hz, 10.0f, 50.0f, "%.1f Hz", "Rate of the ABS pulse oscillation.");
+        }
+        // LOCKUP
+        BoolSetting("Lockup Vibration", &engine.m_lockup_enabled, "Simulates tire judder when wheels are locked under braking.");
+        if (engine.m_lockup_enabled) {
+            FloatSetting("  Lockup Gain", &engine.m_lockup_gain, 0.0f, 3.0f, FormatDecoupled(engine.m_lockup_gain, FFBEngine::BASE_NM_LOCKUP_VIBRATION));
+            FloatSetting("  Lockup Pitch", &engine.m_lockup_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of lockup and wheel spin vibrations.\nMatch to your hardware resonance.");
+
+            if (ImGui::CollapsingHeader("Advanced")) {
+                ImGui::TextColored(ImVec4(0.0f, 0.6f, 0.85f, 1.0f), "Lockup Response");
+                ImGui::NextColumn(); ImGui::NextColumn();
+                FloatSetting("  Gamma Curve", &engine.m_lockup_gamma, 0.1f, 3.0f, "%.1f", "Response Curve Non-Linearity.\n1.0 = Linear.\n>1.0 = Progressive (Starts weak, gets strong fast).\n<1.0 = Aggressive (Starts strong). 2.0=Quadratic, 3.0=Cubic (Late/Sharp)");
+                FloatSetting("  Tire Minimum Load Cap", &engine.m_brake_load_cap, 1.0f, 10.0f, "%.2fx", "Scales vibration intensity based on tire load.\nPrevents weak vibrations during high-speed heavy braking.");
+                FloatSetting("  Tire Minimum Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", "Slip percentage where vibration begins.\n1.0% = Immediate feedback.\n5.0% = Only on deep lock.");
+                FloatSetting("  Tire Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", "Slip percentage where vibration reaches maximum intensity.");
+
+                ImGui::TextColored(ImVec4(0.0f, 0.6f, 0.85f, 1.0f), "Lockup Prediction");
+                ImGui::NextColumn(); ImGui::NextColumn();
+                FloatSetting("  Prediction Sensitivity", &engine.m_lockup_prediction_sens, 10.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nHow aggressively the system predicts a lockup before it physically occurs.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
+                FloatSetting("  Track Roughness Filter", &engine.m_lockup_bump_reject, 0.1f, 5.0f, "%.1f m/s", "Suspension velocity threshold.\nDisables prediction on bumpy surfaces to prevent false positives.\nIncrease for bumpy tracks (Sebring).");
+                FloatSetting("  Rear Lockup Gain", &engine.m_lockup_rear_boost, 1.0f, 10.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.\nHelps distinguish rear locking (dangerous) from front locking (understeer).");
+
+                // Precision formatting rationale (v0.6.0):
+                // - Gamma: %.1f (1 decimal) - Allows fine-tuning of response curve
+                // - Sensitivity: %.0f (0 decimals) - Integer values are sufficient for threshold
+                // - Bump Rejection: %.1f m/s (1 decimal) - Balances precision with readability
+                // - ABS Gain: %.2f (2 decimals) - Standard gain precision across all effects
+            }
+        }
+        // Flatspot Suppression
+        ImGui::NextColumn(); ImGui::NextColumn();
+        BoolSetting("Flatspot Suppression", &engine.m_flatspot_suppression, "Dynamic Notch Filter that targets wheel rotation frequency.\nSuppresses vibrations caused by tire flatspots.");
+        if (engine.m_flatspot_suppression) {
+            FloatSetting("    Filter Width (Q)", &engine.m_notch_q, 0.5f, 10.0f, "Q: %.2f", "Quality Factor of the Notch Filter.\nHigher = Narrower bandwidth (surgical removal).\nLower = Wider bandwidth (affects surrounding frequencies).");
+            FloatSetting("    Suppression Gain", &engine.m_flatspot_strength, 0.0f, 1.0f, "%.2f", "How strongly to mute the flatspot vibration.\n1.0 = 100% removal.");
+            ImGui::Text("    Est. / Theory Freq");
+            ImGui::NextColumn();
+            ImGui::TextDisabled("%.1f Hz / %.1f Hz", engine.m_debug_freq, engine.m_theoretical_freq);
+            ImGui::NextColumn();
         }
 
         ImGui::TreePop();
-    } else {
+    }
+    else {
+        // Keep columns synchronized when section is collapsed
         ImGui::NextColumn(); ImGui::NextColumn();
     }
 
+    ImGui::Separator();
     // --- GROUP: TEXTURES ---
     if (ImGui::TreeNodeEx("Tactile Textures", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
         ImGui::NextColumn(); ImGui::NextColumn();
-        
-        FloatSetting("Texture Load Cap", &engine.m_texture_load_cap, 1.0f, 3.0f, "%.2fx", "Safety Limiter specific to Road and Slide textures.\nPrevents violent shaking when under high downforce or compression.\nONLY affects Road Details and Slide Rumble.");
+
+        FloatSetting("Texture Scaling", &engine.m_texture_load_cap, 1.0f, 3.0f, "%.2fx", "Safety Limiter specific to Road and Slide textures.\nPrevents violent shaking when under high downforce or compression.\nONLY affects Road Details and Slide Rumble.");
+
+        FloatSetting("Scrub Drag (Understeer)", &engine.m_scrub_drag_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_scrub_drag_gain, FFBEngine::BASE_NM_SCRUB_DRAG), "Constant resistance force when pushing tires laterally (Understeer drag).\nAdds weight to the wheel when scrubbing.");
 
         BoolSetting("Slide Rumble", &engine.m_slide_texture_enabled, "Vibration proportional to tire sliding/scrubbing velocity.");
         if (engine.m_slide_texture_enabled) {
             FloatSetting("  Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_slide_texture_gain, FFBEngine::BASE_NM_SLIDE_TEXTURE), "Intensity of the scrubbing vibration.");
             FloatSetting("  Slide Pitch", &engine.m_slide_freq_scale, 0.5f, 5.0f, "%.2fx", "Frequency multiplier for the scrubbing sound/feel.\nHigher = Screeching.\nLower = Grinding.");
         }
-        
+
+        BoolSetting("Spin Rumble", &engine.m_spin_enabled, "Vibration when wheels lose traction under acceleration (Wheel Spin).");
+        if (engine.m_spin_enabled) {
+            FloatSetting("  Spin Gain", &engine.m_spin_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_spin_gain, FFBEngine::BASE_NM_SPIN_VIBRATION), "Intensity of the wheel spin vibration.");
+            FloatSetting("  Spin Pitch", &engine.m_spin_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of the wheel spin vibration.");
+        }
+
         BoolSetting("Road Details", &engine.m_road_texture_enabled, "Vibration derived from high-frequency suspension movement.\nFeels road surface, cracks, and bumps.");
         if (engine.m_road_texture_enabled) {
             FloatSetting("  Road Gain", &engine.m_road_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_road_texture_gain, FFBEngine::BASE_NM_ROAD_TEXTURE), "Intensity of road details.");
         }
 
-        BoolSetting("Spin Vibration", &engine.m_spin_enabled, "Vibration when wheels lose traction under acceleration (Wheel Spin).");
-        if (engine.m_spin_enabled) {
-            FloatSetting("  Spin Strength", &engine.m_spin_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_spin_gain, FFBEngine::BASE_NM_SPIN_VIBRATION), "Intensity of the wheel spin vibration.");
-            FloatSetting("  Spin Pitch", &engine.m_spin_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of the wheel spin vibration.");
-        }
-
-        FloatSetting("Scrub Drag", &engine.m_scrub_drag_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_scrub_drag_gain, FFBEngine::BASE_NM_SCRUB_DRAG), "Constant resistance force when pushing tires laterally (Understeer drag).\nAdds weight to the wheel when scrubbing.");
-        
         const char* bottoming_modes[] = { "Method A: Scraping", "Method B: Susp. Spike" };
-        IntSetting("Bottoming Logic", &engine.m_bottoming_method, bottoming_modes, sizeof(bottoming_modes)/sizeof(bottoming_modes[0]), "Algorithm for detecting suspension bottoming.\nScraping = Ride height based.\nSusp Spike = Force rate based.");
-        
+        IntSetting("Bottoming Logic", &engine.m_bottoming_method, bottoming_modes, sizeof(bottoming_modes) / sizeof(bottoming_modes[0]), "Algorithm for detecting suspension bottoming.\nScraping = Ride height based.\nSusp Spike = Force rate based.");
+
         ImGui::TreePop();
-    } else { 
-        // Keep columns synchronized when section is collapsed
-        ImGui::NextColumn(); ImGui::NextColumn(); 
-    }
-
-    // --- ADVANCED SETTINGS ---
-    if (ImGui::CollapsingHeader("Advanced Settings")) {
-        ImGui::Indent();
-        
-        if (ImGui::TreeNode("Stationary Vibration Gate")) {
-            ImGui::TextWrapped("Controls when vibrations fade out and Idle Smoothing activates.");
-            
-            float lower_kmh = engine.m_speed_gate_lower * 3.6f;
-            if (ImGui::SliderFloat("Mute Below", &lower_kmh, 0.0f, 20.0f, "%.1f km/h")) {
-                engine.m_speed_gate_lower = lower_kmh / 3.6f;
-                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f) 
-                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
-                selected_preset = -1;
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                Config::Save(engine);
-            }
-
-            float upper_kmh = engine.m_speed_gate_upper * 3.6f;
-            if (ImGui::SliderFloat("Full Above", &upper_kmh, 1.0f, 50.0f, "%.1f km/h")) {
-                engine.m_speed_gate_upper = upper_kmh / 3.6f;
-                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f)
-                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
-                selected_preset = -1;
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                Config::Save(engine);
-            }
-            
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Speed where vibrations reach full strength.\n"
-                "CRITICAL: Speeds below this value will have SMOOTHING applied\n"
-                "to eliminate engine idle vibration.\n"
-                "Default: 18.0 km/h (Safe for all wheels).");
-            
-            ImGui::TreePop();
-        }
-
-        if (ImGui::TreeNode("Telemetry Logger")) {
-            if (ImGui::Checkbox("Auto-Start on Session", &Config::m_auto_start_logging)) {
-                Config::Save(engine);
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Automatically start logging when you leave the pit/menu,\nand stop when you return.");
-            
-            char log_path[260];
-            strncpy_s(log_path, Config::m_log_path.c_str(), _TRUNCATE);
-            if (ImGui::InputText("Log Path", log_path, sizeof(log_path))) {
-                Config::m_log_path = log_path;
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Directory where log files will be saved.\nRelative to app root if no drive letter.\nExample: logs/");
-
-            if (AsyncLogger::Get().IsLogging()) {
-                ImGui::BulletText("Filename: %s", AsyncLogger::Get().GetFilename().c_str());
-            }
-
-            char log_path_buf[256];
-            strncpy_s(log_path_buf, Config::m_log_path.c_str(), 255);
-            log_path_buf[255] = '\0';
-            if (ImGui::InputText("Log Path", log_path_buf, 255)) {
-                Config::m_log_path = log_path_buf;
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                Config::Save(engine);
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Directory where .csv logs will be saved.\nDefault: logs/");
-            
-            ImGui::TreePop();
-        }
-        ImGui::Unindent();
     }
 
     // End Columns
     ImGui::Columns(1);
-    
     ImGui::End();
 }
 // Win32 message handler
@@ -1524,16 +1309,16 @@ void CleanupRenderTarget() {
 
 #else
 // Stub Implementation for Headless Builds
-bool GuiLayer::Init() { 
-    std::cout << "[GUI] Disabled (Headless Mode)" << std::endl; 
-    return true; 
+bool GuiLayer::Init() {
+    std::cout << "[GUI] Disabled (Headless Mode)" << std::endl;
+    return true;
 }
 void GuiLayer::Shutdown() {}
 bool GuiLayer::Render(FFBEngine& engine) { return false; } // Always lazy
 #endif
 
 // --- CONFIGURABLE PLOT SETTINGS ---
-const float PLOT_HISTORY_SEC = 30.0f;   // 10 Seconds History
+const float PLOT_HISTORY_SEC = 30.0f;   // 30 Seconds History
 const int PHYSICS_RATE_HZ = 400;        // Fixed update rate
 const int PLOT_BUFFER_SIZE = (int)(PLOT_HISTORY_SEC * PHYSICS_RATE_HZ); // 4000 points
 
@@ -1541,17 +1326,17 @@ const int PLOT_BUFFER_SIZE = (int)(PLOT_HISTORY_SEC * PHYSICS_RATE_HZ); // 4000 
 struct RollingBuffer {
     std::vector<float> data;
     int offset = 0;
-    
+
     // Initialize with the calculated size
     RollingBuffer() {
         data.resize(PLOT_BUFFER_SIZE, 0.0f);
     }
-    
+
     void Add(float val) {
         data[offset] = val;
         offset = (offset + 1) % data.size();
     }
-    
+
     // Get the most recent value (current)
     float GetCurrent() const {
         if (data.empty()) return 0.0f;
@@ -1559,13 +1344,13 @@ struct RollingBuffer {
         size_t idx = (offset - 1 + static_cast<int>(data.size())) % data.size();
         return data[idx];
     }
-    
+
     // Get minimum value in buffer (optional, for diagnostics)
     float GetMin() const {
         if (data.empty()) return 0.0f;
         return *std::min_element(data.begin(), data.end());
     }
-    
+
     // Get maximum value in buffer (optional, for diagnostics)
     float GetMax() const {
         if (data.empty()) return 0.0f;
@@ -1576,20 +1361,20 @@ struct RollingBuffer {
 // Helper function to plot with numerical readouts
 // Displays: [Title]
 // Overlay:  Cur: X.XXXX Min: Y.YYY Max: Z.ZZZ (Small print)
-inline void PlotWithStats(const char* label, const RollingBuffer& buffer, 
-                          float scale_min, float scale_max, 
-                          const ImVec2& size = ImVec2(0, 40),
-                          const char* tooltip = nullptr) {
+inline void PlotWithStats(const char* label, const RollingBuffer& buffer,
+    float scale_min, float scale_max,
+    const ImVec2& size = ImVec2(0, 40),
+    const char* tooltip = nullptr) {
     // 1. Draw Title
     ImGui::Text("%s", label);
-    
+
     // 2. Draw Plot
     char hidden_label[256];
     snprintf(hidden_label, sizeof(hidden_label), "##%s", label);
-    
-    ImGui::PlotLines(hidden_label, buffer.data.data(), (int)buffer.data.size(), 
-                     buffer.offset, NULL, scale_min, scale_max, size);
-    
+
+    ImGui::PlotLines(hidden_label, buffer.data.data(), (int)buffer.data.size(),
+        buffer.offset, NULL, scale_min, scale_max, size);
+
     // 3. Handle Tooltip
     if (tooltip && ImGui::IsItemHovered()) {
         ImGui::SetTooltip("%s", tooltip);
@@ -1599,45 +1384,45 @@ inline void PlotWithStats(const char* label, const RollingBuffer& buffer,
     float current = buffer.GetCurrent();
     float min_val = buffer.GetMin();
     float max_val = buffer.GetMax();
-    
+
     char stats_overlay[128];
-    snprintf(stats_overlay, sizeof(stats_overlay), "Cur:%.4f Min:%.3f Max:%.3f", 
-             current, min_val, max_val);
-    
+    snprintf(stats_overlay, sizeof(stats_overlay), "Cur:%.4f Min:%.3f Max:%.3f",
+        current, min_val, max_val);
+
     ImVec2 p_min = ImGui::GetItemRectMin();
     ImVec2 p_max = ImGui::GetItemRectMax();
     float plot_width = p_max.x - p_min.x;
-    
+
     // Padding
     p_min.x += 2;
     p_min.y += 2;
-    
+
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    
+
     // Use current font but scaled down (Small Print)
     ImFont* font = ImGui::GetFont();
     float font_size = ImGui::GetFontSize(); // Full resolution
-    
+
     ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
-    
+
     // Adaptive Formatting: If text is too wide, switch to compact mode
     if (text_size.x > plot_width - 4) {
-         // Compact: 0.0000 [0.000, 0.000]
-         snprintf(stats_overlay, sizeof(stats_overlay), "%.4f [%.3f, %.3f]", current, min_val, max_val);
-         text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
-         
-         // If still too wide, just show current value
-         if (text_size.x > plot_width - 4) {
-             snprintf(stats_overlay, sizeof(stats_overlay), "Val: %.4f", current);
-             text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
-         }
+        // Compact: 0.0000 [0.000, 0.000]
+        snprintf(stats_overlay, sizeof(stats_overlay), "%.4f [%.3f, %.3f]", current, min_val, max_val);
+        text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
+
+        // If still too wide, just show current value
+        if (text_size.x > plot_width - 4) {
+            snprintf(stats_overlay, sizeof(stats_overlay), "Val: %.4f", current);
+            text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
+        }
     }
 
     ImVec2 box_max = ImVec2(p_min.x + text_size.x + 2, p_min.y + text_size.y);
-    
+
     // Semi-transparent background (Alpha 90/255 approx 35%)
     draw_list->AddRectFilled(ImVec2(p_min.x - 1, p_min.y), box_max, IM_COL32(0, 0, 0, 90));
-    
+
     // Draw Text with scaled font
     draw_list->AddText(font, font_size, p_min, IM_COL32(255, 255, 255, 255), stats_overlay);
 }
@@ -1647,7 +1432,7 @@ static RollingBuffer plot_total;
 static RollingBuffer plot_base;
 static RollingBuffer plot_sop;
 static RollingBuffer plot_yaw_kick; // New v0.4.15
-static RollingBuffer plot_rear_torque; 
+static RollingBuffer plot_rear_torque;
 static RollingBuffer plot_gyro_damping; // New v0.4.17
 static RollingBuffer plot_scrub_drag;
 static RollingBuffer plot_oversteer;
@@ -1661,38 +1446,48 @@ static RollingBuffer plot_bottoming;
 
 // --- Header B: Internal Physics (Brain) ---
 static RollingBuffer plot_calc_front_load;
-static RollingBuffer plot_calc_rear_load; 
+static RollingBuffer plot_calc_rear_load;
+static RollingBuffer plot_weight_front_axle;
+static RollingBuffer plot_weight_rear_axle;
+static RollingBuffer plot_weight_left_side;
+static RollingBuffer plot_weight_right_side;
 static RollingBuffer plot_calc_front_grip;
 static RollingBuffer plot_calc_rear_grip;
 static RollingBuffer plot_calc_slip_ratio;
-static RollingBuffer plot_calc_slip_angle_smoothed; 
-static RollingBuffer plot_calc_rear_slip_angle_smoothed; 
-static RollingBuffer plot_slope_current;  // New v0.7.1: Slope detection diagnostic
+static RollingBuffer plot_calc_slip_angle_smoothed;
+static RollingBuffer plot_calc_rear_slip_angle_smoothed;
 // Moved here from Header C
-static RollingBuffer plot_calc_rear_lat_force; 
+static RollingBuffer plot_calc_rear_lat_force;
 
 // --- Header C: Raw Game Telemetry (Input) ---
 static RollingBuffer plot_raw_steer;
 static RollingBuffer plot_raw_input_steering;
-static RollingBuffer plot_raw_throttle;    
-static RollingBuffer plot_raw_brake;       
+static RollingBuffer plot_raw_throttle;
+static RollingBuffer plot_raw_brake;
 static RollingBuffer plot_input_accel;
-static RollingBuffer plot_raw_car_speed;   
-static RollingBuffer plot_raw_load;        
-static RollingBuffer plot_raw_grip;        
+static RollingBuffer plot_raw_car_speed;
+static RollingBuffer plot_raw_load;
+static RollingBuffer plot_raw_grip;
 static RollingBuffer plot_raw_rear_grip;
 static RollingBuffer plot_raw_front_slip_ratio;
-static RollingBuffer plot_raw_susp_force;  
-static RollingBuffer plot_raw_ride_height; 
-static RollingBuffer plot_raw_front_lat_patch_vel; 
+static RollingBuffer plot_raw_susp_force;
+static RollingBuffer plot_raw_ride_height;
+static RollingBuffer plot_raw_front_lat_patch_vel;
 static RollingBuffer plot_raw_front_long_patch_vel;
 static RollingBuffer plot_raw_rear_lat_patch_vel;
 static RollingBuffer plot_raw_rear_long_patch_vel;
 
+// New Telemetry Sources (v0.7.0)
+static RollingBuffer plot_axle_front_3rd_deflection;
+static RollingBuffer plot_axle_rear_3rd_deflection;
+static RollingBuffer plot_axle_front_downforce;
+static RollingBuffer plot_axle_rear_downforce;
+static RollingBuffer plot_global_drag_force;
+
 // Extras
 static RollingBuffer plot_raw_slip_angle; // Kept but grouped appropriately
 static RollingBuffer plot_raw_rear_slip_angle;
-static RollingBuffer plot_raw_front_deflection; 
+static RollingBuffer plot_raw_front_deflection;
 
 // State for Warnings
 static bool g_warn_dt = false;
@@ -1704,21 +1499,21 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
     // Only draw if enabled
     if (!Config::show_graphs) return;
 
-    ImGuiViewport* viewport = ImGui::GetMainViewport(); 
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     // Position: Start after the config panel
     ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + CONFIG_PANEL_WIDTH, viewport->Pos.y));
-    
+
     // Size: Fill the rest of the width
     ImGui::SetNextWindowSize(ImVec2(viewport->Size.x - CONFIG_PANEL_WIDTH, viewport->Size.y));
-    
+
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
     ImGui::Begin("FFB Analysis", nullptr, flags);
 
     // Ensure snapshots are processed
     // (Existing snapshot processing logic follows)
     auto snapshots = engine.GetDebugBatch();
-    
+
     // Update buffers with the latest snapshot (if available)
     // Loop through ALL snapshots to avoid aliasing
     for (const auto& snap : snapshots) {
@@ -1730,11 +1525,11 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         plot_rear_torque.Add(snap.ffb_rear_torque);
         plot_gyro_damping.Add(snap.ffb_gyro_damping); // Add to plot
         plot_scrub_drag.Add(snap.ffb_scrub_drag);
-        
+
         plot_oversteer.Add(snap.oversteer_boost);
         plot_understeer.Add(snap.understeer_drop);
         plot_clipping.Add(snap.clipping);
-        
+
         plot_road.Add(snap.texture_road);
         plot_slide.Add(snap.texture_slide);
         plot_lockup.Add(snap.texture_lockup);
@@ -1743,14 +1538,19 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
 
         // --- Header B: Internal Physics ---
         plot_calc_front_load.Add(snap.calc_front_load);
-        plot_calc_rear_load.Add(snap.calc_rear_load); 
+        plot_calc_rear_load.Add(snap.calc_rear_load);
         plot_calc_front_grip.Add(snap.calc_front_grip);
         plot_calc_rear_grip.Add(snap.calc_rear_grip);
         plot_calc_slip_ratio.Add(snap.calc_front_slip_ratio);
         plot_calc_slip_angle_smoothed.Add(snap.calc_front_slip_angle_smoothed);
         plot_calc_rear_slip_angle_smoothed.Add(snap.calc_rear_slip_angle_smoothed);
         plot_calc_rear_lat_force.Add(snap.calc_rear_lat_force);
-        plot_slope_current.Add(snap.slope_current); // v0.7.1
+
+        // Weight Distribution
+        plot_weight_front_axle.Add(snap.weight_front_axle_ratio);
+        plot_weight_rear_axle.Add(snap.weight_rear_axle_ratio);
+        plot_weight_left_side.Add(snap.weight_left_side_ratio);
+        plot_weight_right_side.Add(snap.weight_right_side_ratio);
 
         // --- Header C: Raw Telemetry ---
         plot_raw_steer.Add(snap.steer_force);
@@ -1759,19 +1559,26 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         plot_raw_brake.Add(snap.raw_input_brake);
         plot_input_accel.Add(snap.accel_x);
         plot_raw_car_speed.Add(snap.raw_car_speed);
-        
+
         plot_raw_load.Add(snap.raw_front_tire_load);
         plot_raw_grip.Add(snap.raw_front_grip_fract);
         plot_raw_rear_grip.Add(snap.raw_rear_grip);
-        
+
         plot_raw_front_slip_ratio.Add(snap.raw_front_slip_ratio);
         plot_raw_susp_force.Add(snap.raw_front_susp_force);
         plot_raw_ride_height.Add(snap.raw_front_ride_height);
-        
+
         plot_raw_front_lat_patch_vel.Add(snap.raw_front_lat_patch_vel);
         plot_raw_front_long_patch_vel.Add(snap.raw_front_long_patch_vel);
         plot_raw_rear_lat_patch_vel.Add(snap.raw_rear_lat_patch_vel);
         plot_raw_rear_long_patch_vel.Add(snap.raw_rear_long_patch_vel);
+
+        // New Telemetry Sources (v0.7.0)
+        plot_axle_front_3rd_deflection.Add(snap.axle_front_3rd_deflection);
+        plot_axle_rear_3rd_deflection.Add(snap.axle_rear_3rd_deflection);
+        plot_axle_front_downforce.Add(snap.axle_front_downforce);
+        plot_axle_rear_downforce.Add(snap.axle_rear_downforce);
+        plot_global_drag_force.Add(snap.global_drag_force);
 
         // Updates for extra buffers
         plot_raw_slip_angle.Add(snap.raw_front_slip_angle);
@@ -1794,110 +1601,126 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
     // --- Header A: FFB Components (Output) ---
     // [Main Forces], [Modifiers], [Textures]
     if (ImGui::CollapsingHeader("A. FFB Components (Output)", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);        
-        //ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Main FFB]");
-
-        ImGui::Text("Throttle/Brake Input");
-        float thr = plot_raw_throttle.GetCurrent();
-        float brk = plot_raw_brake.GetCurrent();
-        char input_label[128];
-        snprintf(input_label, sizeof(input_label), "Thr: %.2f | Brk: %.2f", thr, brk);
-        ImGui::SameLine(); 
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "(%s)", input_label);
-        ImVec2 pos = ImGui::GetCursorScreenPos();
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 0.0f, 1.0f)); // Red for Brake
-        ImGui::PlotLines("##BrkComb", plot_raw_brake.data.data(), (int)plot_raw_brake.data.size(), plot_raw_brake.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Green: Throttle, Red: Brake");
-        ImGui::SetCursorScreenPos(pos); // Reset
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 0.0f, 1.0f)); // Green for Throttle
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); // Transparent Bg
-        ImGui::PlotLines("##ThrComb", plot_raw_throttle.data.data(), (int)plot_raw_throttle.data.size(), plot_raw_throttle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
-        ImGui::PopStyleColor(2);
-        
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 1.0f, 0.0f, 1.0f)); // Yellow
-        PlotWithStats("Total Output", plot_total, -1.0f, 1.0f, ImVec2(0, 60), 
-                      "Final FFB Output (-1.0 to 1.0)");
-        ImGui::PopStyleColor();
-                      
-        ImGui::Columns(2, "FFBMain", false);
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.25f, 0.25f, 0.25f, 0.50f)); // Red
+
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
+        PlotWithStats("Total Output", plot_total, -1.0f, 1.0f, ImVec2(0, 60),
+            "Final FFB Output (-1.0 to 1.0)");
+        ImGui::PopStyleColor();
+
+        /**
+        FloatSetting("setTargetLevel", &engine.m_agc.setTargetLevel, 0.0f, 100.0f, "%.1f", "AGC setTargetLevel");
+        FloatSetting("setTargetLevel", &engine.m_agc.setTargetLevel, 0.0f, 2.0f, FormatPct(engine.m_steering_shaft_gain), "Scales the raw steering torque from the physics engine.\n100% = 1:1 with game physics.\nLowering this allows other effects (SoP, Vibes) to stand out more without clipping.");
+        FloatSetting("setTargetLevel", &engine.m_agc.setTargetLevel, 0.0f, 2.0f, FormatDecoupled(engine.m_rear_align_effect, FFBEngine::BASE_NM_REAR_ALIGN), "AGC setTargetLevel");
+        float targetLevel = 10.0f;      // Target gain level (normalized)
+        float minGain = 0.0f;          // Minimum allowed gain
+        float maxGain = 100.0f;          // Maximum allowed gain
+        float attackRate = 3.0f;       // How fast gain drops during clipping
+        float releaseRate = 10.0f;     // How fast gain recovers after clipping
+        float clipThreshold = 0.97f;   // Clipping detection threshold
+        float clipSensitivity = 0.3f;  // Influence of clipping on gain reduction
+        float leakRate = 0.85f;        // Clipping accumulator decay rate
+        void setTargetLevel(float level) { targetLevel = level; }
+        void setminGain(float level) { minGain = level; }
+        void setmaxGain(float level) { maxGain = level; }
+        void setattackRate(float level) { attackRate = level; }
+        void setreleaseRate(float level) { releaseRate = level; }
+        void setclipThreshold(float level) { clipThreshold = level; }
+        void setclipSensitivity(float level) { clipSensitivity = level; }
+        void setleakRate(float level) { leakRate = level; }
+        float getenvelope() const { return envelope; }
+        **/
+
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "AGC Gain: %.3f | Clipping: %.0f", engine.m_agc.getCurrentGain(), engine.m_agc.getClippingIntensity() * 100.0f);
+
+        /**
+        FloatSetting("setTargetLevel", &engine.m_agc.m_setTargetLevel, 0.2f, 100.2f, "%.2f", "AGC setTargetLevel");
+        FloatSetting("setminGain", &engine.m_agc.m_setminGain, 0.2f, 100.2f, "%.2f", "AGC setminGain");
+        FloatSetting("setmaxGain", &engine.m_agc.m_setmaxGain, 0.2f, 100.2f, "%.2f", "AGC setmaxGain");
+        FloatSetting("setattackRate", &engine.m_agc.m_setattackRate, 0.2f, 10.2f, "%.2f", "AGC setattackRate");
+        FloatSetting("setreleaseRate", &engine.m_agc.m_setreleaseRate, 0.2f, 10.2f, "%.2f", "AGC setreleaseRate");
+        FloatSetting("setclipThreshold", &engine.m_agc.m_setclipThreshold, 0.2f, 10.2f, "%.2f", "AGC setclipThreshold");
+        FloatSetting("setclipSensitivity", &engine.m_agc.m_setclipSensitivity, 0.2f, 10.2f, "%.2f", "AGC setclipSensitivity");
+        FloatSetting("setleakRate", &engine.m_agc.m_setleakRate, 0.09f, 1.00f, "%.2f", "AGC setleakRate");
+        
+        **/
+         
+        //ImGui::Separator();
+        ImGui::Columns(3, "FFBMain", false);
+        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
+
+        // Group: Main Forces
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 1.0f), "[Main Forces]");
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f)); // Blue
         PlotWithStats("Clipping", plot_clipping, 0.0f, 1.1f, ImVec2(0, 40),
             "Indicates when Output hits max limit");
         ImGui::PopStyleColor();
-        ImGui::NextColumn();
-        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f)); // Blue
         PlotWithStats("Base Torque (Nm)", plot_base, -30.0f, 30.0f, ImVec2(0, 40),
             "Steering Rack Force derived from Game Physics");
         ImGui::PopStyleColor();
-
-        ImGui::Columns(3, "SOPMain", false);
-        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "[SoP]");
-        
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f)); // Blue
         PlotWithStats("SoP (Base Chassis G)", plot_sop, -20.0f, 20.0f, ImVec2(0, 40),
             "Force from Lateral G-Force (Seat of Pants)");
         ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f)); // Blue
         PlotWithStats("Yaw Kick", plot_yaw_kick, -20.0f, 20.0f, ImVec2(0, 40),
             "Force from Yaw Acceleration (Rotation Kick)");
         ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f)); // Blue
         PlotWithStats("Rear Align Torque", plot_rear_torque, -20.0f, 20.0f, ImVec2(0, 40),
             "Force from Rear Lateral Force");
         ImGui::PopStyleColor();
-        
+
+
         ImGui::NextColumn();
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        
+
         // Group: Modifiers
         ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "[Modifiers]");
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
-        
         PlotWithStats("Lateral G Boost (Slide)", plot_oversteer, -20.0f, 20.0f, ImVec2(0, 40),
-                      "Added force from Rear Grip loss");
+            "Added force from Rear Grip loss");
         ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange        
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
         PlotWithStats("Understeer Cut", plot_understeer, -20.0f, 20.0f, ImVec2(0, 40),
-                      "Reduction in force due to front grip loss");
+            "Reduction in force due to front grip loss");
         ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange   
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
         PlotWithStats("Gyro Damping", plot_gyro_damping, -20.0f, 20.0f, ImVec2(0, 40),
-                    "Synthetic damping force");
+            "Synthetic damping force");
         ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange   
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); //orange
         PlotWithStats("Scrub Drag Force", plot_scrub_drag, -20.0f, 20.0f, ImVec2(0, 40),
-                    "Resistance force from sideways tire dragging");
+            "Resistance force from sideways tire dragging");
         ImGui::PopStyleColor();
-        
+
+
         ImGui::NextColumn();
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        
+
         // Group: Textures
         ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 1.0f), "[Textures]");
-        
+
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 1.0f, 0.7f, 1.0f)); // Green
         PlotWithStats("Road Texture", plot_road, -10.0f, 10.0f, ImVec2(0, 40),
-                      "Vibration from Suspension Velocity");
+            "Vibration from Suspension Velocity");
         ImGui::PopStyleColor();
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 1.0f, 0.7f, 1.0f)); // Green
         PlotWithStats("Slide Texture", plot_slide, -10.0f, 10.0f, ImVec2(0, 40),
-                      "Vibration from Lateral Scrubbing");
+            "Vibration from Lateral Scrubbing");
         ImGui::PopStyleColor();
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 1.0f, 0.7f, 1.0f)); // Green
         PlotWithStats("Lockup Vib", plot_lockup, -10.0f, 10.0f, ImVec2(0, 40),
-                      "Vibration from Wheel Lockup");
+            "Vibration from Wheel Lockup");
         ImGui::PopStyleColor();
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 1.0f, 0.7f, 1.0f)); // Green
         PlotWithStats("Spin Vib", plot_spin, -10.0f, 10.0f, ImVec2(0, 40),
-                      "Vibration from Wheel Spin");
+            "Vibration from Wheel Spin");
         ImGui::PopStyleColor();
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 1.0f, 0.7f, 1.0f)); // Green
         PlotWithStats("Bottoming", plot_bottoming, -10.0f, 10.0f, ImVec2(0, 40),
-                      "Vibration from Suspension Bottoming");
+            "Vibration from Suspension Bottoming");
         ImGui::PopStyleColor();
 
         ImGui::Columns(1);
@@ -1908,71 +1731,61 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
     if (ImGui::CollapsingHeader("B. Internal Physics (Brain)", ImGuiTreeNodeFlags_None)) {
         ImGui::Columns(2, "PhysCols", false);
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        
+
         // Group: Loads
-        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Loads/Forces]");
-        
-        // --- Manually draw stats for the Multi-line Load Graph ---
-        float cur_f = plot_calc_front_load.GetCurrent();
-        float cur_r = plot_calc_rear_load.GetCurrent();
-        char load_label[128];
-        snprintf(load_label, sizeof(load_label), "Front: %.0f N | Rear: %.0f N", cur_f, cur_r);
-        ImGui::Text("%s", load_label);
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-        ImGui::PlotLines("##CLoadF", plot_calc_front_load.data.data(), (int)plot_calc_front_load.data.size(), plot_calc_front_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
-        ImGui::PopStyleColor();
-        ImVec2 pos_load = ImGui::GetItemRectMin(); // Reset Cursor to draw on top
-        ImGui::SetCursorScreenPos(pos_load);
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0)); // Draw Rear (Magenta) - Transparent Background
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
-        ImGui::PlotLines("##CLoadR", plot_calc_rear_load.data.data(), (int)plot_calc_rear_load.data.size(), plot_calc_rear_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
-        ImGui::PopStyleColor(2);        
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Load:\nCyan: Front\nMagenta: Rear");
-        
-        // Group: Forces
-        //ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Forces]");
-        
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));  //Magenta
-        PlotWithStats("Calc Rear Lat Force", plot_calc_rear_lat_force, -5000.0f, 5000.0f, ImVec2(0, 40),
-                      "Calculated Rear Lateral Force (Workaround)");
-        ImGui::PopStyleColor();
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Loads]");
+        {
+            // --- Manually draw stats for the Multi-line Load Graph ---
+            float cur_f = plot_calc_front_load.GetCurrent();
+            float cur_r = plot_calc_rear_load.GetCurrent();
+            char load_label[128];
+            snprintf(load_label, sizeof(load_label), "Load Front: %.0f N | Rear: %.0f N", cur_f, cur_r);
+            ImGui::Text("%s", load_label);
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
+            ImGui::PlotLines("##CLoadF", plot_calc_front_load.data.data(), (int)plot_calc_front_load.data.size(), plot_calc_front_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+            ImGui::PopStyleColor();
+            ImVec2 pos_load = ImGui::GetItemRectMin(); // Reset Cursor to draw on top
+            ImGui::SetCursorScreenPos(pos_load);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0)); // Draw Rear (Magenta) - Transparent Background
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
+            ImGui::PlotLines("##CLoadR", plot_calc_rear_load.data.data(), (int)plot_calc_rear_load.data.size(), plot_calc_rear_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+            ImGui::PopStyleColor(2);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cyan: Front, Magenta: Rear");
+            }
 
         ImGui::NextColumn();
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        
+
         // Group: Grip/Slip
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Grip/Slip]");
-        
+
         //PlotWithStats("Calc Front Grip", plot_calc_front_grip, 0.0f, 1.2f, ImVec2(0, 40),
-        //              "Grip used for physics math (approximated if missing)");
-        
+        //    "Grip used for physics math (approximated if missing)");
         //PlotWithStats("Calc Rear Grip", plot_calc_rear_grip, 0.0f, 1.2f, ImVec2(0, 40),
-        //              "Rear Grip used for SoP/Oversteer math");
-        
+        //    "Rear Grip used for SoP/Oversteer math");
+
         // --- Manually draw stats for the Multi-line Load Graph ---
         {
             float curg_f = plot_calc_front_grip.GetCurrent();
             float curg_r = plot_calc_rear_grip.GetCurrent();
             char grip_label[128];
-            snprintf(grip_label, sizeof(grip_label), "Grip Front: %.0f | Rear: %.0f ", curg_f, curg_r);
+            snprintf(grip_label, sizeof(grip_label), "Grip Front: %.0f  | Rear: %.0f ", curg_f, curg_r);
             ImGui::Text("%s", grip_label);
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##CGripF", plot_calc_front_grip.data.data(), (int)plot_calc_front_grip.data.size(), plot_calc_front_grip.offset, NULL, -0.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##CGripF", plot_calc_front_grip.data.data(), (int)plot_calc_front_grip.data.size(), plot_calc_front_grip.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor();
             ImVec2 pos_grip = ImGui::GetItemRectMin();
             ImGui::SetCursorScreenPos(pos_grip);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##GripR", plot_calc_rear_grip.data.data(), (int)plot_calc_rear_grip.data.size(), plot_calc_rear_grip.offset, NULL, -0.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##GripR", plot_calc_rear_grip.data.data(), (int)plot_calc_rear_grip.data.size(), plot_calc_rear_grip.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor(2);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Calc Grip\nCyan: Front\nMagenta: Rear");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Calc Grip Cyan: Front, Magenta: Rear");
         }
-        
         //PlotWithStats("Front Slip Angle (Sm)", plot_calc_slip_angle_smoothed, 0.0f, 1.0f, ImVec2(0, 40),
-        //              "Smoothed Slip Angle (LPF) used for approximation");
-        
+        //    "Smoothed Slip Angle (LPF) used for approximation");
         //PlotWithStats("Rear Slip Angle (Sm)", plot_calc_rear_slip_angle_smoothed, 0.0f, 1.0f, ImVec2(0, 40),
-        //              "Smoothed Rear Slip Angle (LPF)");
+        //    "Smoothed Rear Slip Angle (LPF)");
         
         // --- Manually draw stats for the Multi-line Load Graph ---
         {
@@ -1982,113 +1795,109 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
             snprintf(slip_label, sizeof(slip_label), "Slip Angle Front: %.0f | Rear: %.0f ", curs_f, curs_r);
             ImGui::Text("%s", slip_label);
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##CSlipF", plot_calc_slip_angle_smoothed.data.data(), (int)plot_calc_slip_angle_smoothed.data.size(), plot_calc_slip_angle_smoothed.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+            ImGui::PlotLines("##CSlipF", plot_calc_slip_angle_smoothed.data.data(), (int)plot_calc_slip_angle_smoothed.data.size(), plot_calc_slip_angle_smoothed.offset, NULL, 0.0f, 0.1f, ImVec2(0, 40));
             ImGui::PopStyleColor();
             ImVec2 pos_slip = ImGui::GetItemRectMin();
             ImGui::SetCursorScreenPos(pos_slip);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##SlipR", plot_calc_rear_slip_angle_smoothed.data.data(), (int)plot_calc_rear_slip_angle_smoothed.data.size(), plot_calc_rear_slip_angle_smoothed.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+            ImGui::PlotLines("##SlipR", plot_calc_rear_slip_angle_smoothed.data.data(), (int)plot_calc_rear_slip_angle_smoothed.data.size(), plot_calc_rear_slip_angle_smoothed.offset, NULL, 0.0f, 0.1f, ImVec2(0, 40));
             ImGui::PopStyleColor(2);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Slip Angle Cyan: Front, Magenta: Rear");
         }
 
         ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));  //Magenta
         PlotWithStats("Front Slip Ratio", plot_calc_slip_ratio, -1.0f, 1.0f, ImVec2(0, 40),
-                      "Calculated or Game-provided Slip Ratio");
+            "Calculated or Game-provided Slip Ratio");
         ImGui::PopStyleColor();
+        //ImGui::NextColumn();
 
-        if (engine.m_slope_detection_enabled) { 
-            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 1.0f, 0.0f, 1.0f));  //Yellow
-            PlotWithStats("Slope (dG/dAlpha)", plot_slope_current, -12.0f, 12.0f, ImVec2(0, 40),
-                "Slope detection derivative value.\n"
-                "Positive = building grip.\n"
-                "Near zero = at peak grip.\n"
-                "Negative = past peak, sliding.");
-                ImGui::PopStyleColor();
-        }
-        
+        // Group: Forces
+        //ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Forces]");
+
+
         ImGui::Columns(1);
     }
 
     // --- Header C: Raw Game Telemetry (Input) ---
     // [Driver Input], [Vehicle State], [Raw Tire Data], [Patch Velocities]
     if (ImGui::CollapsingHeader("C. Raw Game Telemetry (Input)", ImGuiTreeNodeFlags_None)) {
-        ImGui::Columns(4, "TelCols", false);
-        
-        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
+        ImGui::Columns(3, "TelCols", false);
 
-/**
+        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
         // Group: Driver Input
-            ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Driver Input]");
-        if (ImPlot::BeginPlot("Combined Input", ImVec2(0, 150)))
-        {
-            ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoTickLabels, ImPlotAxisFlags_NoTickLabels);
-            // Steering: -1..1, Brake/Throttle: 0..1
-            ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0, 1.0, ImGuiCond_Always);
-
-            const int n = (int)plot_raw_brake.data.size();
-            ImPlot::PlotLine("Brake",    plot_raw_brake.data.data(),          n, 1.0, 0.0, 0, plot_raw_brake.offset);
-            ImPlot::PlotLine("Throttle", plot_raw_throttle.data.data(),       n, 1.0, 0.0, 0, plot_raw_throttle.offset);
-            ImPlot::PlotLine("Steering", plot_raw_input_steering.data.data(), n, 1.0, 0.0, 0, plot_raw_input_steering.offset);
-
-            ImPlot::EndPlot();
-        }
-**/
-
-
-        
-            
-       
         ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Driver Input]");
-            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f));
-            PlotWithStats("Steering Torque", plot_raw_steer, -30.0f, 30.0f, ImVec2(0, 40),
-                        "Raw Steering Torque from Game API");
+
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f)); // Cyan for steering
+        PlotWithStats("Steering Torque", plot_raw_steer, -30.0f, 30.0f, ImVec2(0, 40),
+            "Raw Steering Torque from Game API");
+        ImGui::PopStyleColor();
+
+        //PlotWithStats("Steering Input", plot_raw_input_steering, -1.0f, 1.0f, ImVec2(0, 40),
+        //    "Driver wheel position -1 to 1");
+
+        ImGui::Text("Combined Input");
+
+        // --- Manually draw stats for Input ---
+        {
+            float str = plot_raw_input_steering.GetCurrent();
+            float thr = plot_raw_throttle.GetCurrent();
+            float brk = plot_raw_brake.GetCurrent();
+            char Comb_label[256];
+            snprintf(Comb_label, sizeof(Comb_label), "Str: %.2f | Thr: %.2f | Brk: %.2f", str, thr, brk);
+            //ImGui::SameLine();
+            ImGui::Text("%s", Comb_label);
+            ImVec2 pos_brk = ImGui::GetItemRectMin();
+            ImGui::SetCursorScreenPos(pos_brk);
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 0.0f, 1.0f)); // Red for Brake
+            ImGui::PlotLines("##BrkComb", plot_raw_brake.data.data(), (int)plot_raw_brake.data.size(), plot_raw_brake.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
             ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f));
-            PlotWithStats("Steering Input", plot_raw_input_steering, -1.0f, 1.0f, ImVec2(0, 40),
-                        "Driver wheel position -1 to 1");
+            ImVec2 pos_thr = ImGui::GetItemRectMin();
+            ImGui::SetCursorScreenPos(pos_thr);
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 0.0f, 1.0f)); // Green for Throttle
+            ImGui::PlotLines("##ThrComb", plot_raw_throttle.data.data(), (int)plot_raw_throttle.data.size(), plot_raw_throttle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
             ImGui::PopStyleColor();
-                    
+            ImVec2 pos_wheel = ImGui::GetItemRectMin();
+            ImGui::SetCursorScreenPos(pos_wheel);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Cyan: Wheel, Green: Throttle, Red: Brake");
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f)); // Cyan for steering
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); // Transparent Bg
+            ImGui::PlotLines("##StrComb", plot_raw_input_steering.data.data(), (int)plot_raw_input_steering.data.size(), plot_raw_input_steering.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+            ImGui::PopStyleColor(2);
+        }
+
         ImGui::NextColumn();
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        
+
         // Group: Vehicle State
-        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Vehicle State]");
+        //ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Vehicle State]");
 
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f));        
-        PlotWithStats("Chassis Lat Accel", plot_input_accel, -20.0f, 20.0f, ImVec2(0, 40),
-                      "Local Lateral Acceleration (G)");
-                      ImGui::PopStyleColor();
+        //PlotWithStats("Chassis Lat Accel", plot_input_accel, -20.0f, 20.0f, ImVec2(0, 40),
+        //    "Local Lateral Acceleration (G)");
+        //PlotWithStats("Car Speed (m/s)", plot_raw_car_speed, 0.0f, 100.0f, ImVec2(0, 40),
+        //    "Vehicle Speed");
 
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.7f, 0.7f, 1.0f, 1.0f));        
-        PlotWithStats("Car Speed (m/s)", plot_raw_car_speed, 0.0f, 100.0f, ImVec2(0, 40),
-                      "Vehicle Speed");
-                      ImGui::PopStyleColor();
-        
-        ImGui::NextColumn();
-        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        
+        //ImGui::NextColumn();
+
         // Group: Raw Tire Data
         ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Raw Tire Data]");
-        
+
         // Raw Front Load with warning label and stats
         {
             float current = plot_raw_load.GetCurrent();
             float min_val = plot_raw_load.GetMin();
             float max_val = plot_raw_load.GetMax();
             char stats_label[256];
-            snprintf(stats_label, sizeof(stats_label), "Raw Front Load | Val: %.4f | Min: %.3f | Max: %.3f", 
-                     current, min_val, max_val);
-            
+            snprintf(stats_label, sizeof(stats_label), "Front Load | Val: %.4f | Min: %.3f | Max: %.3f",
+                current, min_val, max_val);
             ImGui::Text("%s", stats_label);
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));  //Magenta
-            ImGui::PlotLines("##RawLoad", plot_raw_load.data.data(), (int)plot_raw_load.data.size(), 
-                           plot_raw_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+            ImGui::PlotLines("##RawLoad", plot_raw_load.data.data(), (int)plot_raw_load.data.size(),
+                plot_raw_load.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Tire Load from Game API");
         }
-        
+
         // Raw Front Grip with warning label and stats
         //{
         //    float current = plot_raw_grip.GetCurrent();
@@ -2102,7 +1911,7 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
         //        plot_raw_grip.offset, NULL, 0.0f, 1.2f, ImVec2(0, 40));
         //    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Grip Fraction from Game API");
         //}
-        
+
         //PlotWithStats("Raw Rear Grip", plot_raw_rear_grip, 0.0f, 1.2f, ImVec2(0, 40),
         //    "Raw Rear Grip Fraction from Game API");
 
@@ -2114,22 +1923,22 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
             snprintf(gr_label, sizeof(gr_label), "Grip Fraction Front: %.0f | Rear: %.0f ", curgr_f, curgr_r);
             ImGui::Text("%s", gr_label);
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##GrippF", plot_raw_grip.data.data(), (int)plot_raw_grip.data.size(), plot_raw_grip.offset, NULL, -0.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##GrippF", plot_raw_grip.data.data(), (int)plot_raw_grip.data.size(), plot_raw_grip.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor();
             ImVec2 pos_load = ImGui::GetItemRectMin();
             ImGui::SetCursorScreenPos(pos_load);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##GrippR", plot_raw_rear_grip.data.data(), (int)plot_raw_rear_grip.data.size(), plot_raw_rear_grip.offset, NULL, -0.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##GrippR", plot_raw_rear_grip.data.data(), (int)plot_raw_rear_grip.data.size(), plot_raw_rear_grip.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor(2);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Grip Fraction\nCyan: Front\nMagenta: Rear");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Raw Grip Fraction Cyan: Front, Magenta: Rear");
         }
 
 
 
         ImGui::NextColumn();
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 1.0f);
-        
+
         // Group: Patch Velocities
         ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Patch Velocities]");
         //PlotWithStats("Avg Front Lat PatchVel", plot_raw_front_lat_patch_vel, 0.0f, 20.0f, ImVec2(0, 40),
@@ -2144,13 +1953,13 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
             snprintf(lat_label, sizeof(lat_label), "LatVel Patch Front: %.0f | Rear: %.0f ", curlp_f, curlp_r);
             ImGui::Text("%s", lat_label);
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##LatF", plot_raw_front_lat_patch_vel.data.data(), (int)plot_raw_front_lat_patch_vel.data.size(), plot_raw_front_lat_patch_vel.offset, NULL, -0.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##LatF", plot_raw_front_lat_patch_vel.data.data(), (int)plot_raw_front_lat_patch_vel.data.size(), plot_raw_front_lat_patch_vel.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor();
             ImVec2 pos_load = ImGui::GetItemRectMin();
             ImGui::SetCursorScreenPos(pos_load);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##LatR", plot_raw_rear_lat_patch_vel.data.data(), (int)plot_raw_rear_lat_patch_vel.data.size(), plot_raw_rear_lat_patch_vel.offset, NULL, -0.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##LatR", plot_raw_rear_lat_patch_vel.data.data(), (int)plot_raw_rear_lat_patch_vel.data.size(), plot_raw_rear_lat_patch_vel.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor(2);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lateral Velocity at Contact Patch Cyan: Front, Magenta: Rear");
         }
@@ -2168,19 +1977,46 @@ void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
             snprintf(llong_label, sizeof(llong_label), "LongVel ContPatch Front: %.0f | Rear: %.0f ", curllp_f, curllp_r);
             ImGui::Text("%s", llong_label);
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##LlongF", plot_raw_front_long_patch_vel.data.data(), (int)plot_raw_front_long_patch_vel.data.size(), plot_raw_front_long_patch_vel.offset, NULL, -1.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##LlongF", plot_raw_front_long_patch_vel.data.data(), (int)plot_raw_front_long_patch_vel.data.size(), plot_raw_front_long_patch_vel.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor();
             ImVec2 pos_load = ImGui::GetItemRectMin();
             ImGui::SetCursorScreenPos(pos_load);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
-            ImGui::PlotLines("##LlongR", plot_raw_rear_long_patch_vel.data.data(), (int)plot_raw_rear_long_patch_vel.data.size(), plot_raw_rear_long_patch_vel.offset, NULL, -1.2f, 1.2f, ImVec2(0, 40));
+            ImGui::PlotLines("##LlongR", plot_raw_rear_long_patch_vel.data.data(), (int)plot_raw_rear_long_patch_vel.data.size(), plot_raw_rear_long_patch_vel.offset, NULL, -0.2f, 0.2f, ImVec2(0, 40));
             ImGui::PopStyleColor(2);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Longitudinal Velocity at Contact Patch Cyan: Front, Magenta: Rear");
         }
 
         ImGui::Columns(1);
     }
+
+        // Weight Distribution Ratios
+        //ImGui::Text("Weight Distribution");
+        //PlotWithStats("Front Axle %", plot_weight_front_axle, 0.0f, 1.0f, ImVec2(0, 40),
+        //   "Front axle load ratio from TelemetryProcessor");
+        //PlotWithStats("Rear Axle %", plot_weight_rear_axle, 0.0f, 1.0f, ImVec2(0, 40),
+        //    "Rear axle load ratio from TelemetryProcessor");
+
+        // --- Manually draw stats for the Multi-line Load Graph ---
+        {
+            float curw_f = plot_weight_front_axle.GetCurrent();
+            float curw_r = plot_weight_rear_axle.GetCurrent();
+            char axeweight_label[128];
+            snprintf(axeweight_label, sizeof(axeweight_label), "AxleLoad Front: %.0f | Rear: %.0f ", curw_f, curw_r);
+            ImGui::Text("%s", axeweight_label);
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
+            ImGui::PlotLines("##CWeightF", plot_weight_front_axle.data.data(), (int)plot_weight_front_axle.data.size(), plot_weight_front_axle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+            ImGui::PopStyleColor();
+            ImVec2 pos_weight = ImGui::GetItemRectMin();
+            ImGui::SetCursorScreenPos(pos_weight);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
+            ImGui::PlotLines("##CWeightR", plot_weight_rear_axle.data.data(), (int)plot_weight_rear_axle.data.size(), plot_weight_rear_axle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+            ImGui::PopStyleColor(2);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Axleload ratio Cyan: Front, Magenta: Rear");
+        }
+
 
     ImGui::End();
 }
