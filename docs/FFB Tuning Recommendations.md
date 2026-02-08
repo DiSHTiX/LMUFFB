@@ -5,6 +5,19 @@ This guide provides a systematic approach to tuning Force Feedback in LMUFFB. In
 
 The philosophy is to build the signal in layers: **Calibration $\to$ Front Axle $\to$ Rear Axle $\to$ Textures $\to$ Refinement.**
 
+Premise: the app is still in an early version and some effects are not yet working as intended.
+
+What is working best at the moment:
+
+* the steering rack force provides a baseline FFB signal that has more detail and less dampening than the in-game FFB.
+* the Yaw Kick provides a lot of road detail. However, it could also cause strong spikes in forces when hitting kerbs, so adjust the Yaw settings in that case (lower Yaw gain and increase the threshold and smoothing for Yaw).
+* The Rear Self Align Torque provides a countersteering force when the rear is stepping out.
+* Some users also report that the Brake lockup effects are working as intended, helping prevent nealy all lockups.
+
+What is not working as intended:
+
+* The understeer effect, in many scenarios. Sometimes it reduces the force too much. It seems very difficult to have it actually modulate according to the grip level. It seems an on-off effect at the moment.
+
 ---
 
 ## Phase 1: The Foundation (Calibration)
@@ -31,7 +44,7 @@ This layer communicates the connection between the front tires and the road.
 
 ### The Settings
 *   **Steering Shaft Gain:** The raw aligning torque from the game physics.
-*   **Understeer Effect:** A modifier that *reduces* force when front grip is lost.
+*   **Understeer Effect:** A modifier that *reduces* force when front grip is lost. **Note**: the understeer effect is still under development and not yet working as intended in many cases.
 
 ### Tuning Steps
 1.  **Isolate:** Temporarily set `SoP Lateral G` to 0.0.
