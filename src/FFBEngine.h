@@ -864,17 +864,19 @@ public:
         m_slope_dAlpha_dt = dAlpha_dt;
 
         // 3. Estimate Slope (dG/dAlpha)
-        // Handle small dAlpha/dt to avoid noise/division by zero
-        // FIX 1: Configurable threshold (was hard-coded 0.001)
+        // v0.7.21 FIX: Denominator protection and gated calculation.
+        // We calculate the physical slope when steering movement is sufficient,
+        // and decay it toward zero otherwise to prevent "sticky" understeer.
         if (std::abs(dAlpha_dt) > (double)m_slope_alpha_threshold) {
-            m_slope_current = dG_dt / dAlpha_dt;
-            
-            // v0.7.17 FIX: Hard clamp to physically possible range [-20, 20]
-            // This prevents numerical explosions near thresholds.
-            m_slope_current = (std::max)(-20.0, (std::min)(20.0, m_slope_current));
+            double abs_dAlpha = std::abs(dAlpha_dt);
+            double sign_dAlpha = (dAlpha_dt >= 0) ? 1.0 : -1.0;
+            double protected_denom = (std::max)(0.005, abs_dAlpha) * sign_dAlpha; 
+            m_slope_current = dG_dt / protected_denom;
+
+            // v0.7.17 FIX: Hard clamp to physically possible range [-20.0, 20.0]
+            m_slope_current = std::clamp(m_slope_current, -20.0, 20.0);
         } else {
-            // FIX 2: Decay slope toward 0 when not actively cornering
-            // This prevents "sticky" understeer on straights
+            // Decay slope toward 0 when not actively cornering
             m_slope_current += (double)m_slope_decay_rate * dt * (0.0 - m_slope_current);
         }
 
@@ -907,9 +909,9 @@ public:
     inline double calculate_slope_confidence(double dAlpha_dt) {
         if (!m_slope_confidence_enabled) return 1.0;
         
-        // v0.7.20 FIX: Use dedicated confidence ramp [0.01, 0.10] rad/s 
+        // v0.7.21 FIX: Use smoothstep confidence ramp [m_slope_alpha_threshold, 0.10] rad/s 
         // to reject singularity artifacts near zero.
-        return inverse_lerp(0.01, 0.1, std::abs(dAlpha_dt));
+        return smoothstep((double)m_slope_alpha_threshold, 0.10, std::abs(dAlpha_dt));
     }
 
     // Helper: Inverse linear interpolation - v0.7.11

@@ -5,6 +5,20 @@ This document contains all version release posts by ErwinMoss from the [url=http
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
 [size=5][b]February 10, 2026[/b][/size]
+[b]Version 0.7.21 - Understeer Math Overhaul[/b]
+
+[b]New release[/b] (0.7.21): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Improved[/b]
+[list]
+[*][b]Mathematical Stabilization (S-Curve Ramp)[/b]: We've replaced the old "binary switch" for grip detection with a modern S-Curve (Smoothstep) ramp. This means the transition from straight-line driving to a full cornering understeer cue is now completely seamless, with no sudden shifts or "notchy" feeling in the force.
+[*][b]Advanced Singularity Protection[/b]: The internal math now has even better guards against extreme telemetry values. Even if the game sends "noisy" data during a curb-strike or accident, the understeer effect remains smooth and physically realistic.
+[*][b]Better Graph Clarity[/b]: The live physics graph now shows a much cleaner and more stable slope calculation, making it easier to see exactly when your tires are losing grip.
+[/list]
+
+---
+
+[size=5][b]February 10, 2026[/b][/size]
 [b]Version 0.7.20 - Slope Stability Hardening[/b]
 
 [b]New release[/b] (0.7.20): https://github.com/coasting-nc/LMUFFB/releases

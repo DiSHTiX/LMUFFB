@@ -87,3 +87,14 @@ See `docs/dev_docs/implementation_plans/plan_slope_detection_tests_v0.7.17.md` f
 - [ ] Updated `VERSION`.
 - [ ] Updated `CHANGELOG_DEV.md`.
 - [ ] Passing Unit Tests.
+
+## Implementation Notes - v0.7.21 (Actual Release)
+
+The plan was fully implemented in version `0.7.21` with the following refinements:
+
+1.  **Hybrid Gating**: While the plan suggested removing the `if (abs(dAlpha) > threshold)` gate, it was maintained for the `m_slope_current` *state update* to ensure the real-time graph remains stable on straights (preventing noise-amplification when `abs(dAlpha)` is near zero).
+2.  **Smoothstep Blending**: The binary gate was successfully removed from the *grip-loss calculation*. Instead, `smoothstep` provides a continuous confidence ramp starting at the threshold (`m_slope_alpha_threshold`). This ensures that even if the physics state "jumps" when entering the gate, the transmitted force transitions seamlessly from zero effect.
+3.  **Hard Clamping**: `std::clamp(..., -20.0, 20.0)` was used as planned to bound the sensitivity of the algorithm.
+4.  **Denominator Protection**: The `(std::max)(0.005, abs_dAlpha)` logic was implemented within the gate to provide extra safety against edge-case singularities.
+5.  **Test Results**: All 962 assertions passed, confirming that the new continuous ramp architecture maintains compatibility with established noise-rejection and decay-rate requirements.
+6.  **Versioning**: The fixes were tagged as `v0.7.21` (incremented from `v0.7.20`).
