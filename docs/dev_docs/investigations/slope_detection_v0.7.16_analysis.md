@@ -55,20 +55,72 @@ The raw slope value appears to be fed directly into the smoothing function witho
 *   **Binary Feel:** Instead of a progressive loss of grip, the user experiences binary On/Off behavior when the threshold is crossed during transient maneuvers.
 *   **False Positives:** Bumps causing high `dG/dt` while steering is relatively steady (low but active `dAlpha/dt`) will trigger false understeer signals.
 
-## 5. Recommendations
+## 5. Log Analyzer Enhancements
 
-### 5.1. Immediate Code Fixes
-1.  **Hard Clamp Raw Slope:** Implement a clamp on the predicted slope value immediately after calculation.
-    ```cpp
-    double slope = dG_dt / dAlpha_dt;
-    slope = std::clamp(slope, -20.0, 20.0); // Prevent infinity/explosions
-    ```
-2.  **Denominator Regularization:** Add a small epsilon or scaling factor to the denominator to soften the asymptotic behavior near the threshold.
-3.  **Review Max Threshold:** Ensure the `Slope Max Threshold` setting interprets values beyond -2.0 consistently, but the input must be sane first.
+To better detect and visualize these specific instability modes in the future, the Log Analyzer should be updated with:
 
-### 5.2. Algorithm Tuning
-*   **Increase Window Size:** The default window (15) might be too small for the noisy telemetry of LMU/rF2 engine. Testing with 21 or 31 is recommended.
-*   **Confidence Scaling:** Instead of a hard binary threshold for `Active`, use a smooth ramp (0.0 to 1.0) based on `dAlpha` magnitude. E.g., confidence is 0% at 0.02 rad/s and 100% at 0.10 rad/s. This would attenuate the "exploded" slope values calculated near the lower bound.
+### 5.1. "Singularity" Event Detection
+*   **Metric:** Count events where `abs(dAlpha_dt) < 0.05` AND `abs(Slope) > 10.0`.
+*   **Purpose:** Specifically identifies the division-by-small-number artifacts distinct from general noise.
 
-## 6. Conclusion
-The Slope Detection feature in v0.7.16 is mathematically functional but practically unstable due to division-by-small-number artifacts. It requires immediate patching to clamp inputs and smooth the activation transition to be usable.
+### 5.2. Correlation Plots for Stability
+*   **Scatter Plot:** `dAlpha_dt` (x-axis) vs `Slope` (y-axis).
+    *   *Expectation:* This should show a "butterfly" or asymptotic pattern where slope explodes as x approaches zero.
+*   **Histogram:** Distribution of `dAlpha_dt` values when `Slope` is considered "Active". Only 8-14% active time suggests the threshold might be cutting off valid data or the driving style wasn't aggressive, but looking at where the unstable slopes occur is vital.
+
+## 6. Comprehensive Unit Test Strategy
+
+To prevent regression and ensure stability, the following unit tests must be added to the test suite (`tests/test_slope_detection.cpp`):
+
+### 6.1. Singularity & Boundary Tests
+*   **`TestSlope_NearThreshold_Singularity`**: 
+    *   Input: `dAlpha/dt` = 0.02001 (just above threshold), `dG/dt` = 5.0 (moderate bump).
+    *   Assert: Resulting Grip Factor should NOT drop instantly to 0.2. Slope output must be clamped.
+*   **`TestSlope_ZeroCrossing`**:
+    *   Input: Sequence of slip angles crossing zero: `-0.01` -> `0.00` -> `0.01`.
+    *   Assert: No NaN or Infinity in output.
+
+### 6.2. Impulse & Noise Tests
+*   **`TestSlope_ImpulseRejection`**:
+    *   Input: Steady cornering, inject single frame spike in Lat G (simulating curb strike).
+    *   Assert: Variance in Grip Factor should be attenuated by smoothing; no instantaneous change > 10%.
+*   **`TestSlope_NoiseImmunity`**:
+    *   Input: Synthetic noisy signal (Sine wave + Gaussian noise) for both G and Alpha.
+    *   Assert: Standard deviation of Output Slope should be < 2.0x Standard deviation of Input trend.
+
+### 6.3. Ramp Logic Tests
+*   **`TestConfidenceRamp_Progressive`**:
+    *   Input: Increasing `dAlpha/dt` from 0.0 to 0.10.
+    *   Assert: Confidence (and effect weight) should increase linearly/smoothly from 0.0 to 1.0. No step changes.
+
+## 7. Implementation Plan for Fixes
+
+### Phase 1: Safety Clamping (Hotfix)
+**Objective:** Eliminate infinite/exploded values immediately.
+
+1.  **Modify `FFBEngine::calculate_slope_grip`**:
+    *   Insert a hard clamp on the calculated raw slope **before** it enters the smoothing buffer.
+    *   Limit: `[-20.0, 20.0]`.
+    *   *Rationale:* A slope of -20 means losing 20G of lateral force per 1 radian of slip. This is physically impossible for a stable tire curve; anything beyond this is noise/artifact.
+
+### Phase 2: Confidence Ramp (Stability)
+**Objective:** Remove the binary "Active/Inactive" toggle that causes jolts.
+
+1.  **Refactor `Slope Active` Logic**:
+    *   Remove `bool active = dAlpha > threshold`.
+    *   Introduce `float confidence = inverse_lerp(lower_thresh, upper_thresh, abs(dAlpha))`.
+    *   Suggested thresholds: 
+        *   `Lower`: 0.01 rad/s (Start blending in)
+        *   `Upper`: 0.10 rad/s (Full confidence)
+2.  **Apply Confidence to Output**:
+    *   `GripLoss = (RawGripLoss * confidence)`.
+    *   When `dAlpha` is low (near singularity), confidence is low, effectively muting the exploded slope value.
+
+### Phase 3: Smoothing & Filtering (Refinement)
+1.  **Denominator Regularization (Optional)**:
+    *   Change division to: `dG / (sign(dAlpha) * max(abs(dAlpha), epsilon))` to prevent division by zero, though Clamping + Confidence Ramp usually handles this better.
+2.  **Verify Smoothing Order**:
+    *   Ensure smoothing (EMA) is applied to the *final grip factor* or the *clamped slope*, never the raw exploded slope.
+
+## 8. Conclusion
+The Slope Detection feature in v0.7.16 is mathematically functional but practically unstable due to division-by-small-number artifacts. Immediate patching (Phase 1 & 2) is required to prompt a stable release.

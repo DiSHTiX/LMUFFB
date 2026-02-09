@@ -1,0 +1,33 @@
+============================================================
+               LMUFFB DIAGNOSTIC REPORT
+============================================================
+
+SESSION INFORMATION
+--------------------
+Driver:       User
+Vehicle:      VDS Panis Racing #48:ELMS25
+Track:        Circuit de la Sarthe
+Date:         2026-02-09 22:39:27.499131
+App Version:  0.7.16
+
+SETTINGS
+--------------------
+Gain:               1.00
+Understeer Effect:  0.50
+SOP Effect:          0.05
+Slope Detection:    Enabled
+Slope Sensitivity:  0.50
+Slope Threshold:    -0.30
+
+SLOPE ANALYSIS
+--------------------
+Slope Mean:       nan
+Slope Std Dev:    nan
+Slope Range:      nan to nan
+Active Time:      nan%
+Floor Hits:       nan%
+Oscillations:      0 events detected
+
+No significant issues detected in slope analysis.
+
+============================================================

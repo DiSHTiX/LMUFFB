@@ -1,0 +1,36 @@
+============================================================
+               LMUFFB DIAGNOSTIC REPORT
+============================================================
+
+SESSION INFORMATION
+--------------------
+Driver:       User
+Vehicle:      Unknown
+Track:        Unknown
+Date:         2026-02-09 22:39:19.510018
+App Version:  0.7.16
+
+SETTINGS
+--------------------
+Gain:               1.00
+Understeer Effect:  0.50
+SOP Effect:          0.43
+Slope Detection:    Enabled
+Slope Sensitivity:  0.50
+Slope Threshold:    -0.30
+
+SLOPE ANALYSIS
+--------------------
+Slope Mean:       -0.49
+Slope Std Dev:    69.20
+Slope Range:      -8182.2 to 2121.6
+Active Time:      8.9%
+Floor Hits:       0.0%
+Oscillations:      24 events detected
+
+ISSUES DETECTED
+--------------------
+  [!] HIGH SLOPE VARIANCE (69.20) - Algorithm may be unstable
+  [!] LOW ACTIVE PERCENTAGE (8.9%) - Slope rarely calculated
+
+============================================================
