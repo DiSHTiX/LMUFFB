@@ -5,8 +5,17 @@ from rich.table import Table
 from rich.panel import Panel
 
 from .loader import load_log
-from .analyzers.slope_analyzer import analyze_slope_stability, detect_oscillation_events
-from .plots import plot_slope_timeseries, plot_slip_vs_latg, plot_dalpha_histogram
+from .analyzers.slope_analyzer import (
+    analyze_slope_stability, 
+    detect_oscillation_events,
+    detect_singularities
+)
+from .plots import (
+    plot_slope_timeseries, 
+    plot_slip_vs_latg, 
+    plot_dalpha_histogram,
+    plot_slope_correlation
+)
 from .reports import generate_text_report
 
 console = Console()
@@ -50,6 +59,7 @@ def analyze(logfile, verbose):
         # Run slope analysis
         slope_results = analyze_slope_stability(df)
         oscillations = detect_oscillation_events(df)
+        singularity_count, worst_slope = detect_singularities(df)
         
         # Display results
         table = Table(title="Slope Detection Analysis")
@@ -87,6 +97,17 @@ def analyze(logfile, verbose):
             str(len(oscillations)),
             "MANY" if len(oscillations) > 3 else "OK"
         )
+        table.add_row(
+            "Singularity Events",
+            str(singularity_count),
+            "CRITICAL" if singularity_count > 0 else "OK"
+        )
+        if singularity_count > 0:
+            table.add_row(
+                "Worst Singularity",
+                f"{worst_slope:.1f}",
+                "SEVERE" if worst_slope > 20.0 else "WARN"
+            )
         
         console.print(table)
         
@@ -131,6 +152,11 @@ def plots(logfile, output, plot_all):
             hist_path = output_dir / f"{base_name}_dalpha_hist.png"
             plot_dalpha_histogram(df, str(hist_path), show=False)
             console.print(f"  [OK] Created: {hist_path}")
+
+            # Slope correlation
+            corr_path = output_dir / f"{base_name}_slope_corr.png"
+            plot_slope_correlation(df, str(corr_path), show=False)
+            console.print(f"  [OK] Created: {corr_path}")
         
         console.print("\n[bold green]Done![/bold green]")
     except Exception as e:

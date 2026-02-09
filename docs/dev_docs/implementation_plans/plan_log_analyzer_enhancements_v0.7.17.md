@@ -74,4 +74,9 @@ This is Python code, so we will update/add checks in `tools/lmuffb_log_analyzer/
 - [ ] Updated `README.md` for the tool.
 
 ## Implementation Notes
-- [ ] Monitor performance: Scatter plots with 200k+ points can be slow. Use `df.sample(n=10000)` if log is huge.
+- **Singularity Detection:** Successfully implemented with configurable thresholds. Tests verify correct counting.
+- **Signal Quality Metrics:** Zero-Crossing Rate (Hz), Binary State Residence (%), and Derivative Energy Ratio added to `analyze_slope_stability`.
+- **Visualization:** `plot_slope_correlation` added to `plots.py` and integrated into CLI `--all` flag.
+- **CLI Improvements:** Added "Singularity Events" and "Worst Singularity" to the `analyze` command output table.
+- **Version Increment:** Bumped to 0.7.19 (from 0.7.18).
+- **No significant issues encountered. Implementation proceeded as planned.**

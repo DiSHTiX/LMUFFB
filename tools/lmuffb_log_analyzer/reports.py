@@ -1,6 +1,10 @@
 import pandas as pd
 from .models import SessionMetadata
-from .analyzers.slope_analyzer import analyze_slope_stability, detect_oscillation_events
+from .analyzers.slope_analyzer import (
+    analyze_slope_stability, 
+    detect_oscillation_events,
+    detect_singularities
+)
 
 def generate_text_report(metadata: SessionMetadata, df: pd.DataFrame) -> str:
     """
@@ -8,6 +12,7 @@ def generate_text_report(metadata: SessionMetadata, df: pd.DataFrame) -> str:
     """
     slope_results = analyze_slope_stability(df)
     oscillations = detect_oscillation_events(df)
+    singularity_count, worst_slope = detect_singularities(df)
     
     report = []
     report.append("=" * 60)
@@ -47,6 +52,17 @@ def generate_text_report(metadata: SessionMetadata, df: pd.DataFrame) -> str:
         report.append(f"Floor Hits:       {slope_results['floor_percentage']:.1f}%")
         
     report.append(f"Oscillations:      {len(oscillations)} events detected")
+    report.append(f"Singularities:     {singularity_count} events detected (Worst: {worst_slope:.1f})")
+    report.append("")
+
+    report.append("SIGNAL QUALITY & STABILITY")
+    report.append("-" * 20)
+    if slope_results.get('zero_crossing_rate') is not None:
+        report.append(f"Zero-Crossing Rate: {slope_results['zero_crossing_rate']:.2f} Hz")
+    if slope_results.get('binary_residence') is not None:
+        report.append(f"Binary Residence:   {slope_results['binary_residence']:.1f}%")
+    if slope_results.get('derivative_energy_ratio') is not None:
+        report.append(f"D-Energy Ratio:     {slope_results['derivative_energy_ratio']:.2f}")
     report.append("")
     
     if slope_results['issues']:
