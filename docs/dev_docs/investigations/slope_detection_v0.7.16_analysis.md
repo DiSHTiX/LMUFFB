@@ -31,9 +31,30 @@ Aggregated data from the processed logs:
 2.  **Log 22:39:25 (Panis Racing):** Range -1467 to +869. 242 oscillation events.
 3.  **Log 22:39:31 (Panis Racing):** Range -676 to +1151. 341 oscillation events.
 
-## 3. Root Cause Analysis
+## 3. Visual Analysis Findings
 
-### 3.1. Mathematical Instability
+Review of the time-series plots (`_timeseries.png`) and histograms (`_dalpha_hist.png`) provides visual confirmation of the numerical instability:
+
+### 3.1. "Barcode" Slope Artifacts
+In the **Calculated Slope** subplot, the signal resembles a "barcode" rather than a continuous physical measurement.
+*   **Observation:** The slope switches between extreme positive and extreme negative values within single frames.
+*   **Correlation:** This aligns precisely with the **Grip Factor** subplot (Green line), which shows "grass-like" transient drops to the floor (0.2) rather than smooth curves.
+*   **Conclusion:** The algorithm is not tracking tire physics; it is amplifying high-frequency noise.
+
+### 3.2. Binary Grip Behavior
+The **Grip Factor** output rarely settles at intermediate values (e.g., 0.6 or 0.7).
+*   **Observation:** The signal is effectively binary: it is either **1.0 (Full Grip)** or **0.2 (Floor)**.
+*   **Cause:** The calculated slope magnitude is so large (often > 200) that it instantly saturates the Min/Max thresholds (-0.3 to -2.0), forcing the output to the clamp limit immediately.
+
+### 3.3. Derivative Scale Mismatch
+In the **Derivatives** subplot:
+*   `dAlpha/dt` (Orange) is barely visible, hovering near the zero line.
+*   `dG/dt` (Blue) shows significant spikes due to road noise or bumps.
+*   **Conclusion:** The massive disparity in scale means `dG` acts as pure noise acting on a near-zero denominator, resulting in the observed chaotic output.
+
+## 4. Root Cause Analysis
+
+### 4.1. Mathematical Instability
 The slope corresponds to the derivative of lateral force with respect to slip angle:
 $$Slope = \frac{dG}{dt} / \frac{d\alpha}{dt}$$
 
@@ -46,24 +67,32 @@ The algorithm enforces a threshold on $\frac{d\alpha}{dt}$ (default 0.02 rad/s).
 
 This value (-196) is orders of magnitude beyond the `Max Threshold` (-2.0), causing an instantaneous 100% signal for grip loss.
 
-### 3.2. Lack of Output Clamping
+### 4.2. Lack of Output Clamping
 The raw slope value appears to be fed directly into the smoothing function without a reasonable hard clamp (e.g., limiting slope to range [-20, +20]) before it interacts with the logic. While `GripFactor` is clamped between 0.2 and 1.0, the input driving it swings wildly, defeating the purpose of the smoothing filter (EMA), which cannot cope with spikes of magnitude 200+.
 
-## 4. Impact on Driver Experience
+## 5. Impact on Driver Experience
 
 *   **"Notchy" FFB:** The rapid switching between "Inactive" (Slope 0, Grip 1.0) and "Exploded" (Slope -200, Grip 0.2) creates severe jolts in the force feedback.
 *   **Binary Feel:** Instead of a progressive loss of grip, the user experiences binary On/Off behavior when the threshold is crossed during transient maneuvers.
 *   **False Positives:** Bumps causing high `dG/dt` while steering is relatively steady (low but active `dAlpha/dt`) will trigger false understeer signals.
 
-## 5. Log Analyzer Enhancements
+## 6. Log Analyzer Enhancements
 
-To better detect and visualize these specific instability modes in the future, the Log Analyzer should be updated with:
+To bridge the gap between text reports and visual plots, the Log Analyzer text report should serve as a "textual visualization" by including specific density and volatility metrics.
 
-### 5.1. "Singularity" Event Detection
+### 6.1. "Singularity" Event Detection
 *   **Metric:** Count events where `abs(dAlpha_dt) < 0.05` AND `abs(Slope) > 10.0`.
 *   **Purpose:** Specifically identifies the division-by-small-number artifacts distinct from general noise.
 
-### 5.2. Correlation Plots for Stability
+### 6.2. Signal Volatility Metrics (New)
+*   **Zero-Crossing Rate (Hz):** How many times per second the Slope signal crosses zero.
+    *   *Interpretation:* > 5Hz indicates noise; < 2Hz indicates physical tire behavior.
+*   **Binary State Residence (%):** Percentage of active time the Grip Factor is near the rails (>0.95 or <0.25).
+    *   *Interpretation:* High values (>50%) indicate the feedback is binary/digital rather than analog/progressive.
+*   **Derivative Energy Ratio:** Ratio of `RMS(dG/dt)` to `RMS(dAlpha/dt)`.
+    *   *Interpretation:* A massive ratio (e.g., >100) confirms that the numerator (G-force noise) is swamping the denominator (Steering input).
+
+### 6.3. Correlation Plots for Stability
 *   **Scatter Plot:** `dAlpha_dt` (x-axis) vs `Slope` (y-axis).
     *   *Expectation:* This should show a "butterfly" or asymptotic pattern where slope explodes as x approaches zero.
 *   **Histogram:** Distribution of `dAlpha_dt` values when `Slope` is considered "Active". Only 8-14% active time suggests the threshold might be cutting off valid data or the driving style wasn't aggressive, but looking at where the unstable slopes occur is vital.
