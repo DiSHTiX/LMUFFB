@@ -42,6 +42,13 @@ python -m lmuffb_log_analyzer.cli plots path/to/log.csv --output ./plots --all
 python -m lmuffb_log_analyzer.cli report path/to/log.csv --output report.txt
 ```
 
+### Batch Process a Directory
+```bash
+python -m lmuffb_log_analyzer.cli batch path/to/log_directory --output ./results
+```
+
+Runs `info`, `analyze`, `plots`, and `report` for all `.csv` files in the specified directory.
+
 ## Plot Types
 
 - **Timeseries:** Layout of Lat G, Slip Angle, Derivatives, Slope, and Grip Factor.

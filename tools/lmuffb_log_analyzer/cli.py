@@ -12,7 +12,7 @@ from .reports import generate_text_report
 console = Console()
 
 @click.group()
-@click.version_option(version='1.0.0')
+@click.version_option(version='1.0.1')
 def cli():
     """lmuFFB Log Analyzer - Analyze FFB telemetry logs for diagnostics."""
     pass

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.18] - 2026-02-09
+### Added
+- **Batch Processing for Log Analyzer**:
+  - Implemented a new `batch` command in the `lmuffb_log_analyzer` tool.
+  - Automatically processes all `.csv` logs in a directory, running `info`, `analyze`, `plots`, and `report` for each.
+  - Generates a centralized results directory containing reports and diagnostic plots for all captured sessions.
+### Testing
+- **New Test Suite**: `tools/lmuffb_log_analyzer/tests/test_batch.py`
+  - Validates end-to-end directory processing and file generation logic.
+
 ## [0.7.17] - 2026-02-07
 ### Changed
 - **Test Suite Refactoring (Completion)**:

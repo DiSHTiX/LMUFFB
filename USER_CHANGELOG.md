@@ -4,6 +4,24 @@ This document contains all version release posts by ErwinMoss from the [url=http
 
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
+[size=5][b]February 9, 2026[/b][/size]
+[b]Version 0.7.18 - Batch Log Analysis[/b]
+
+[b]New release[/b] (0.7.18): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Added[/b]
+[list]
+[*][b]Batch Log Analysis[/b]: You can now analyze an entire directory of log files at once. The new [code]batch[/code] command runs all diagnostics (session info, slope analysis, plots, and reports) for every log file in the folder.
+[*][b]One-Click Diagnostics[/b]: Perfect for analyzing an entire race weekend or comparing multiple car/track combinations. All results are neatly organized into a dedicated results directory.
+[/list]
+
+[b]Improved[/b]
+[list]
+[*][b]Diagnostics Workflow[/b]: The Log Analyzer tool is now even easier to use for deep dives into FFB performance and telemetry stability.
+[/list]
+
+---
+
 [size=5][b]February 7, 2026[/b][/size]
 [b]Version 0.7.17 - Test Suite Consolidation[/b]
 
