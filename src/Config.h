@@ -503,12 +503,12 @@ public:
     static int win_w_small, win_h_small; // Dimensions for Config Only
     static int win_w_large, win_h_large; // Dimensions for Config + Graphs
     static bool show_graphs;             // Remember if graphs were open
-
+    
 private:
-    // Helper for parsing preset lines (v0.7.12)
-    static void ParsePresetLine(const std::string& line, Preset& p, std::string& version, bool& needs_save);
-    // Helper for writing preset fields (v0.7.12)
-    static void WritePresetFields(std::ofstream& file, const Preset& p);
+// Helper for parsing preset lines (v0.7.12)
+static void ParsePresetLine(const std::string& line, Preset& p, std::string& version, bool& needs_save);
+// Helper for writing preset fields (v0.7.12)
+static void WritePresetFields(std::ofstream& file, const Preset& p);
 };
 
 

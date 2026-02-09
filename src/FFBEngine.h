@@ -11,6 +11,7 @@
 #include "lmu_sm_interface/InternalsPluginWrapper.h"
 #include "AsyncLogger.h"
 #include "TelemetryProcessor.h"
+#include "TelemetryProcessor.h"
 
 // Mathematical Constants
 static constexpr double PI = 3.14159265358979323846;
@@ -630,6 +631,7 @@ private:
     //static constexpr double ABS_PEDAL_THRESHOLD = 0.05;
     //static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 100.0;  // kPa/s pressure modulation rate
 
+    
     // Predictive Lockup Gating Thresholds (v0.6.0)
     // These constants define the conditions under which predictive logic is enabled.
     static constexpr double PREDICTION_BRAKE_THRESHOLD = 0.02;  // 2% brake deadzone
