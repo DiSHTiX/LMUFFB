@@ -868,6 +868,10 @@ public:
         // FIX 1: Configurable threshold (was hard-coded 0.001)
         if (std::abs(dAlpha_dt) > (double)m_slope_alpha_threshold) {
             m_slope_current = dG_dt / dAlpha_dt;
+            
+            // v0.7.17 FIX: Hard clamp to physically possible range [-20, 20]
+            // This prevents numerical explosions near thresholds.
+            m_slope_current = (std::max)(-20.0, (std::min)(20.0, m_slope_current));
         } else {
             // FIX 2: Decay slope toward 0 when not actively cornering
             // This prevents "sticky" understeer on straights
@@ -902,8 +906,10 @@ public:
     // Extracted to avoid code duplication between slope detection and logging
     inline double calculate_slope_confidence(double dAlpha_dt) {
         if (!m_slope_confidence_enabled) return 1.0;
-        double conf_raw = std::abs(dAlpha_dt) / 0.1; // Normalize to 0.1 rad/s
-        return (std::min)(1.0, conf_raw);
+        
+        // v0.7.20 FIX: Use dedicated confidence ramp [0.01, 0.10] rad/s 
+        // to reject singularity artifacts near zero.
+        return inverse_lerp(0.01, 0.1, std::abs(dAlpha_dt));
     }
 
     // Helper: Inverse linear interpolation - v0.7.11

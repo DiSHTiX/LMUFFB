@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.20] - 2026-02-10
+### Added
+- **Slope Detection Hardening**:
+  - **Numerical Stability Fixes**: Implemented a hard clamp on calculated raw slope values within [-20.0, 20.0] to prevent mathematical explosions near thresholds.
+  - **Improved Confidence Ramp**: Updated `calculate_slope_confidence` to use a dedicated 0.01 to 0.10 rad/s `inverse_lerp` ramp, providing smoother transitions and rejecting singularity artifacts at low steering speeds.
+### Testing
+- **Comprehensive Hardening Suite**: Added 6 new test cases to `tests/test_ffb_slope_detection.cpp` covering:
+  - `TestSlope_NearThreshold_Singularity`: Verifies clamping under extreme dG/dAlpha conditions.
+  - `TestSlope_ZeroCrossing`: Ensures stability during direction changes.
+  - `TestSlope_SmallSignals`: Validates noise rejection below active thresholds.
+  - `TestSlope_ImpulseRejection`: Confirms smoothing of single-frame physics spikes.
+  - `TestSlope_NoiseImmunity`: Statistically verifies slope stability under high-noise conditions.
+  - `TestConfidenceRamp_Progressive`: Validates the smooth blending of the grip effect.
+- **Verification**: All tests passing, bringing the total validated assertions to 962.
+
 ## [0.7.18] - 2026-02-09
 ### Added
 - **Batch Processing for Log Analyzer**:

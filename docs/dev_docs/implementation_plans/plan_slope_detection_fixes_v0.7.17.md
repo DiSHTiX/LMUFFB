@@ -1,4 +1,4 @@
-# Implementation Plan - Slope Detection Fixes (v0.7.17)
+# Implementation Plan - Slope Detection Fixes (v0.7.21)
 
 ## Context
 Following the analysis of slope detection instability (Task `slope_detection_v0.7.16_analysis`), we confirmed critical instability in the algorithm. This task addresses the root cause: division-by-small-number artifacts resulting in unclamped slope values. We will implement safety clamps and a confidence ramp to mitigate this.

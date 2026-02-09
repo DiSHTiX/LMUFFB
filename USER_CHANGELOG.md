@@ -4,6 +4,24 @@ This document contains all version release posts by ErwinMoss from the [url=http
 
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
+[size=5][b]February 10, 2026[/b][/size]
+[b]Version 0.7.20 - Slope Stability Hardening[/b]
+
+[b]New release[/b] (0.7.20): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Fixed[/b]
+[list]
+[*][b]FFB "Explosion" Prevention[/b]: Fixed a critical issue where the steering wheel could suddenly jerk or vibrate violently during slow corners. This was caused by a "division-by-zero" style mathematical explosion in the grip detection code. We've added safety "clamps" to ensure these values always stay within physically realistic limits.
+[*][b]Smoother Understeer Cues[/b]: Refined the way the understeer effect blends in at low speeds. The "Confidence" system is now smarter about rejecting noise, resulting in a much more stable and analog feel through the wheel.
+[/list]
+
+[b]Improved[/b]
+[list]
+[*][b]Hardened Safety Suite[/b]: We've added a comprehensive "Stress Test" suite to our internal diagnostics. This puts the FFB engine through thousands of frames of synthetic "bad data" (spikes, noise, and jitter) to ensure the feedback remains safe and stable for your hardware even in extreme conditions.
+[/list]
+
+---
+
 [size=5][b]February 9, 2026[/b][/size]
 [b]Version 0.7.18 - Batch Log Analysis[/b]
 
