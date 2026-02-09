@@ -10,6 +10,7 @@ bool Config::m_enable_vjoy = false;
 bool Config::m_output_ffb_to_vjoy = false;
 bool Config::m_always_on_top = true;
 std::string Config::m_last_device_guid = "";
+std::string Config::m_last_preset_name = "Default";
 std::string Config::m_config_path = "config.ini";
 bool Config::m_auto_start_logging = false;
 std::string Config::m_log_path = "logs/";
@@ -24,6 +25,97 @@ int Config::win_h_large = 800;
 bool Config::show_graphs = false;
 
 std::vector<Preset> Config::presets;
+
+void Config::ParsePresetLine(const std::string& line, Preset& current_preset, std::string& current_preset_version, bool& needs_save) {
+    std::istringstream is_line(line);
+    std::string key;
+    if (std::getline(is_line, key, '=')) {
+        std::string value;
+        if (std::getline(is_line, value)) {
+            try {
+                // Map keys to struct members
+                if (key == "app_version") current_preset_version = value;
+                else if (key == "gain") current_preset.gain = std::stof(value);
+                else if (key == "understeer") {
+                    float val = std::stof(value);
+                    if (val > 2.0f) {
+                        float old_val = val;
+                        val = val / 100.0f; // Migrating 0-200 range to 0-2
+                        std::cout << "[Preset] Migrated legacy understeer: " << old_val
+                                    << " -> " << val << std::endl;
+                        needs_save = true;
+                    }
+                    current_preset.understeer = (std::min)(2.0f, (std::max)(0.0f, val));
+                }
+                else if (key == "sop") current_preset.sop = (std::min)(2.0f, std::stof(value));
+                else if (key == "sop_scale") current_preset.sop_scale = std::stof(value);
+                else if (key == "sop_smoothing_factor") current_preset.sop_smoothing = std::stof(value);
+                else if (key == "min_force") current_preset.min_force = std::stof(value);
+                else if (key == "oversteer_boost") current_preset.oversteer_boost = std::stof(value);
+                else if (key == "lockup_enabled") current_preset.lockup_enabled = std::stoi(value);
+                else if (key == "lockup_gain") current_preset.lockup_gain = (std::min)(3.0f, std::stof(value));
+                else if (key == "lockup_start_pct") current_preset.lockup_start_pct = std::stof(value);
+                else if (key == "lockup_full_pct") current_preset.lockup_full_pct = std::stof(value);
+                else if (key == "lockup_rear_boost") current_preset.lockup_rear_boost = std::stof(value);
+                else if (key == "lockup_gamma") current_preset.lockup_gamma = std::stof(value);
+                else if (key == "lockup_prediction_sens") current_preset.lockup_prediction_sens = std::stof(value);
+                else if (key == "lockup_bump_reject") current_preset.lockup_bump_reject = std::stof(value);
+                else if (key == "brake_load_cap") current_preset.brake_load_cap = (std::min)(10.0f, std::stof(value));
+                else if (key == "texture_load_cap") current_preset.texture_load_cap = std::stof(value); // NEW v0.6.25
+                else if (key == "max_load_factor") current_preset.texture_load_cap = std::stof(value); // Legacy Backward Compatibility
+                else if (key == "abs_pulse_enabled") current_preset.abs_pulse_enabled = std::stoi(value);
+                else if (key == "abs_gain") current_preset.abs_gain = std::stof(value);
+                else if (key == "spin_enabled") current_preset.spin_enabled = std::stoi(value);
+                else if (key == "spin_gain") current_preset.spin_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "slide_enabled") current_preset.slide_enabled = std::stoi(value);
+                else if (key == "slide_gain") current_preset.slide_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "slide_freq") current_preset.slide_freq = std::stof(value);
+                else if (key == "road_enabled") current_preset.road_enabled = std::stoi(value);
+                else if (key == "road_gain") current_preset.road_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
+                else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
+                else if (key == "abs_freq") current_preset.abs_freq = std::stof(value);
+                else if (key == "lockup_freq_scale") current_preset.lockup_freq_scale = std::stof(value);
+                else if (key == "spin_freq_scale") current_preset.spin_freq_scale = std::stof(value);
+                else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
+                else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = (std::min)(1.0f, std::stof(value));
+                else if (key == "rear_align_effect") current_preset.rear_align_effect = (std::min)(2.0f, std::stof(value));
+                else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
+                else if (key == "slip_angle_smoothing") current_preset.slip_smoothing = std::stof(value);
+                else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
+                else if (key == "gyro_gain") current_preset.gyro_gain = (std::min)(1.0f, std::stof(value));
+                else if (key == "flatspot_suppression") current_preset.flatspot_suppression = std::stoi(value);
+                else if (key == "notch_q") current_preset.notch_q = std::stof(value);
+                else if (key == "flatspot_strength") current_preset.flatspot_strength = std::stof(value);
+                else if (key == "static_notch_enabled") current_preset.static_notch_enabled = std::stoi(value);
+                else if (key == "static_notch_freq") current_preset.static_notch_freq = std::stof(value);
+                else if (key == "static_notch_width") current_preset.static_notch_width = std::stof(value);
+                else if (key == "yaw_kick_threshold") current_preset.yaw_kick_threshold = std::stof(value);
+                else if (key == "optimal_slip_angle") current_preset.optimal_slip_angle = std::stof(value);
+                else if (key == "optimal_slip_ratio") current_preset.optimal_slip_ratio = std::stof(value);
+                else if (key == "slope_detection_enabled") current_preset.slope_detection_enabled = (value == "1");
+                else if (key == "slope_sg_window") current_preset.slope_sg_window = std::stoi(value);
+                else if (key == "slope_sensitivity") current_preset.slope_sensitivity = std::stof(value);
+                else if (key == "slope_negative_threshold") current_preset.slope_negative_threshold = std::stof(value);
+                else if (key == "slope_smoothing_tau") current_preset.slope_smoothing_tau = std::stof(value);
+                else if (key == "slope_min_threshold") current_preset.slope_min_threshold = std::stof(value);
+                else if (key == "slope_max_threshold") current_preset.slope_max_threshold = std::stof(value);
+                else if (key == "slope_alpha_threshold") current_preset.slope_alpha_threshold = std::stof(value);
+                else if (key == "slope_decay_rate") current_preset.slope_decay_rate = std::stof(value);
+                else if (key == "slope_confidence_enabled") current_preset.slope_confidence_enabled = (value == "1");
+                else if (key == "steering_shaft_smoothing") current_preset.steering_shaft_smoothing = std::stof(value);
+                else if (key == "gyro_smoothing_factor") current_preset.gyro_smoothing = std::stof(value);
+                else if (key == "yaw_accel_smoothing") current_preset.yaw_smoothing = std::stof(value);
+                else if (key == "chassis_inertia_smoothing") current_preset.chassis_smoothing = std::stof(value);
+                else if (key == "speed_gate_lower") current_preset.speed_gate_lower = std::stof(value); // NEW v0.6.25
+                else if (key == "speed_gate_upper") current_preset.speed_gate_upper = std::stof(value); // NEW v0.6.25
+                else if (key == "road_fallback_scale") current_preset.road_fallback_scale = std::stof(value); // NEW v0.6.25
+                else if (key == "understeer_affects_sop") current_preset.understeer_affects_sop = std::stoi(value); // NEW v0.6.25
+            } catch (...) {}
+        }
+    }
+}
 
 void Config::LoadPresets() {
     presets.clear();
@@ -675,94 +767,7 @@ void Config::LoadPresets() {
         }
 
         if (preset_pending) {
-            std::istringstream is_line(line);
-            std::string key;
-            if (std::getline(is_line, key, '=')) {
-                std::string value;
-                if (std::getline(is_line, value)) {
-                    try {
-                        // Map keys to struct members
-                        if (key == "app_version") current_preset_version = value;
-                        else if (key == "gain") current_preset.gain = std::stof(value);
-                        else if (key == "understeer") {
-                            float val = std::stof(value);
-                            if (val > 2.0f) {
-                                float old_val = val;
-                                val = val / 100.0f; // Migrating 0-200 range to 0-2
-                                std::cout << "[Preset] Migrated legacy understeer: " << old_val 
-                                          << " -> " << val << std::endl;
-                                needs_save = true;
-                            }
-                            current_preset.understeer = (std::min)(2.0f, (std::max)(0.0f, val));
-                        }
-                        else if (key == "sop") current_preset.sop = (std::min)(2.0f, std::stof(value));
-                        else if (key == "sop_scale") current_preset.sop_scale = std::stof(value);
-                        else if (key == "sop_smoothing_factor") current_preset.sop_smoothing = std::stof(value);
-                        else if (key == "min_force") current_preset.min_force = std::stof(value);
-                        else if (key == "oversteer_boost") current_preset.oversteer_boost = std::stof(value);
-                        else if (key == "lockup_enabled") current_preset.lockup_enabled = std::stoi(value);
-                        else if (key == "lockup_gain") current_preset.lockup_gain = (std::min)(3.0f, std::stof(value));
-                        else if (key == "lockup_start_pct") current_preset.lockup_start_pct = std::stof(value);
-                        else if (key == "lockup_full_pct") current_preset.lockup_full_pct = std::stof(value);
-                        else if (key == "lockup_rear_boost") current_preset.lockup_rear_boost = std::stof(value);
-                        else if (key == "lockup_gamma") current_preset.lockup_gamma = std::stof(value);
-                        else if (key == "lockup_prediction_sens") current_preset.lockup_prediction_sens = std::stof(value);
-                        else if (key == "lockup_bump_reject") current_preset.lockup_bump_reject = std::stof(value);
-                        else if (key == "brake_load_cap") current_preset.brake_load_cap = (std::min)(10.0f, std::stof(value));
-                        else if (key == "texture_load_cap") current_preset.texture_load_cap = std::stof(value); // NEW v0.6.25
-                        else if (key == "max_load_factor") current_preset.texture_load_cap = std::stof(value); // Legacy Backward Compatibility
-                        else if (key == "abs_pulse_enabled") current_preset.abs_pulse_enabled = std::stoi(value);
-                        else if (key == "abs_gain") current_preset.abs_gain = std::stof(value);
-                        else if (key == "spin_enabled") current_preset.spin_enabled = std::stoi(value);
-                        else if (key == "spin_gain") current_preset.spin_gain = (std::min)(2.0f, std::stof(value));
-                        else if (key == "slide_enabled") current_preset.slide_enabled = std::stoi(value);
-                        else if (key == "slide_gain") current_preset.slide_gain = (std::min)(2.0f, std::stof(value));
-                        else if (key == "slide_freq") current_preset.slide_freq = std::stof(value);
-                        else if (key == "road_enabled") current_preset.road_enabled = std::stoi(value);
-                        else if (key == "road_gain") current_preset.road_gain = (std::min)(2.0f, std::stof(value));
-                        else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
-                        else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
-                        else if (key == "abs_freq") current_preset.abs_freq = std::stof(value);
-                        else if (key == "lockup_freq_scale") current_preset.lockup_freq_scale = std::stof(value);
-                        else if (key == "spin_freq_scale") current_preset.spin_freq_scale = std::stof(value);
-                        else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
-                        else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = (std::min)(1.0f, std::stof(value));
-                        else if (key == "rear_align_effect") current_preset.rear_align_effect = (std::min)(2.0f, std::stof(value));
-                        else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = (std::min)(2.0f, std::stof(value));
-                        else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
-                        else if (key == "slip_angle_smoothing") current_preset.slip_smoothing = std::stof(value);
-                        else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
-                        else if (key == "gyro_gain") current_preset.gyro_gain = (std::min)(1.0f, std::stof(value));
-                        else if (key == "flatspot_suppression") current_preset.flatspot_suppression = std::stoi(value);
-                        else if (key == "notch_q") current_preset.notch_q = std::stof(value);
-                        else if (key == "flatspot_strength") current_preset.flatspot_strength = std::stof(value);
-                        else if (key == "static_notch_enabled") current_preset.static_notch_enabled = std::stoi(value);
-                        else if (key == "static_notch_freq") current_preset.static_notch_freq = std::stof(value);
-                        else if (key == "static_notch_width") current_preset.static_notch_width = std::stof(value);
-                        else if (key == "yaw_kick_threshold") current_preset.yaw_kick_threshold = std::stof(value);
-                        else if (key == "optimal_slip_angle") current_preset.optimal_slip_angle = std::stof(value);
-                        else if (key == "optimal_slip_ratio") current_preset.optimal_slip_ratio = std::stof(value);
-                        else if (key == "slope_detection_enabled") current_preset.slope_detection_enabled = (value == "1");
-                        else if (key == "slope_sg_window") current_preset.slope_sg_window = std::stoi(value);
-                        else if (key == "slope_sensitivity") current_preset.slope_sensitivity = std::stof(value);
-                        else if (key == "slope_negative_threshold") current_preset.slope_negative_threshold = std::stof(value);
-                        else if (key == "slope_smoothing_tau") current_preset.slope_smoothing_tau = std::stof(value);
-                        else if (key == "slope_min_threshold") current_preset.slope_min_threshold = std::stof(value);
-                        else if (key == "slope_max_threshold") current_preset.slope_max_threshold = std::stof(value);
-                        else if (key == "slope_alpha_threshold") current_preset.slope_alpha_threshold = std::stof(value);
-                        else if (key == "slope_decay_rate") current_preset.slope_decay_rate = std::stof(value);
-                        else if (key == "slope_confidence_enabled") current_preset.slope_confidence_enabled = (value == "1");
-                        else if (key == "steering_shaft_smoothing") current_preset.steering_shaft_smoothing = std::stof(value);
-                        else if (key == "gyro_smoothing_factor") current_preset.gyro_smoothing = std::stof(value);
-                        else if (key == "yaw_accel_smoothing") current_preset.yaw_smoothing = std::stof(value);
-                        else if (key == "chassis_inertia_smoothing") current_preset.chassis_smoothing = std::stof(value);
-                        else if (key == "speed_gate_lower") current_preset.speed_gate_lower = std::stof(value); // NEW v0.6.25
-                        else if (key == "speed_gate_upper") current_preset.speed_gate_upper = std::stof(value); // NEW v0.6.25
-                        else if (key == "road_fallback_scale") current_preset.road_fallback_scale = std::stof(value); // NEW v0.6.25
-                        else if (key == "understeer_affects_sop") current_preset.understeer_affects_sop = std::stoi(value); // NEW v0.6.25
-                    } catch (...) {}
-                }
-            }
+            ParsePresetLine(line, current_preset, current_preset_version, needs_save);
         }
     }
     
@@ -798,9 +803,171 @@ void Config::LoadPresets() {
 void Config::ApplyPreset(int index, FFBEngine& engine) {
     if (index >= 0 && index < presets.size()) {
         presets[index].Apply(engine);
+        m_last_preset_name = presets[index].name;
         std::cout << "[Config] Applied preset: " << presets[index].name << std::endl;
         Save(engine); // Integrated Auto-Save (v0.6.27)
     }
+}
+
+void Config::WritePresetFields(std::ofstream& file, const Preset& p) {
+    file << "app_version=" << p.app_version << "\n";
+    file << "invert_force=" << (p.invert_force ? "1" : "0") << "\n";
+    file << "gain=" << p.gain << "\n";
+    file << "max_torque_ref=" << p.max_torque_ref << "\n";
+    file << "min_force=" << p.min_force << "\n";
+
+    file << "steering_shaft_gain=" << p.steering_shaft_gain << "\n";
+    file << "steering_shaft_smoothing=" << p.steering_shaft_smoothing << "\n";
+    file << "understeer=" << p.understeer << "\n";
+    file << "base_force_mode=" << p.base_force_mode << "\n";
+    file << "flatspot_suppression=" << p.flatspot_suppression << "\n";
+    file << "notch_q=" << p.notch_q << "\n";
+    file << "flatspot_strength=" << p.flatspot_strength << "\n";
+    file << "static_notch_enabled=" << p.static_notch_enabled << "\n";
+    file << "static_notch_freq=" << p.static_notch_freq << "\n";
+    file << "static_notch_width=" << p.static_notch_width << "\n";
+
+    file << "oversteer_boost=" << p.oversteer_boost << "\n";
+    file << "sop=" << p.sop << "\n";
+    file << "rear_align_effect=" << p.rear_align_effect << "\n";
+    file << "sop_yaw_gain=" << p.sop_yaw_gain << "\n";
+    file << "yaw_kick_threshold=" << p.yaw_kick_threshold << "\n";
+    file << "yaw_accel_smoothing=" << p.yaw_smoothing << "\n";
+    file << "gyro_gain=" << p.gyro_gain << "\n";
+    file << "gyro_smoothing_factor=" << p.gyro_smoothing << "\n";
+    file << "sop_smoothing_factor=" << p.sop_smoothing << "\n";
+    file << "sop_scale=" << p.sop_scale << "\n";
+    file << "understeer_affects_sop=" << p.understeer_affects_sop << "\n";
+    file << "slope_detection_enabled=" << p.slope_detection_enabled << "\n";
+    file << "slope_sg_window=" << p.slope_sg_window << "\n";
+    file << "slope_sensitivity=" << p.slope_sensitivity << "\n";
+    file << "slope_negative_threshold=" << p.slope_negative_threshold << "\n";
+    file << "slope_smoothing_tau=" << p.slope_smoothing_tau << "\n";
+    file << "slope_min_threshold=" << p.slope_min_threshold << "\n";
+    file << "slope_max_threshold=" << p.slope_max_threshold << "\n";
+    file << "slope_alpha_threshold=" << p.slope_alpha_threshold << "\n";
+    file << "slope_decay_rate=" << p.slope_decay_rate << "\n";
+    file << "slope_confidence_enabled=" << p.slope_confidence_enabled << "\n";
+
+    file << "slip_angle_smoothing=" << p.slip_smoothing << "\n";
+    file << "chassis_inertia_smoothing=" << p.chassis_smoothing << "\n";
+    file << "optimal_slip_angle=" << p.optimal_slip_angle << "\n";
+    file << "optimal_slip_ratio=" << p.optimal_slip_ratio << "\n";
+
+    file << "lockup_enabled=" << (p.lockup_enabled ? "1" : "0") << "\n";
+    file << "lockup_gain=" << p.lockup_gain << "\n";
+    file << "brake_load_cap=" << p.brake_load_cap << "\n";
+    file << "lockup_freq_scale=" << p.lockup_freq_scale << "\n";
+    file << "lockup_gamma=" << p.lockup_gamma << "\n";
+    file << "lockup_start_pct=" << p.lockup_start_pct << "\n";
+    file << "lockup_full_pct=" << p.lockup_full_pct << "\n";
+    file << "lockup_prediction_sens=" << p.lockup_prediction_sens << "\n";
+    file << "lockup_bump_reject=" << p.lockup_bump_reject << "\n";
+    file << "lockup_rear_boost=" << p.lockup_rear_boost << "\n";
+    file << "abs_pulse_enabled=" << (p.abs_pulse_enabled ? "1" : "0") << "\n";
+    file << "abs_gain=" << p.abs_gain << "\n";
+    file << "abs_freq=" << p.abs_freq << "\n";
+
+    file << "texture_load_cap=" << p.texture_load_cap << "\n";
+    file << "slide_enabled=" << (p.slide_enabled ? "1" : "0") << "\n";
+    file << "slide_gain=" << p.slide_gain << "\n";
+    file << "slide_freq=" << p.slide_freq << "\n";
+    file << "road_enabled=" << (p.road_enabled ? "1" : "0") << "\n";
+    file << "road_gain=" << p.road_gain << "\n";
+    file << "road_fallback_scale=" << p.road_fallback_scale << "\n";
+    file << "spin_enabled=" << (p.spin_enabled ? "1" : "0") << "\n";
+    file << "spin_gain=" << p.spin_gain << "\n";
+    file << "spin_freq_scale=" << p.spin_freq_scale << "\n";
+    file << "scrub_drag_gain=" << p.scrub_drag_gain << "\n";
+    file << "bottoming_method=" << p.bottoming_method << "\n";
+
+    file << "speed_gate_lower=" << p.speed_gate_lower << "\n";
+    file << "speed_gate_upper=" << p.speed_gate_upper << "\n";
+}
+
+void Config::ExportPreset(int index, const std::string& filename) {
+    if (index < 0 || index >= presets.size()) return;
+
+    const Preset& p = presets[index];
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        file << "[Preset:" << p.name << "]\n";
+        WritePresetFields(file, p);
+        file.close();
+        std::cout << "[Config] Exported preset '" << p.name << "' to " << filename << std::endl;
+    } else {
+        std::cerr << "[Config] Failed to export preset to " << filename << std::endl;
+    }
+}
+
+bool Config::ImportPreset(const std::string& filename, const FFBEngine& engine) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return false;
+
+    std::string line;
+    std::string current_preset_name = "";
+    Preset current_preset;
+    std::string current_preset_version = "";
+    bool preset_pending = false;
+    bool imported = false;
+
+    while (std::getline(file, line)) {
+        // Strip whitespace
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+
+        if (line.empty() || line[0] == ';') continue;
+
+        if (line[0] == '[') {
+            if (line.rfind("[Preset:", 0) == 0) {
+                size_t end_pos = line.find(']');
+                if (end_pos != std::string::npos) {
+                    current_preset_name = line.substr(8, end_pos - 8);
+                    current_preset = Preset(current_preset_name, false);
+                    preset_pending = true;
+                    current_preset_version = "";
+                }
+            }
+            continue;
+        }
+
+        if (preset_pending) {
+            bool dummy_needs_save = false;
+            ParsePresetLine(line, current_preset, current_preset_version, dummy_needs_save);
+        }
+    }
+
+    if (preset_pending && !current_preset_name.empty()) {
+        current_preset.name = current_preset_name;
+        current_preset.is_builtin = false;
+        current_preset.app_version = current_preset_version.empty() ? LMUFFB_VERSION : current_preset_version;
+
+        // Handle name collision
+        std::string base_name = current_preset.name;
+        int counter = 1;
+        bool exists = true;
+        while (exists) {
+            exists = false;
+            for (const auto& p : presets) {
+                if (p.name == current_preset.name) {
+                    current_preset.name = base_name + " (" + std::to_string(counter++) + ")";
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        presets.push_back(current_preset);
+        imported = true;
+    }
+
+    if (imported) {
+        Save(engine);
+        std::cout << "[Config] Imported preset '" << current_preset.name << "' from " << filename << std::endl;
+        return true;
+    }
+
+    return false;
 }
 
 void Config::AddUserPreset(const std::string& name, const FFBEngine& engine) {
@@ -820,8 +987,150 @@ void Config::AddUserPreset(const std::string& name, const FFBEngine& engine) {
         presets.push_back(p);
     }
     
+    m_last_preset_name = name;
+
     // Save immediately to persist
     Save(engine);
+}
+
+void Config::DeletePreset(int index, const FFBEngine& engine) {
+    if (index < 0 || index >= (int)presets.size()) return;
+    if (presets[index].is_builtin) return; // Cannot delete builtin presets
+
+    std::string name = presets[index].name;
+    presets.erase(presets.begin() + index);
+    std::cout << "[Config] Deleted preset: " << name << std::endl;
+
+    // If the deleted preset was the last used one, reset it
+    if (m_last_preset_name == name) {
+        m_last_preset_name = "Default";
+    }
+
+    Save(engine);
+}
+
+void Config::DuplicatePreset(int index, const FFBEngine& engine) {
+    if (index < 0 || index >= (int)presets.size()) return;
+
+    Preset p = presets[index];
+    p.name = p.name + " (Copy)";
+    p.is_builtin = false;
+    p.app_version = LMUFFB_VERSION;
+
+    // Ensure unique name
+    std::string base_name = p.name;
+    int counter = 1;
+    bool exists = true;
+    while (exists) {
+        exists = false;
+        for (const auto& existing : presets) {
+            if (existing.name == p.name) {
+                p.name = base_name + " " + std::to_string(counter++);
+                exists = true;
+                break;
+            }
+        }
+    }
+
+    presets.push_back(p);
+    m_last_preset_name = p.name;
+    std::cout << "[Config] Duplicated preset to: " << p.name << std::endl;
+    Save(engine);
+}
+
+bool Config::IsEngineDirtyRelativeToPreset(int index, const FFBEngine& engine) {
+    // ⚠ IMPORTANT MAINTENANCE WARNING:
+    // When adding new FFB parameters to the FFBEngine class or Preset struct,
+    // you MUST add a comparison check here to ensure the "dirty" flag (*)
+    // appears correctly in the GUI.
+
+    if (index < 0 || index >= (int)presets.size()) return false;
+
+    const Preset& p = presets[index];
+    const float eps = 0.0001f;
+
+    auto is_near = [](float a, float b, float epsilon) { return std::abs(a - b) < epsilon; };
+
+    if (!is_near(p.gain, engine.m_gain, eps)) return true;
+    if (!is_near(p.understeer, engine.m_understeer_effect, eps)) return true;
+    if (!is_near(p.sop, engine.m_sop_effect, eps)) return true;
+    if (!is_near(p.sop_scale, engine.m_sop_scale, eps)) return true;
+    if (!is_near(p.sop_smoothing, engine.m_sop_smoothing_factor, eps)) return true;
+    if (!is_near(p.slip_smoothing, engine.m_slip_angle_smoothing, eps)) return true;
+    if (!is_near(p.min_force, engine.m_min_force, eps)) return true;
+    if (!is_near(p.oversteer_boost, engine.m_oversteer_boost, eps)) return true;
+
+    if (p.lockup_enabled != engine.m_lockup_enabled) return true;
+    if (!is_near(p.lockup_gain, engine.m_lockup_gain, eps)) return true;
+    if (!is_near(p.lockup_start_pct, engine.m_lockup_start_pct, eps)) return true;
+    if (!is_near(p.lockup_full_pct, engine.m_lockup_full_pct, eps)) return true;
+    if (!is_near(p.lockup_rear_boost, engine.m_lockup_rear_boost, eps)) return true;
+    if (!is_near(p.lockup_gamma, engine.m_lockup_gamma, eps)) return true;
+    if (!is_near(p.lockup_prediction_sens, engine.m_lockup_prediction_sens, eps)) return true;
+    if (!is_near(p.lockup_bump_reject, engine.m_lockup_bump_reject, eps)) return true;
+    if (!is_near(p.brake_load_cap, engine.m_brake_load_cap, eps)) return true;
+    if (!is_near(p.texture_load_cap, engine.m_texture_load_cap, eps)) return true;
+
+    if (p.abs_pulse_enabled != engine.m_abs_pulse_enabled) return true;
+    if (!is_near(p.abs_gain, engine.m_abs_gain, eps)) return true;
+    if (!is_near(p.abs_freq, engine.m_abs_freq_hz, eps)) return true;
+
+    if (p.spin_enabled != engine.m_spin_enabled) return true;
+    if (!is_near(p.spin_gain, engine.m_spin_gain, eps)) return true;
+    if (!is_near(p.spin_freq_scale, engine.m_spin_freq_scale, eps)) return true;
+
+    if (p.slide_enabled != engine.m_slide_texture_enabled) return true;
+    if (!is_near(p.slide_gain, engine.m_slide_texture_gain, eps)) return true;
+    if (!is_near(p.slide_freq, engine.m_slide_freq_scale, eps)) return true;
+
+    if (p.road_enabled != engine.m_road_texture_enabled) return true;
+    if (!is_near(p.road_gain, engine.m_road_texture_gain, eps)) return true;
+
+    if (p.invert_force != engine.m_invert_force) return true;
+    if (!is_near(p.max_torque_ref, engine.m_max_torque_ref, eps)) return true;
+    if (!is_near(p.lockup_freq_scale, engine.m_lockup_freq_scale, eps)) return true;
+    if (p.bottoming_method != engine.m_bottoming_method) return true;
+    if (!is_near(p.scrub_drag_gain, engine.m_scrub_drag_gain, eps)) return true;
+    if (!is_near(p.rear_align_effect, engine.m_rear_align_effect, eps)) return true;
+    if (!is_near(p.sop_yaw_gain, engine.m_sop_yaw_gain, eps)) return true;
+    if (!is_near(p.gyro_gain, engine.m_gyro_gain, eps)) return true;
+    if (!is_near(p.steering_shaft_gain, engine.m_steering_shaft_gain, eps)) return true;
+    if (p.base_force_mode != engine.m_base_force_mode) return true;
+
+    if (!is_near(p.optimal_slip_angle, engine.m_optimal_slip_angle, eps)) return true;
+    if (!is_near(p.optimal_slip_ratio, engine.m_optimal_slip_ratio, eps)) return true;
+    if (!is_near(p.steering_shaft_smoothing, engine.m_steering_shaft_smoothing, eps)) return true;
+    if (!is_near(p.gyro_smoothing, engine.m_gyro_smoothing, eps)) return true;
+    if (!is_near(p.yaw_smoothing, engine.m_yaw_accel_smoothing, eps)) return true;
+    if (!is_near(p.chassis_smoothing, engine.m_chassis_inertia_smoothing, eps)) return true;
+
+    if (p.flatspot_suppression != engine.m_flatspot_suppression) return true;
+    if (!is_near(p.notch_q, engine.m_notch_q, eps)) return true;
+    if (!is_near(p.flatspot_strength, engine.m_flatspot_strength, eps)) return true;
+
+    if (p.static_notch_enabled != engine.m_static_notch_enabled) return true;
+    if (!is_near(p.static_notch_freq, engine.m_static_notch_freq, eps)) return true;
+    if (!is_near(p.static_notch_width, engine.m_static_notch_width, eps)) return true;
+    if (!is_near(p.yaw_kick_threshold, engine.m_yaw_kick_threshold, eps)) return true;
+
+    if (!is_near(p.speed_gate_lower, engine.m_speed_gate_lower, eps)) return true;
+    if (!is_near(p.speed_gate_upper, engine.m_speed_gate_upper, eps)) return true;
+
+    if (!is_near(p.road_fallback_scale, engine.m_road_fallback_scale, eps)) return true;
+    if (p.understeer_affects_sop != engine.m_understeer_affects_sop) return true;
+
+    if (p.slope_detection_enabled != engine.m_slope_detection_enabled) return true;
+    if (p.slope_sg_window != engine.m_slope_sg_window) return true;
+    if (!is_near(p.slope_sensitivity, engine.m_slope_sensitivity, eps)) return true;
+    if (!is_near(p.slope_negative_threshold, (float)engine.m_slope_negative_threshold, eps)) return true;
+    if (!is_near(p.slope_smoothing_tau, engine.m_slope_smoothing_tau, eps)) return true;
+    if (!is_near(p.slope_alpha_threshold, engine.m_slope_alpha_threshold, eps)) return true;
+    if (!is_near(p.slope_decay_rate, engine.m_slope_decay_rate, eps)) return true;
+    if (p.slope_confidence_enabled != engine.m_slope_confidence_enabled) return true;
+    if (!is_near(p.slope_min_threshold, engine.m_slope_min_threshold, eps)) return true;
+    if (!is_near(p.slope_max_threshold, engine.m_slope_max_threshold, eps)) return true;
+
+    return false;
 }
 
 void Config::Save(const FFBEngine& engine, const std::string& filename) {
@@ -840,6 +1149,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "output_ffb_to_vjoy=" << m_output_ffb_to_vjoy << "\n";
         file << "always_on_top=" << m_always_on_top << "\n";
         file << "last_device_guid=" << m_last_device_guid << "\n";
+        file << "last_preset_name=" << m_last_preset_name << "\n";
         file << "win_pos_x=" << win_pos_x << "\n";
         file << "win_pos_y=" << win_pos_y << "\n";
         file << "win_w_small=" << win_w_small << "\n";
@@ -934,79 +1244,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         for (const auto& p : presets) {
             if (!p.is_builtin) {
                 file << "[Preset:" << p.name << "]\n";
-                file << "app_version=" << p.app_version << "\n";
-                file << "invert_force=" << (p.invert_force ? "1" : "0") << "\n";
-                file << "gain=" << p.gain << "\n";
-                file << "max_torque_ref=" << p.max_torque_ref << "\n";
-                file << "min_force=" << p.min_force << "\n";
-
-                file << "steering_shaft_gain=" << p.steering_shaft_gain << "\n";
-                file << "steering_shaft_smoothing=" << p.steering_shaft_smoothing << "\n";
-                file << "understeer=" << p.understeer << "\n";
-                file << "base_force_mode=" << p.base_force_mode << "\n";
-                file << "flatspot_suppression=" << p.flatspot_suppression << "\n";
-                file << "notch_q=" << p.notch_q << "\n";
-                file << "flatspot_strength=" << p.flatspot_strength << "\n";
-                file << "static_notch_enabled=" << p.static_notch_enabled << "\n";
-                file << "static_notch_freq=" << p.static_notch_freq << "\n";
-                file << "static_notch_width=" << p.static_notch_width << "\n";
-
-                file << "oversteer_boost=" << p.oversteer_boost << "\n";
-                file << "sop=" << p.sop << "\n";
-                file << "rear_align_effect=" << p.rear_align_effect << "\n";
-                file << "sop_yaw_gain=" << p.sop_yaw_gain << "\n";
-                file << "yaw_kick_threshold=" << p.yaw_kick_threshold << "\n";
-                file << "yaw_accel_smoothing=" << p.yaw_smoothing << "\n";
-                file << "gyro_gain=" << p.gyro_gain << "\n";
-                file << "gyro_smoothing_factor=" << p.gyro_smoothing << "\n";
-                file << "sop_smoothing_factor=" << p.sop_smoothing << "\n";
-                file << "sop_scale=" << p.sop_scale << "\n";
-                file << "understeer_affects_sop=" << p.understeer_affects_sop << "\n";
-                file << "slope_detection_enabled=" << p.slope_detection_enabled << "\n";
-                file << "slope_sg_window=" << p.slope_sg_window << "\n";
-                file << "slope_sensitivity=" << p.slope_sensitivity << "\n";
-                file << "slope_negative_threshold=" << p.slope_negative_threshold << "\n";
-                file << "slope_smoothing_tau=" << p.slope_smoothing_tau << "\n";
-                file << "slope_min_threshold=" << p.slope_min_threshold << "\n";
-                file << "slope_max_threshold=" << p.slope_max_threshold << "\n";
-                file << "slope_alpha_threshold=" << p.slope_alpha_threshold << "\n";
-                file << "slope_decay_rate=" << p.slope_decay_rate << "\n";
-                file << "slope_confidence_enabled=" << p.slope_confidence_enabled << "\n";
-
-                file << "slip_angle_smoothing=" << p.slip_smoothing << "\n";
-                file << "chassis_inertia_smoothing=" << p.chassis_smoothing << "\n";
-                file << "optimal_slip_angle=" << p.optimal_slip_angle << "\n";
-                file << "optimal_slip_ratio=" << p.optimal_slip_ratio << "\n";
-
-                file << "lockup_enabled=" << (p.lockup_enabled ? "1" : "0") << "\n";
-                file << "lockup_gain=" << p.lockup_gain << "\n";
-                file << "brake_load_cap=" << p.brake_load_cap << "\n";
-                file << "lockup_freq_scale=" << p.lockup_freq_scale << "\n";
-                file << "lockup_gamma=" << p.lockup_gamma << "\n";
-                file << "lockup_start_pct=" << p.lockup_start_pct << "\n";
-                file << "lockup_full_pct=" << p.lockup_full_pct << "\n";
-                file << "lockup_prediction_sens=" << p.lockup_prediction_sens << "\n";
-                file << "lockup_bump_reject=" << p.lockup_bump_reject << "\n";
-                file << "lockup_rear_boost=" << p.lockup_rear_boost << "\n";
-                file << "abs_pulse_enabled=" << (p.abs_pulse_enabled ? "1" : "0") << "\n";
-                file << "abs_gain=" << p.abs_gain << "\n";
-                file << "abs_freq=" << p.abs_freq << "\n";
-
-                file << "texture_load_cap=" << p.texture_load_cap << "\n";
-                file << "slide_enabled=" << (p.slide_enabled ? "1" : "0") << "\n";
-                file << "slide_gain=" << p.slide_gain << "\n";
-                file << "slide_freq=" << p.slide_freq << "\n";
-                file << "road_enabled=" << (p.road_enabled ? "1" : "0") << "\n";
-                file << "road_gain=" << p.road_gain << "\n";
-                file << "road_fallback_scale=" << p.road_fallback_scale << "\n";
-                file << "spin_enabled=" << (p.spin_enabled ? "1" : "0") << "\n";
-                file << "spin_gain=" << p.spin_gain << "\n";
-                file << "spin_freq_scale=" << p.spin_freq_scale << "\n";
-                file << "scrub_drag_gain=" << p.scrub_drag_gain << "\n";
-                file << "bottoming_method=" << p.bottoming_method << "\n";
-
-                file << "speed_gate_lower=" << p.speed_gate_lower << "\n";
-                file << "speed_gate_upper=" << p.speed_gate_upper << "\n";
+                WritePresetFields(file, p);
                 file << "\n";
             }
         }
@@ -1053,6 +1291,7 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "output_ffb_to_vjoy") m_output_ffb_to_vjoy = std::stoi(value);
                     else if (key == "always_on_top") m_always_on_top = std::stoi(value);
                     else if (key == "last_device_guid") m_last_device_guid = value;
+                    else if (key == "last_preset_name") m_last_preset_name = value;
                     // Window Geometry (v0.5.5)
                     else if (key == "win_pos_x") win_pos_x = std::stoi(value);
                     else if (key == "win_pos_y") win_pos_y = std::stoi(value);
