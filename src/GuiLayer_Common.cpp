@@ -59,13 +59,6 @@ void GuiLayer::SetupGUIStyle() {
     colors[ImGuiCol_TextDisabled]   = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
 }
 
-// Platform-agnostic resize helper (declared in header or handled per-platform)
-extern void ResizeWindowPlatform(int x, int y, int w, int h);
-extern void SaveCurrentWindowGeometryPlatform(bool is_graph_mode);
-extern void SetWindowAlwaysOnTopPlatform(bool enabled);
-extern bool OpenPresetFileDialogPlatform(std::string& outPath);
-extern bool SavePresetFileDialogPlatform(std::string& outPath, const std::string& defaultName);
-extern void SaveCompositeScreenshotPlatform(const char* filename);
 
 static constexpr std::chrono::seconds CONNECT_ATTEMPT_INTERVAL(2);
 

@@ -47,6 +47,8 @@ if(NOT BUILD_HEADLESS)
     endif()
 endif()
 
+include_directories(src)
+
 # Copy icon file into build directory (Windows only)
 if(WIN32)
     configure_file(${CMAKE_SOURCE_DIR}/icon/lmuffb.ico ${CMAKE_BINARY_DIR}/lmuffb.ico COPYONLY)
