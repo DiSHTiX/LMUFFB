@@ -165,8 +165,8 @@ def analyze_grip_correlation(df: pd.DataFrame) -> Dict[str, float]:
     return results
 
 def detect_singularities(
-    df: pd.DataFrame, 
-    slope_thresh: float = 10.0, 
+    df: pd.DataFrame,
+    slope_thresh: float = 10.0,
     alpha_rate_thresh: float = 0.05
 ) -> (int, float):
     """
@@ -174,9 +174,9 @@ def detect_singularities(
     """
     if 'SlopeCurrent' not in df.columns or 'dAlpha_dt' not in df.columns:
         return 0, 0.0
-    
+
     mask = (np.abs(df['SlopeCurrent']) > slope_thresh) & (np.abs(df['dAlpha_dt']) < alpha_rate_thresh)
     count = int(mask.sum())
     worst = float(df.loc[mask, 'SlopeCurrent'].abs().max()) if count > 0 else 0.0
-    
+
     return count, worst

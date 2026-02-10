@@ -196,37 +196,37 @@ def plot_slope_correlation(
     """
     if 'dAlpha_dt' not in df.columns or 'SlopeCurrent' not in df.columns:
         return ""
-    
+
     # Downsample if too large for performance
     if len(df) > 20000:
         plot_df = df.sample(n=20000, random_state=42)
     else:
         plot_df = df
-        
+
     fig, ax = plt.subplots(figsize=(10, 8))
-    
-    ax.scatter(plot_df['dAlpha_dt'], plot_df['SlopeCurrent'], 
+
+    ax.scatter(plot_df['dAlpha_dt'], plot_df['SlopeCurrent'],
                alpha=0.1, s=10, color='#9C27B0')
-    
+
     # Annotate thresholds
     ax.axvline(0.02, color='#F44336', linestyle='--', alpha=0.5, label='Threshold (0.02)')
     ax.axvline(-0.02, color='#F44336', linestyle='--', alpha=0.5)
-    
+
     ax.set_xlabel('dAlpha/dt (rad/s)')
     ax.set_ylabel('Slope (G/rad)')
     ax.set_title('Instability Check: dAlpha/dt vs SlopeCurrent')
     ax.set_ylim(-50, 50)  # Focus on the relevant range, even if outliers exist
     ax.grid(True, alpha=0.3)
     ax.legend()
-    
+
     plt.tight_layout()
-    
+
     if output_path:
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.close()
         return output_path
-    
+
     if show:
         plt.show()
-    
+
     return ""

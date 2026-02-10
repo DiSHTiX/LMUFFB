@@ -36,7 +36,7 @@ The core logic resides in `FFBEngine::calculate_slope_grip` (src/FFBEngine.h).
 *   **Change:**
     ```cpp
     // After calculation:
-    m_slope_current = std::clamp(m_slope_current, -20.0, 20.0); 
+    m_slope_current = std::clamp(m_slope_current, -20.0, 20.0);
     ```
     *   **Reason:** Prevent downstream logic (smoothing, lerp) from seeing infinity/NaN equivalents.
 
@@ -46,8 +46,8 @@ The core logic resides in `FFBEngine::calculate_slope_grip` (src/FFBEngine.h).
 *   **Change:**
     ```cpp
     // Replace:
-    double conf_raw = std::abs(dAlpha_dt) / 0.1; 
-    
+    double conf_raw = std::abs(dAlpha_dt) / 0.1;
+
     // With (Smoothstep):
     double lower = m_slope_alpha_threshold; // e.g. 0.02
     double upper = 0.10; // Hardcoded reasonable upper bound for linear range
@@ -68,7 +68,7 @@ The core logic resides in `FFBEngine::calculate_slope_grip` (src/FFBEngine.h).
     ```cpp
     double abs_dAlpha = std::abs(dAlpha_dt);
     double sign_dAlpha = (dAlpha_dt >= 0) ? 1.0 : -1.0;
-    double protected_denom = (std::max)(0.005, abs_dAlpha) * sign_dAlpha; 
+    double protected_denom = (std::max)(0.005, abs_dAlpha) * sign_dAlpha;
     m_slope_current = dG_dt / protected_denom;
     ```
 

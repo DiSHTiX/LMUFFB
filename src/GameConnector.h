@@ -1,9 +1,14 @@
 #ifndef GAMECONNECTOR_H
 #define GAMECONNECTOR_H
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include "lmu_sm_interface/LinuxMock.h"
+#endif
+
 #include "lmu_sm_interface/LmuSharedMemoryWrapper.h"
 #include "lmu_sm_interface/SafeSharedMemoryLock.h"
-#include <windows.h>
 #include <mutex>
 #include <atomic>
 

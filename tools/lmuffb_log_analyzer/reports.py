@@ -1,7 +1,7 @@
 import pandas as pd
 from .models import SessionMetadata
 from .analyzers.slope_analyzer import (
-    analyze_slope_stability, 
+    analyze_slope_stability,
     detect_oscillation_events,
     detect_singularities
 )

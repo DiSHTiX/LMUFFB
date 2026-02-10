@@ -1,7 +1,14 @@
 #ifndef DYNAMICVJOY_H
 #define DYNAMICVJOY_H
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "lmu_sm_interface/LinuxMock.h"
+// Mock types for Linux
+typedef void* HMODULE;
+#define WINAPI
+#endif
 #include <iostream>
 
 // vJoy Status Enum (from vJoy SDK, defined here to avoid dependency)
@@ -34,6 +41,7 @@ public:
     bool Load() {
         if (m_hModule) return true; // Already loaded
 
+#ifdef _WIN32
         m_hModule = LoadLibraryA("vJoyInterface.dll");
         if (!m_hModule) {
             std::cout << "[vJoy] Library not found. vJoy support disabled." << std::endl;
@@ -59,6 +67,9 @@ public:
 
         std::cout << "[vJoy] Library loaded successfully." << std::endl;
         return true;
+#else
+        return false;
+#endif
     }
 
     bool Enabled() { return (m_hModule && m_vJoyEnabled) ? m_vJoyEnabled() : false; }
@@ -77,7 +88,9 @@ public:
 private:
     DynamicVJoy() {}
     ~DynamicVJoy() {
+#ifdef _WIN32
         if (m_hModule) FreeLibrary(m_hModule);
+#endif
     }
 
     HMODULE m_hModule = NULL;

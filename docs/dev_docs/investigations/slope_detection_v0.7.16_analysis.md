@@ -102,7 +102,7 @@ To bridge the gap between text reports and visual plots, the Log Analyzer text r
 To prevent regression and ensure stability, the following unit tests must be added to the test suite (`tests/test_slope_detection.cpp`):
 
 ### 6.1. Singularity & Boundary Tests
-*   **`TestSlope_NearThreshold_Singularity`**: 
+*   **`TestSlope_NearThreshold_Singularity`**:
     *   Input: `dAlpha/dt` = 0.02001 (just above threshold), `dG/dt` = 5.0 (moderate bump).
     *   Assert: Resulting Grip Factor should NOT drop instantly to 0.2. Slope output must be clamped.
 *   **`TestSlope_ZeroCrossing`**:
@@ -138,7 +138,7 @@ To prevent regression and ensure stability, the following unit tests must be add
 1.  **Refactor `Slope Active` Logic**:
     *   Remove `bool active = dAlpha > threshold`.
     *   Introduce `float confidence = inverse_lerp(lower_thresh, upper_thresh, abs(dAlpha))`.
-    *   Suggested thresholds: 
+    *   Suggested thresholds:
         *   `Lower`: 0.01 rad/s (Start blending in)
         *   `Upper`: 0.10 rad/s (Full confidence)
 2.  **Apply Confidence to Output**:

@@ -53,7 +53,7 @@ This IS the test plan document. The implementation involves writing these C++ te
     *   Setup: Engine initialized, slope enabled.
     *   Input: Synthetic telemetry causing `dAlpha = 0.021`, `dG = -5.0`.
     *   Expect: `Slope` clamped to `[-20, 20]`. `GripFactor` > 0.2 (not instant floor).
-    
+
 2.  **`TestConfidenceRamp_Progressive`**
     *   Setup: Engine initialized.
     *   Input: `dAlpha` ramp 0 -> 0.1. `dG` constant -2.0.

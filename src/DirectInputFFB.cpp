@@ -17,8 +17,8 @@
 
 // Constants
 namespace {
-    constexpr DWORD DIAGNOSTIC_LOG_INTERVAL_MS = 1000; // Rate limit diagnostic logging to 1 second
-    constexpr DWORD RECOVERY_COOLDOWN_MS = 2000;       // Wait 2 seconds between recovery attempts
+    constexpr uint32_t DIAGNOSTIC_LOG_INTERVAL_MS = 1000; // Rate limit diagnostic logging to 1 second
+    constexpr uint32_t RECOVERY_COOLDOWN_MS = 2000;       // Wait 2 seconds between recovery attempts
 }
 
 // Keep existing implementations
@@ -45,10 +45,17 @@ std::string DirectInputFFB::GetActiveWindowTitle() {
 // NEW: Helper Implementations for GUID
 std::string DirectInputFFB::GuidToString(const GUID& guid) {
     char buf[64];
+#ifdef _WIN32
     sprintf_s(buf, "{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
         guid.Data1, guid.Data2, guid.Data3,
         guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
         guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+#else
+    snprintf(buf, sizeof(buf), "{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        (unsigned int)guid.Data1, (unsigned int)guid.Data2, (unsigned int)guid.Data3,
+        (unsigned int)guid.Data4[0], (unsigned int)guid.Data4[1], (unsigned int)guid.Data4[2], (unsigned int)guid.Data4[3],
+        (unsigned int)guid.Data4[4], (unsigned int)guid.Data4[5], (unsigned int)guid.Data4[6], (unsigned int)guid.Data4[7]);
+#endif
     return std::string(buf);
 }
 
@@ -58,8 +65,13 @@ GUID DirectInputFFB::StringToGuid(const std::string& str) {
     unsigned long p0;
     unsigned short p1, p2;
     unsigned int p3, p4, p5, p6, p7, p8, p9, p10;
+#ifdef _WIN32
     int n = sscanf_s(str.c_str(), "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
         &p0, &p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9, &p10);
+#else
+    int n = sscanf(str.c_str(), "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        &p0, &p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9, &p10);
+#endif
     if (n == 11) {
         guid.Data1 = p0;
         guid.Data2 = (unsigned short)p1;
@@ -74,6 +86,7 @@ GUID DirectInputFFB::StringToGuid(const std::string& str) {
 
 
 
+#ifdef _WIN32
 /**
  * @brief Returns the description for a DirectInput return code.
  * 
@@ -176,6 +189,7 @@ const char* GetDirectInputErrorString(HRESULT hr) {
             return "Unknown DirectInput Error";
     }
 }
+#endif
 
 DirectInputFFB::~DirectInputFFB() {
     Shutdown();
@@ -198,12 +212,12 @@ bool DirectInputFFB::Initialize(HWND hwnd) {
 
 void DirectInputFFB::Shutdown() {
     ReleaseDevice(); // Reuse logic
+#ifdef _WIN32
     if (m_pDI) {
-        #ifdef _WIN32
-        m_pDI->Release();
+        ((IDirectInput8*)m_pDI)->Release();
         m_pDI = nullptr;
-        #endif
     }
+#endif
 }
 
 #ifdef _WIN32
@@ -223,7 +237,7 @@ std::vector<DeviceInfo> DirectInputFFB::EnumerateDevices() {
     std::vector<DeviceInfo> devices;
 #ifdef _WIN32
     if (!m_pDI) return devices;
-    m_pDI->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumJoysticksCallback, &devices, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK);
+    ((IDirectInput8*)m_pDI)->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumJoysticksCallback, &devices, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK);
 #else
     DeviceInfo d1; d1.name = "Simucube 2 Pro (Mock)";
     DeviceInfo d2; d2.name = "Logitech G29 (Mock)";
@@ -236,24 +250,22 @@ std::vector<DeviceInfo> DirectInputFFB::EnumerateDevices() {
 void DirectInputFFB::ReleaseDevice() {
 #ifdef _WIN32
     if (m_pEffect) {
-        m_pEffect->Stop();
-        m_pEffect->Unload();
-        m_pEffect->Release();
+        ((IDirectInputEffect*)m_pEffect)->Stop();
+        ((IDirectInputEffect*)m_pEffect)->Unload();
+        ((IDirectInputEffect*)m_pEffect)->Release();
         m_pEffect = nullptr;
     }
     if (m_pDevice) {
-        m_pDevice->Unacquire();
-        m_pDevice->Release();
+        ((IDirectInputDevice8*)m_pDevice)->Unacquire();
+        ((IDirectInputDevice8*)m_pDevice)->Release();
         m_pDevice = nullptr;
     }
+#endif
     m_active = false;
     m_isExclusive = false;
     m_deviceName = "None";
+#ifdef _WIN32
     std::cout << "[DI] Device released by user." << std::endl;
-#else
-    m_active = false;
-    m_isExclusive = false;
-    m_deviceName = "None";
 #endif
 }
 
@@ -265,13 +277,13 @@ bool DirectInputFFB::SelectDevice(const GUID& guid) {
     ReleaseDevice();
 
     std::cout << "[DI] Attempting to create device..." << std::endl;
-    if (FAILED(m_pDI->CreateDevice(guid, &m_pDevice, NULL))) {
+    if (FAILED(((IDirectInput8*)m_pDI)->CreateDevice(guid, (IDirectInputDevice8**)&m_pDevice, NULL))) {
         std::cerr << "[DI] Failed to create device." << std::endl;
         return false;
     }
 
     std::cout << "[DI] Setting Data Format..." << std::endl;
-    if (FAILED(m_pDevice->SetDataFormat(&c_dfDIJoystick))) {
+    if (FAILED(((IDirectInputDevice8*)m_pDevice)->SetDataFormat(&c_dfDIJoystick))) {
         std::cerr << "[DI] Failed to set data format." << std::endl;
         return false;
     }
@@ -281,7 +293,7 @@ bool DirectInputFFB::SelectDevice(const GUID& guid) {
 
     // Attempt 1: Exclusive/Background (Best for FFB)
     std::cout << "[DI] Attempting to set Cooperative Level (Exclusive | Background)..." << std::endl;
-    HRESULT hr = m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    HRESULT hr = ((IDirectInputDevice8*)m_pDevice)->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
     
     if (SUCCEEDED(hr)) {
         m_isExclusive = true;
@@ -289,7 +301,7 @@ bool DirectInputFFB::SelectDevice(const GUID& guid) {
     } else {
         // Fallback: Non-Exclusive
         std::cerr << "[DI] Exclusive mode failed (Error: " << std::hex << hr << std::dec << "). Retrying in Non-Exclusive mode..." << std::endl;
-        hr = m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
+        hr = ((IDirectInputDevice8*)m_pDevice)->SetCooperativeLevel(m_hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
         
         if (SUCCEEDED(hr)) {
             m_isExclusive = false;
@@ -303,7 +315,7 @@ bool DirectInputFFB::SelectDevice(const GUID& guid) {
     }
 
     std::cout << "[DI] Acquiring device..." << std::endl;
-    if (FAILED(m_pDevice->Acquire())) {
+    if (FAILED(((IDirectInputDevice8*)m_pDevice)->Acquire())) {
         std::cerr << "[DI] Failed to acquire device." << std::endl;
         // Don't return false yet, might just need focus/retry
     } else {
@@ -352,16 +364,17 @@ bool DirectInputFFB::CreateEffect() {
     eff.lpvTypeSpecificParams = &cf;
     eff.dwStartDelay = 0;
 
-    if (FAILED(m_pDevice->CreateEffect(GUID_ConstantForce, &eff, &m_pEffect, NULL))) {
+    if (FAILED(((IDirectInputDevice8*)m_pDevice)->CreateEffect(GUID_ConstantForce, &eff, (IDirectInputEffect**)&m_pEffect, NULL))) {
         std::cerr << "[DI] Failed to create Constant Force effect." << std::endl;
         return false;
     }
     
     // Start immediately
-    m_pEffect->Start(1, 0);
+    ((IDirectInputEffect*)m_pEffect)->Start(1, 0);
+    return true;
+#else
     return true;
 #endif
-    return true;
 }
 
 void DirectInputFFB::UpdateForce(double normalizedForce) {
@@ -369,17 +382,6 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
 
     // Sanity Check: If 0.0, stop effect to prevent residual hum
     if (std::abs(normalizedForce) < 0.00001) normalizedForce = 0.0;
-
-    // --- DECLUTTERING: REMOVED CLIPPING WARNING ---
-    /*
-    if (std::abs(normalizedForce) > 0.99) {
-        static int clip_log = 0;
-        if (clip_log++ % 400 == 0) { 
-            std::cout << "[DI] WARNING: FFB Output Saturated..." << std::endl;
-        }
-    }
-    */
-    // ----------------------------------------------
 
     // Clamp
     normalizedForce = (std::max)(-1.0, (std::min)(1.0, normalizedForce));
@@ -403,7 +405,7 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
         eff.lpvTypeSpecificParams = &cf;
         
         // Try to update parameters
-        HRESULT hr = m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+        HRESULT hr = ((IDirectInputEffect*)m_pEffect)->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
         
         // --- DIAGNOSTIC & RECOVERY LOGIC ---
         if (FAILED(hr)) {
@@ -422,7 +424,7 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
             bool recoverable = true; 
 
             // 2. Log the Context (Rate limited)
-            static DWORD lastLogTime = 0;
+            static uint32_t lastLogTime = 0;
             if (GetTickCount() - lastLogTime > DIAGNOSTIC_LOG_INTERVAL_MS) {
                 std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType 
                           << " (0x" << std::hex << hr << std::dec << ")" << std::endl;
@@ -433,8 +435,8 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
             // 3. Attempt Recovery (with Smart Cool-down)
             if (recoverable) {
                 // Throttle recovery attempts to prevent CPU spam when device is locked
-                static DWORD lastRecoveryAttempt = 0;
-                DWORD now = GetTickCount();
+                static uint32_t lastRecoveryAttempt = 0;
+                uint32_t now = GetTickCount();
                 
                 // Only attempt recovery if cooldown period has elapsed
                 if (now - lastRecoveryAttempt > RECOVERY_COOLDOWN_MS) {
@@ -445,16 +447,16 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
                     // just re-confirms Shared Mode. We must force a mode switch.
                     if (hr == DIERR_NOTEXCLUSIVEACQUIRED) {
                         std::cout << "[DI] Attempting to promote to Exclusive Mode..." << std::endl;
-                        m_pDevice->Unacquire();
-                        m_pDevice->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+                        ((IDirectInputDevice8*)m_pDevice)->Unacquire();
+                        ((IDirectInputDevice8*)m_pDevice)->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
                     }
                     // -----------------------------
 
-                    HRESULT hrAcq = m_pDevice->Acquire();
+                    HRESULT hrAcq = ((IDirectInputDevice8*)m_pDevice)->Acquire();
                     
                     if (SUCCEEDED(hrAcq)) {
                         // Log recovery success (rate-limited for diagnostics)
-                        static DWORD lastSuccessLog = 0;
+                        static uint32_t lastSuccessLog = 0;
                         if (GetTickCount() - lastSuccessLog > 5000) { // 5 second cooldown
                             std::cout << "[DI RECOVERY] Device re-acquired successfully. FFB motor restarted." << std::endl;
                             lastSuccessLog = GetTickCount();
@@ -480,10 +482,10 @@ void DirectInputFFB::UpdateForce(double normalizedForce) {
                         }
 
                         // Restart the effect to ensure motor is active
-                        m_pEffect->Start(1, 0); 
+                        ((IDirectInputEffect*)m_pEffect)->Start(1, 0);
                         
                         // Retry the update immediately
-                        m_pEffect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+                        ((IDirectInputEffect*)m_pEffect)->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
                     }
                 }
             }

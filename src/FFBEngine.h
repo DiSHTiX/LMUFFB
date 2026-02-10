@@ -8,6 +8,7 @@
 #include <iostream>
 #include <chrono>
 #include <array>
+#include <cstring>
 #include "lmu_sm_interface/InternalsPluginWrapper.h"
 #include "AsyncLogger.h"
 
@@ -870,7 +871,7 @@ public:
         if (std::abs(dAlpha_dt) > (double)m_slope_alpha_threshold) {
             double abs_dAlpha = std::abs(dAlpha_dt);
             double sign_dAlpha = (dAlpha_dt >= 0) ? 1.0 : -1.0;
-            double protected_denom = (std::max)(0.005, abs_dAlpha) * sign_dAlpha; 
+            double protected_denom = (std::max)(0.005, abs_dAlpha) * sign_dAlpha;
             m_slope_current = dG_dt / protected_denom;
 
             // v0.7.17 FIX: Hard clamp to physically possible range [-20.0, 20.0]
@@ -908,8 +909,8 @@ public:
     // Extracted to avoid code duplication between slope detection and logging
     inline double calculate_slope_confidence(double dAlpha_dt) {
         if (!m_slope_confidence_enabled) return 1.0;
-        
-        // v0.7.21 FIX: Use smoothstep confidence ramp [m_slope_alpha_threshold, 0.10] rad/s 
+
+        // v0.7.21 FIX: Use smoothstep confidence ramp [m_slope_alpha_threshold, 0.10] rad/s
         // to reject singularity artifacts near zero.
         return smoothstep((double)m_slope_alpha_threshold, 0.10, std::abs(dAlpha_dt));
     }
@@ -977,10 +978,17 @@ public:
         // Update Context strings (for UI/Logging)
         // Only update if first char differs to avoid redundant copies
         if (m_vehicle_name[0] != data->mVehicleName[0] || m_vehicle_name[10] != data->mVehicleName[10]) {
+#ifdef _WIN32
              strncpy_s(m_vehicle_name, data->mVehicleName, 63);
              m_vehicle_name[63] = '\0';
              strncpy_s(m_track_name, data->mTrackName, 63);
              m_track_name[63] = '\0';
+#else
+             strncpy(m_vehicle_name, data->mVehicleName, 63);
+             m_vehicle_name[63] = '\0';
+             strncpy(m_track_name, data->mTrackName, 63);
+             m_track_name[63] = '\0';
+#endif
         }
 
         // --- 2. SIGNAL CONDITIONING (STATE UPDATES) ---

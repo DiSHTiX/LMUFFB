@@ -6,13 +6,13 @@ from rich.panel import Panel
 
 from .loader import load_log
 from .analyzers.slope_analyzer import (
-    analyze_slope_stability, 
+    analyze_slope_stability,
     detect_oscillation_events,
     detect_singularities
 )
 from .plots import (
-    plot_slope_timeseries, 
-    plot_slip_vs_latg, 
+    plot_slope_timeseries,
+    plot_slip_vs_latg,
     plot_dalpha_histogram,
     plot_slope_correlation
 )
@@ -190,27 +190,27 @@ def batch(ctx, logdir, output):
     log_path = Path(logdir)
     output_path = Path(output)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     csv_files = sorted(list(log_path.glob("*.csv")))
     if not csv_files:
         console.print(f"[yellow]No .csv files found in {logdir}[/yellow]")
         return
-        
+
     console.print(f"[bold green]Found {len(csv_files)} log files. Starting batch processing...[/bold green]")
-    
+
     for logfile in csv_files:
         console.print(f"\n[bold blue]Processing: {logfile.name}[/bold blue]")
-        
+
         # Run individual commands
         # 1. Info
         ctx.invoke(info, logfile=str(logfile))
-        
+
         # 2. Analyze
         ctx.invoke(analyze, logfile=str(logfile), verbose=False)
-        
+
         # 3. Plots (save to output dir)
         ctx.invoke(plots, logfile=str(logfile), output=str(output_path), plot_all=True)
-        
+
         # 4. Report (save to output dir)
         report_file = output_path / f"{logfile.stem}_report.txt"
         ctx.invoke(report, logfile=str(logfile), output=str(report_file))
