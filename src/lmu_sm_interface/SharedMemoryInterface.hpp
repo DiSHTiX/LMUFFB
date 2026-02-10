@@ -110,16 +110,17 @@ public:
     }
     bool Lock(DWORD dwMilliseconds = 0xFFFFFFFF) {
 #ifdef _WIN32
+        auto* data = (LockData*)mDataPtr;
         int MAX_SPINS = 4000;
         for (int spins = 0; spins < MAX_SPINS; ++spins) {
-            if (InterlockedCompareExchange(&mDataPtr->busy, 1, 0) == 0)
+            if (InterlockedCompareExchange(&data->busy, 1, 0) == 0)
                 return true;
             YieldProcessor(); // CPU pause hint
         }
-        InterlockedIncrement(&mDataPtr->waiters);
+        InterlockedIncrement(&data->waiters);
         while (true) {
-            if (InterlockedCompareExchange(&mDataPtr->busy, 1, 0) == 0) {
-                InterlockedDecrement(&mDataPtr->waiters);
+            if (InterlockedCompareExchange(&data->busy, 1, 0) == 0) {
+                InterlockedDecrement(&data->waiters);
                 return true;
             }
             return WaitForSingleObject(mWaitEventHandle, dwMilliseconds) == 0; // WAIT_OBJECT_0
@@ -130,16 +131,18 @@ public:
     }
     void Unlock() {
 #ifdef _WIN32
-        InterlockedExchange(&mDataPtr->busy, 0);
-        if (mDataPtr->waiters > 0) {
+        auto* data = (LockData*)mDataPtr;
+        InterlockedExchange(&data->busy, 0);
+        if (data->waiters > 0) {
             SetEvent(mWaitEventHandle);
         }
 #endif
     }
     void Reset() {
 #ifdef _WIN32
-        mDataPtr->waiters = 0;
-        mDataPtr->busy = 0;
+        auto* data = (LockData*)mDataPtr;
+        data->waiters = 0;
+        data->busy = 0;
 #endif
     }
     ~SharedMemoryLock() {
