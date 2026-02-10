@@ -5,14 +5,23 @@ from rich.table import Table
 from rich.panel import Panel
 
 from .loader import load_log
-from .analyzers.slope_analyzer import analyze_slope_stability, detect_oscillation_events
-from .plots import plot_slope_timeseries, plot_slip_vs_latg, plot_dalpha_histogram
+from .analyzers.slope_analyzer import (
+    analyze_slope_stability,
+    detect_oscillation_events,
+    detect_singularities
+)
+from .plots import (
+    plot_slope_timeseries,
+    plot_slip_vs_latg,
+    plot_dalpha_histogram,
+    plot_slope_correlation
+)
 from .reports import generate_text_report
 
 console = Console()
 
 @click.group()
-@click.version_option(version='1.0.0')
+@click.version_option(version='1.0.1')
 def cli():
     """lmuFFB Log Analyzer - Analyze FFB telemetry logs for diagnostics."""
     pass
@@ -50,6 +59,7 @@ def analyze(logfile, verbose):
         # Run slope analysis
         slope_results = analyze_slope_stability(df)
         oscillations = detect_oscillation_events(df)
+        singularity_count, worst_slope = detect_singularities(df)
         
         # Display results
         table = Table(title="Slope Detection Analysis")
@@ -87,6 +97,17 @@ def analyze(logfile, verbose):
             str(len(oscillations)),
             "MANY" if len(oscillations) > 3 else "OK"
         )
+        table.add_row(
+            "Singularity Events",
+            str(singularity_count),
+            "CRITICAL" if singularity_count > 0 else "OK"
+        )
+        if singularity_count > 0:
+            table.add_row(
+                "Worst Singularity",
+                f"{worst_slope:.1f}",
+                "SEVERE" if worst_slope > 20.0 else "WARN"
+            )
         
         console.print(table)
         
@@ -131,6 +152,11 @@ def plots(logfile, output, plot_all):
             hist_path = output_dir / f"{base_name}_dalpha_hist.png"
             plot_dalpha_histogram(df, str(hist_path), show=False)
             console.print(f"  [OK] Created: {hist_path}")
+
+            # Slope correlation
+            corr_path = output_dir / f"{base_name}_slope_corr.png"
+            plot_slope_correlation(df, str(corr_path), show=False)
+            console.print(f"  [OK] Created: {corr_path}")
         
         console.print("\n[bold green]Done![/bold green]")
     except Exception as e:
@@ -154,6 +180,42 @@ def report(logfile, output):
             console.print(report_text)
     except Exception as e:
         console.print(f"[bold red]Error generating report:[/bold red] {e}")
+
+@cli.command()
+@click.argument('logdir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.option('--output', '-o', default='analyzer_results', help='Output directory for batch results')
+@click.pass_context
+def batch(ctx, logdir, output):
+    """Run all analysis commands for all log files in a directory."""
+    log_path = Path(logdir)
+    output_path = Path(output)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    csv_files = sorted(list(log_path.glob("*.csv")))
+    if not csv_files:
+        console.print(f"[yellow]No .csv files found in {logdir}[/yellow]")
+        return
+
+    console.print(f"[bold green]Found {len(csv_files)} log files. Starting batch processing...[/bold green]")
+
+    for logfile in csv_files:
+        console.print(f"\n[bold blue]Processing: {logfile.name}[/bold blue]")
+
+        # Run individual commands
+        # 1. Info
+        ctx.invoke(info, logfile=str(logfile))
+
+        # 2. Analyze
+        ctx.invoke(analyze, logfile=str(logfile), verbose=False)
+
+        # 3. Plots (save to output dir)
+        ctx.invoke(plots, logfile=str(logfile), output=str(output_path), plot_all=True)
+
+        # 4. Report (save to output dir)
+        report_file = output_path / f"{logfile.stem}_report.txt"
+        ctx.invoke(report, logfile=str(logfile), output=str(report_file))
+
+    console.print(f"\n[bold green]Batch processing complete! Results saved to: {output}[/bold green]")
 
 if __name__ == '__main__':
     cli()

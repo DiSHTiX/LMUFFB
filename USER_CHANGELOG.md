@@ -4,6 +4,56 @@ This document contains all version release posts by ErwinMoss from the [url=http
 
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
+[size=5][b]February 10, 2026[/b][/size]
+[b]Version 0.7.21 - Understeer Math Overhaul[/b]
+
+[b]New release[/b] (0.7.21): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Improved[/b]
+[list]
+[*][b]Mathematical Stabilization (S-Curve Ramp)[/b]: We've replaced the old "binary switch" for grip detection with a modern S-Curve (Smoothstep) ramp. This means the transition from straight-line driving to a full cornering understeer cue is now completely seamless, with no sudden shifts or "notchy" feeling in the force.
+[*][b]Advanced Singularity Protection[/b]: The internal math now has even better guards against extreme telemetry values. Even if the game sends "noisy" data during a curb-strike or accident, the understeer effect remains smooth and physically realistic.
+[*][b]Better Graph Clarity[/b]: The live physics graph now shows a much cleaner and more stable slope calculation, making it easier to see exactly when your tires are losing grip.
+[/list]
+
+---
+
+[size=5][b]February 10, 2026[/b][/size]
+[b]Version 0.7.20 - Slope Stability Hardening[/b]
+
+[b]New release[/b] (0.7.20): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Fixed[/b]
+[list]
+[*][b]FFB "Explosion" Prevention[/b]: Fixed a critical issue where the steering wheel could suddenly jerk or vibrate violently during slow corners. This was caused by a "division-by-zero" style mathematical explosion in the grip detection code. We've added safety "clamps" to ensure these values always stay within physically realistic limits.
+[*][b]Smoother Understeer Cues[/b]: Refined the way the understeer effect blends in at low speeds. The "Confidence" system is now smarter about rejecting noise, resulting in a much more stable and analog feel through the wheel.
+[/list]
+
+[b]Improved[/b]
+[list]
+[*][b]Hardened Safety Suite[/b]: We've added a comprehensive "Stress Test" suite to our internal diagnostics. This puts the FFB engine through thousands of frames of synthetic "bad data" (spikes, noise, and jitter) to ensure the feedback remains safe and stable for your hardware even in extreme conditions.
+[/list]
+
+---
+
+[size=5][b]February 9, 2026[/b][/size]
+[b]Version 0.7.18 - Batch Log Analysis[/b]
+
+[b]New release[/b] (0.7.18): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Added[/b]
+[list]
+[*][b]Batch Log Analysis[/b]: You can now analyze an entire directory of log files at once. The new [code]batch[/code] command runs all diagnostics (session info, slope analysis, plots, and reports) for every log file in the folder.
+[*][b]One-Click Diagnostics[/b]: Perfect for analyzing an entire race weekend or comparing multiple car/track combinations. All results are neatly organized into a dedicated results directory.
+[/list]
+
+[b]Improved[/b]
+[list]
+[*][b]Diagnostics Workflow[/b]: The Log Analyzer tool is now even easier to use for deep dives into FFB performance and telemetry stability.
+[/list]
+
+---
+
 [size=5][b]February 7, 2026[/b][/size]
 [b]Version 0.7.17 - Test Suite Consolidation[/b]
 

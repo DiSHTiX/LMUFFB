@@ -44,6 +44,31 @@ def analyze_slope_stability(df: pd.DataFrame, threshold: float = 0.02) -> Dict[s
         results['grip_on_straights_mean'] = None
         results['grip_on_straights_std'] = None
     
+    # Signal Quality Metrics
+    # 1. Zero-Crossing Rate (Hz)
+    if 'SlopeCurrent' in df.columns:
+        # Count sign changes
+        diffs = np.diff(np.sign(df['SlopeCurrent']))
+        crossings = np.count_nonzero(diffs)
+        duration = df['Time'].iloc[-1] - df['Time'].iloc[0] if 'Time' in df.columns else len(df) * 0.01
+        results['zero_crossing_rate'] = float(crossings / duration) if duration > 0 else 0.0
+    else:
+        results['zero_crossing_rate'] = None
+
+    # 2. Binary State Residence
+    if grip_col in df.columns:
+        binary_mask = (df[grip_col] <= 0.25) | (df[grip_col] >= 0.95)
+        results['binary_residence'] = float(binary_mask.mean() * 100)
+    else:
+        results['binary_residence'] = None
+
+    # 3. Derivative Energy Ratio
+    if 'dG_dt' in df.columns and 'dAlpha_dt' in df.columns:
+        std_alpha = df['dAlpha_dt'].std()
+        results['derivative_energy_ratio'] = float(df['dG_dt'].std() / std_alpha) if std_alpha > 0 else 0.0
+    else:
+        results['derivative_energy_ratio'] = None
+
     # Issue detection
     results['issues'] = []
     
@@ -66,7 +91,12 @@ def analyze_slope_stability(df: pd.DataFrame, threshold: float = 0.02) -> Dict[s
         results['issues'].append(
             f"LOW GRIP ON STRAIGHTS ({results['grip_on_straights_mean']:.2f}) - Slope stuck at negative"
         )
-    
+
+    if results.get('zero_crossing_rate', 0) > 5.0:
+        results['issues'].append(
+            f"HIGH SIGNAL NOISE ({results['zero_crossing_rate']:.1f} Hz) - Slope signal is jittery"
+        )
+
     return results
 
 def detect_oscillation_events(
@@ -133,3 +163,20 @@ def analyze_grip_correlation(df: pd.DataFrame) -> Dict[str, float]:
             results['grip_vs_latg_correlation'] = float(df[grip_col].corr(lat_g))
     
     return results
+
+def detect_singularities(
+    df: pd.DataFrame,
+    slope_thresh: float = 10.0,
+    alpha_rate_thresh: float = 0.05
+) -> (int, float):
+    """
+    Detect "Singularity Events" (high slope with low slip rate).
+    """
+    if 'SlopeCurrent' not in df.columns or 'dAlpha_dt' not in df.columns:
+        return 0, 0.0
+
+    mask = (np.abs(df['SlopeCurrent']) > slope_thresh) & (np.abs(df['dAlpha_dt']) < alpha_rate_thresh)
+    count = int(mask.sum())
+    worst = float(df.loc[mask, 'SlopeCurrent'].abs().max()) if count > 0 else 0.0
+
+    return count, worst
