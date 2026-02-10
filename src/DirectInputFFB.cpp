@@ -29,17 +29,9 @@ DirectInputFFB& DirectInputFFB::Get() {
 
 DirectInputFFB::DirectInputFFB() {}
 
-// NEW: Helper to get foreground window title for diagnostics
+// NEW: Helper to get foreground window title for diagnostics - REMOVED for Security/Privacy
 std::string DirectInputFFB::GetActiveWindowTitle() {
-#ifdef _WIN32
-    char wnd_title[256];
-    HWND hwnd = GetForegroundWindow();
-    if (hwnd) {
-        GetWindowTextA(hwnd, wnd_title, sizeof(wnd_title));
-        return std::string(wnd_title);
-    }
-#endif
-    return "Unknown";
+    return "Window Tracking Disabled"; 
 }
 
 // NEW: Helper Implementations for GUID

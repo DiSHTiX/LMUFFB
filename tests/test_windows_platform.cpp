@@ -69,8 +69,7 @@ TEST_CASE(test_window_title_extraction, "Windows") {
     std::string title = DirectInputFFB::GetActiveWindowTitle();
     std::cout << "  Current Window: " << title << std::endl;
     
-    // We expect something, even if it's "Unknown" (though on Windows it should work)
-    ASSERT_TRUE(!title.empty());
+    ASSERT_EQ_STR(title, "Window Tracking Disabled");
 }
 
 TEST_CASE(test_config_persistence_guid, "Windows") {

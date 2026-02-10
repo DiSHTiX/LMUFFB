@@ -34,7 +34,7 @@ if(NOT BUILD_HEADLESS AND IMGUI_CORE_SOURCES)
             ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
         )
         link_libraries(d3d11 d3dcompiler dxguid)
-        add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX)
+        add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX -DIMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS)
     else()
         # Linux / GLFW + OpenGL
         find_package(glfw3 REQUIRED)

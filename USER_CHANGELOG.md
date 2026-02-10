@@ -5,6 +5,19 @@ This document contains all version release posts by ErwinMoss from the [url=http
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
 [size=5][b]February 11, 2026[/b][/size]
+[b]Version 0.7.24 - Privacy & Security Update[/b]
+
+[b]New release[/b] (0.7.24): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Improved Security[/b]
+[list]
+[*][b]Disabled Clipboard Access[/b]: Modified the application build configuration to completely disable clipboard access in the user interface. This removes a common heuristic trigger for antivirus software. Copy/Paste functionality in text fields is disabled.
+[*][b]Removed Window Title Tracking[/b]: Removed the internal logic that tracked the active window title for focus management. This behavior was sometimes flagged as "spyware-like" activity monitoring. Focus management now relies solely on standard window activation events.
+[/list]
+
+---
+
+[size=5][b]February 11, 2026[/b][/size]
 [b]Version 0.7.23 - Reputational Safety Update[/b]
 
 [b]New release[/b] (0.7.23): https://github.com/coasting-nc/LMUFFB/releases
