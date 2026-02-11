@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.26] - 2026-02-11
+### Security & Privacy
+- **Executable Metadata**:
+  - Added `VERSIONINFO` resource to the executable (`src/res.rc`).
+  - The binary now includes standard metadata (Company Name, File Description, Version), which eliminates "anonymous file" heuristics used by antivirus software.
+- **Build Hardening**:
+  - Enabled `/GS` (Buffer Security Check), `/DYNAMICBASE` (ASLR), and `/NXCOMPAT` (DEP) flags for MSVC builds in `CMakeLists.txt`.
+### Testing
+- **Robustness**: Updated `test_game_connector_lifecycle` to gracefully handle pre-existing shared memory mappings (e.g., from running game instance), preventing false test failures.
+
 ## [0.7.25] - 2026-02-11
 ### Removed
 - **vJoy Support**:

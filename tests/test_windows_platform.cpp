@@ -884,12 +884,16 @@ TEST_CASE(test_game_connector_lifecycle, "Windows") {
 
     // 4. TryConnect should handle the clean slate
     bool connect_result = GameConnector::Get().TryConnect();
-    // We expect this to fail in the test environment, but NOT crash and NOT leak.
-    // (Leak checking isn't easily possible here, but crash checking is implicit)
-    ASSERT_TRUE(connect_result == false);
     
-    // 5. Verify still disconnected
-    ASSERT_TRUE(GameConnector::Get().IsConnected() == false);
+    if (connect_result) {
+        std::cout << "  [WARN] GameConnector connected (Shared Memory found). Verifying Disconnect persistence..." << std::endl;
+        ASSERT_TRUE(GameConnector::Get().IsConnected() == true);
+        GameConnector::Get().Disconnect();
+        ASSERT_TRUE(GameConnector::Get().IsConnected() == false);
+    } else {
+        // 5. Verify still disconnected
+        ASSERT_TRUE(GameConnector::Get().IsConnected() == false);
+    }
 }
 
 TEST_CASE(test_game_connector_thread_safety, "Windows") {
