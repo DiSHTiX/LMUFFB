@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.31] - 2026-02-11
+### Improved
+- **Linux Testing & Reporting Refactor**:
+  - **Cross-Platform Logic Coverage**: Refactored the test suite to move platform-agnostic logic tests (Slider Precision, Config Persistence, Preset Management) from `test_windows_platform.cpp` to a new `test_ffb_logic.cpp`. This significantly increases Linux test coverage (~225 assertions previously skipped).
+  - **Non-Invasive Linux Mocking**: Introduced `src/lmu_sm_interface/linux_mock/windows.h` to allow third-party ISI headers to compile on Linux without modification. Reverted all invasive platform guards in vendor headers.
+  - **Enhanced Test Reporting**: The test runner now reports **Test Case counts** (Passed/Failed) in addition to individual assertions, providing a clearer high-level view of test health.
+  - **Verification**: Confirmed all 197 test cases and 928 assertions pass on Windows, slightly exceeding the previous baseline due to improved depth in logic verification.
+
 ## [0.7.30] - 2026-02-11
 ### Improved
 - **Single Source of Truth Versioning**:

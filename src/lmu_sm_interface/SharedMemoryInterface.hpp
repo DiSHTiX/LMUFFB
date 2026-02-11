@@ -71,8 +71,6 @@ int main(int argc, char* argv[])
 
 #ifdef _WIN32
 #include <windows.h>
-#else
-#include "LinuxMock.h"
 #endif
 
 #define LMU_SHARED_MEMORY_FILE "LMU_Data"

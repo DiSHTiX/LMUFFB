@@ -61,6 +61,10 @@ endif()
 set(IMGUI_SOURCES ${IMGUI_CORE_SOURCES} ${IMGUI_BACKEND_SOURCES})
 
 include_directories(src)
+if(NOT WIN32)
+    include_directories(src/lmu_sm_interface/linux_mock)
+    include_directories(src/lmu_sm_interface)
+endif()
 
 # Copy icon file into build directory (Windows only)
 if(WIN32)

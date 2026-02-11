@@ -12,6 +12,8 @@ include_directories(${CMAKE_BINARY_DIR}/src)
 
 if(NOT WIN32)
     include_directories(linux_mock)
+    include_directories(../src/lmu_sm_interface/linux_mock)
+    include_directories(../src/lmu_sm_interface)
 endif()
 
 # Combined Test Executable
@@ -37,6 +39,7 @@ set(TEST_SOURCES
     test_preset_improvements.cpp
     test_ffb_stability.cpp
     test_gui_tooltips_presence.cpp
+    test_ffb_logic.cpp
 
     # Core Application Logic (Now with Linux Mocks)
     ../src/Config.cpp
