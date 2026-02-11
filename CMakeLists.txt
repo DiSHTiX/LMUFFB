@@ -67,6 +67,10 @@ if(WIN32)
     configure_file(${CMAKE_SOURCE_DIR}/icon/lmuffb.ico ${CMAKE_BINARY_DIR}/lmuffb.ico COPYONLY)
 endif()
 
+# Read Version
+file(STRINGS "VERSION" LMUFFB_VERSION)
+add_definitions(-DLMUFFB_VERSION="${LMUFFB_VERSION}")
+
 # Tests
 add_subdirectory(tests)
 
@@ -97,8 +101,6 @@ if(NOT WIN32 AND NOT BUILD_HEADLESS)
 endif()
 
 # Read Version
-file(STRINGS "VERSION" LMUFFB_VERSION)
-add_definitions(-DLMUFFB_VERSION="${LMUFFB_VERSION}")
 
 # Copy Distribution Files
 add_custom_command(TARGET LMUFFB POST_BUILD

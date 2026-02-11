@@ -62,6 +62,18 @@ FloatSetting("  Sensitivity", &engine.m_slope_sensitivity, 0.1f, 5.0f, "%.1fx");
 ```
 *Result: Skips the description, shows only "Fine Tune..." instructions.*
 
+### 2.3. Historical Analysis (Regression Confirmed)
+A review of previous commits confirms that these tooltips **were present** in earlier versions but were lost during the refactoring to `GuiLayer_Common.cpp`.
+
+*   **Version 0.7.1 (Commit `8bff2ff`)**:
+    *   File: `src/GuiLayer.cpp`
+    *   Status: **Present**. "Lateral G Boost", "Yaw Kick", "SoP Smoothing", and "Slope Sensitivity" all had detailed tooltips.
+*   **Version 0.6.31 (Commit `e66b074`)**:
+    *   File: `src/GuiLayer.cpp`
+    *   Status: **Present**. Core effects like "Lateral G Boost" had tooltips.
+
+**Conclusion**: This is a regression caused by a recent refactoring where the tooltip arguments were omitted when moving code to the new file structure.
+
 ## 3. Scope of Affected Parameters
 
 A review of `GuiLayer_Common.cpp` shows that **tooltips are missing for approximately 70-80% of the parameters**, particularly in newer sections.
@@ -96,7 +108,7 @@ A review of `GuiLayer_Common.cpp` shows that **tooltips are missing for approxim
 The GUI code is functioning as written, but the content (tooltip strings) was never added for the majority of the advanced settings. This gives the impression of a broken UI.
 
 **Action Plan:**
-1.  **Immediate**: Populate the missing tooltip strings in `GuiLayer_Common.cpp` for the affected sections.
+1.  **Immediate**: Restore the missing tooltip strings in `GuiLayer_Common.cpp` using the content from version 0.7.1 (`8bff2ff`) as the source of truth.
 2.  **Validation**: Verify that the `Fine Tune` text is now accompanied by the parameter description.
 
 No logic changes to `GuiWidgets.h` are required.

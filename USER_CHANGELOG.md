@@ -5,6 +5,26 @@ This document contains all version release posts by ErwinMoss from the [url=http
 [b]Note:[/b] This file uses BBCode formatting for easy copy-paste to forums.
 
 [size=5][b]February 11, 2026[/b][/size]
+[b]Version 0.7.28 - Tooltip Restoration & UX Update[/b]
+
+[b]New release[/b] (0.7.28): https://github.com/coasting-nc/LMUFFB/releases
+
+[b]Fixed[/b]
+[list]
+[*][b]Tooltip Restoration[/b]: We've restored over 40 missing tooltips that were accidentally removed during recent updates. Every setting now has its detailed explanation and tuning guide back where it belongs.
+[*][b]Modern Feature Documentation[/b]: Added new descriptions for newer features like Slope Detection stability, Lockup Prediction, and the dynamic signal filters.
+[*][b]100% Coverage[/b]: Verified that every single button and interactive element in the app now has a helpful tooltip. No more guessing what a button does!
+[/list]
+
+[b]Improved[/b]
+[list]
+[*][b]Easier Discovery[/b]: Tooltips now appear when you hover over the [b]Parameter Label[/b] as well as the slider/checkbox. This makes it much easier to quickly see what a setting does without having to aim precisely for the input field.
+[*][b]Guided Tuning[/b]: Standardized the "Fine Tune" instructions (Arrow Keys / Ctrl+Click) across the entire interface.
+[/list]
+
+---
+
+[size=5][b]February 11, 2026[/b][/size]
 [b]Version 0.7.27 - Security & Reputation Update[/b]
 
 [b]New release[/b] (0.7.27): https://github.com/coasting-nc/LMUFFB/releases

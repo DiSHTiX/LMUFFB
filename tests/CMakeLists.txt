@@ -35,6 +35,7 @@ set(TEST_SOURCES
     test_versioned_presets.cpp
     test_preset_improvements.cpp
     test_ffb_stability.cpp
+    test_gui_tooltips_presence.cpp
 
     # Core Application Logic (Now with Linux Mocks)
     ../src/Config.cpp

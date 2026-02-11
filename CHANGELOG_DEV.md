@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.28] - 2026-02-11
+### Fixed
+- **GUI Tooltip Restoration**:
+  - Restored over 40 missing tooltips that were lost during recent GUI refactoring.
+  - Added new descriptive tooltips for modern features including Slope Detection stability fixes, Lockup Prediction, and advanced signal filters.
+  - **Comprehensive Coverage**: Verified via automated script and manual audit that 100% of interactive widgets (including utility buttons, checkboxes, and system controls) now have descriptive tooltips.
+### Improved
+- **Tooltip UX Enhancement**:
+  - Tooltips now trigger when hovering over a widget's **Label**, not just the input field (slider/checkbox/combo). This makes discovering parameter info much more intuitive.
+  - Standardized "Fine Tune" instructions across all sliders.
+### Testing
+- **GUI Regression Tests**:
+  - Added `test_widgets_have_tooltips` to verify that core widget functions correctly handle and render tooltip strings.
+  - Hardened `GuiWidgets` logic to prevent future regressions.
+
 ## [0.7.27] - 2026-02-11
 ### Security & Privacy
 - **Heuristic Reduction**:

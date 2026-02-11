@@ -50,7 +50,7 @@ public:
     }
 
     // Helper for error logging with GetLastError()
-    void LogWin32Error(const char* context, DWORD errorCode) {
+    void LogWin32Error(const char* context, unsigned long errorCode) {
         Log("Error in %s: Code %lu", context, errorCode);
     }
 
