@@ -1,4 +1,5 @@
 #include "GameConnector.h"
+#include "Logger.h"
 #include "lmu_sm_interface/SafeSharedMemoryLock.h"
 #include <iostream>
 
@@ -54,6 +55,7 @@ bool GameConnector::TryConnect() {
     m_pSharedMemLayout = (SharedMemoryLayout*)MapViewOfFile(m_hMapFile, FILE_MAP_READ, 0, 0, sizeof(SharedMemoryLayout));
     if (m_pSharedMemLayout == NULL) {
         std::cerr << "[GameConnector] Could not map view of file." << std::endl;
+        Logger::Get().LogWin32Error("MapViewOfFile", GetLastError());
         _DisconnectLocked();
         return false;
     }
@@ -61,6 +63,7 @@ bool GameConnector::TryConnect() {
     m_smLock = SafeSharedMemoryLock::MakeSafeSharedMemoryLock();
     if (!m_smLock.has_value()) {
         std::cerr << "[GameConnector] Failed to init LMU Shared Memory Lock" << std::endl;
+        Logger::Get().Log("Failed to init SafeSharedMemoryLock.");
         _DisconnectLocked();
         return false;
     }
@@ -75,6 +78,7 @@ bool GameConnector::TryConnect() {
     m_connected = true;
     m_lastUpdateLocalTime = std::chrono::steady_clock::now();
     std::cout << "[GameConnector] Connected to LMU Shared Memory." << std::endl;
+    Logger::Get().Log("Connected to LMU Shared Memory.");
     return true;
 #else
     return false;
