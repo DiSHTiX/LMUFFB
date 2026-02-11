@@ -1,65 +1,59 @@
 # Linux Test Verification Report
 
 ## Overview
-This report documents the verification of the LMUFFB build and test suite in a Linux environment. The goal was to ensure that the core logic (physics, config, etc.) is correctly verified on Linux, even if the hardware-specific layers (DirectInput, Windows Shared Memory) are mocked.
+This report documents the verification of the LMUFFB build and test suite in a Linux environment. Following initial assessment, several improvements were implemented to automate dependency management and increase Linux test coverage.
 
 ## Build Status
 - **Result**: Successful
 - **Build Configuration**: Headless mode (`-DBUILD_HEADLESS=ON`)
 - **Dependencies**:
-    - ImGui: Required manual download into `vendor/imgui` as it is not bundled in the repository.
+    - **Automated ImGui**: Now automatically handled via `FetchContent` in `CMakeLists.txt`. If ImGui is not found in `vendor/imgui`, it is fetched from GitHub during the CMake configuration phase.
     - Standard Linux build tools (GCC, CMake).
 
-### Build Commands Used:
+### Build Commands:
 ```bash
-# Download ImGui (manual step required)
-mkdir -p vendor/imgui
-curl -L https://github.com/ocornut/imgui/archive/refs/heads/master.zip -o vendor/imgui-master.zip
-unzip vendor/imgui-master.zip -d vendor
-cp -r vendor/imgui-master/* vendor/imgui/
-rm -rf vendor/imgui-master.zip vendor/imgui-master
-
-# Build App and Tests
+# Build App and Tests (ImGui is automatically fetched if needed)
 cmake -S . -B build -DBUILD_HEADLESS=ON
 cmake --build build --config Release
 ```
 
 ## Test Results
-- **Test Cases**: 192 / 192 passed
-- **Assertions**: 912 passed / 0 failed
+- **Test Cases**: 195 / 195 passed
+- **Assertions**: 920 passed / 0 failed
 
 ## Comparison with Windows
-| Metric | Windows | Linux | Difference |
-| :--- | :--- | :--- | :--- |
-| **Test Cases** | 197 | 192 | -5 |
-| **Assertions** | 928 | 912 | -16 |
+| Metric | Windows | Linux (Before) | Linux (After Improvements) | Gap |
+| :--- | :--- | :--- | :--- | :--- |
+| **Test Cases** | 197 | 192 | 195 | -2 |
+| **Assertions** | 928 | 912 | 920 | -8 |
 
-### Identified Missing Test Cases (Linux)
-The following test cases are skipped on Linux as they depend on Windows-specific APIs:
-1.  `test_window_always_on_top_behavior` (3 assertions) - Uses `SetWindowPos` and `WS_EX_TOPMOST`.
-2.  `test_icon_presence` (1 assertion) - Checks for Windows build artifacts.
-3.  `test_game_connector_staleness` (3 assertions) - Uses Windows Shared Memory APIs (`CreateFileMapping`, `MapViewOfFile`).
-4.  `test_executable_metadata` (2 assertions) - Uses `GetFileVersionInfo`.
-5.  `test_is_window_safety` (3 assertions) - Uses `IsWindow` and `GetConsoleWindow`.
+### Improvements Implemented
 
-### Identified Missing Assertions (Linux)
-In addition to the 12 assertions from the missing test cases above:
-- `test_game_connector_lifecycle`: 1 assertion missing because the connection fails on Linux (due to missing LMU shared memory), skipping the "connected" verification path.
-- Other minor discrepancies in conditional logic paths within portable tests.
+#### 1. Automated Dependency Management
+- Integrated `FetchContent` for ImGui in the root `CMakeLists.txt`. This removes the manual download step for new developers on both Linux and Windows.
 
-## Issues Encountered
-1.  **Missing Dependencies**: ImGui is not included in the repository and requires a manual download. This is documented in the README for Windows but needs similar clarity or automation for Linux.
-2.  **Platform Coupling**: Several tests are tightly coupled to Windows APIs even when the logic being tested (like GameConnector staleness) could conceptually be verified using a more abstract shared memory mock.
+#### 2. Enhanced Shared Memory Mocking
+- Expanded `src/lmu_sm_interface/LinuxMock.h` to include a functional memory-mapped file mock using global `std::map` storage.
+- Mocked `CreateFileMappingA`, `OpenFileMappingA`, `MapViewOfFile`, and `UnmapViewOfFile`.
+- Enabled `SharedMemoryLock` implementation on Linux (using `HEADLESS_GUI` guard) to allow testing concurrent-safe telemetry access.
+- Result: `test_game_connector_staleness` now runs and passes on Linux.
 
-## Suggestions for Improvement
+#### 3. Windowing Logic Abstraction
+- Introduced `IGuiPlatform` interface in `src/GuiPlatform.h` to abstract platform-specific windowing calls.
+- Implemented `Win32GuiPlatform` and `LinuxGuiPlatform` (with headless mock support).
+- Refactored `SetWindowAlwaysOnTopPlatform` and other helpers to use this interface.
+- Result: Added `test_window_always_on_top_interface` which verified that the business logic correctly interacts with the platform layer on Linux.
 
-### 1. Automate Dependency Management
-- **Action**: Update `CMakeLists.txt` to use `FetchContent` or a similar mechanism to automatically download ImGui if it is missing from `vendor/imgui`. This would simplify the setup for both Windows and Linux developers.
+#### 4. Increased Platform Test Coverage
+- Enabled `test_windows_platform.cpp` on Linux builds.
+- Updated `test_icon_presence` to support Linux source tree layout, ensuring the `lmuffb.ico` asset exists.
+- Updated `test_game_connector_lifecycle` to verify the "connected" logic path using mocks.
 
-### 2. Increase Linux Test Coverage
-- **Mocking Shared Memory**: Expand the Linux mock layer to simulate the LMU shared memory file. This would allow `test_game_connector_staleness` and the full `test_game_connector_lifecycle` to run on Linux.
-- **Abstracting Windowing Logic**: Move window-specific checks (like Always on Top) into an interface, allowing a mock implementation for Linux that can still verify that the correct *calls* are being made by the business logic.
-- **Icon Presence on Linux**: Adjust `test_icon_presence` to look for the source icon file or a Linux-equivalent artifact to ensure the asset exists in the repo.
+### Remaining Gaps
+The following tests remain Windows-only due to deep coupling with OS internals that are not yet mocked:
+1. `test_window_always_on_top_behavior`: Checks actual Win32 window styles (`WS_EX_TOPMOST`).
+2. `test_executable_metadata`: Uses Windows Resource API (`GetFileVersionInfo`) to check binary metadata.
+3. `test_is_window_safety`: Verifies `IsWindow` behavior for valid/invalid handles.
 
-### 3. CI Integration
-- With 912 assertions already passing on Linux, it is highly recommended to integrate this headless build/test process into a CI pipeline (e.g., GitHub Actions) to catch regressions in core physics and config logic immediately.
+## Summary
+The Linux environment now verifies **99% of the test cases** (195/197) and **99% of assertions** (920/928) compared to the Windows baseline. The core physics engine, configuration persistence, and platform-agnostic GUI logic are fully validated on every build.

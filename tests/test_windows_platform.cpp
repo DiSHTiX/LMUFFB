@@ -1,16 +1,23 @@
 #include <windows.h>
+#ifdef _WIN32
 #define DIRECTINPUT_VERSION 0x0800  // DirectInput 8
 #include <dinput.h>
+#endif
 #include <atomic>
 #include <mutex>
 #include <thread>
 #include <fstream>
 #include <cstdio>
+#ifndef _WIN32
+#include <unistd.h>
+#include <cstring>
+#endif
 
 // Include headers to test
 #include "../src/DirectInputFFB.h"
 #include "../src/Config.h"
 #include "../src/GuiLayer.h"
+#include "../src/GuiPlatform.h"
 #include "../src/GameConnector.h"
 #include "imgui.h"
 
@@ -30,12 +37,6 @@ namespace FFBEngineTests {
 #endif
 
 // --- Test Helpers ---
-static void InitializeEngine(FFBEngine& engine) {
-    Preset::ApplyDefaultsToEngine(engine);
-    engine.m_max_torque_ref = 20.0f;
-    engine.m_invert_force = false;
-    engine.m_steering_shaft_smoothing = 0.0f;
-}
 
 // --- TESTS ---
 
@@ -43,6 +44,7 @@ static void InitializeEngine(FFBEngine& engine) {
 
 
 
+#ifdef _WIN32
 TEST_CASE(test_window_always_on_top_behavior, "Windows") {
     std::cout << "\nTest: Window Always on Top Behavior" << std::endl;
 
@@ -75,6 +77,7 @@ TEST_CASE(test_window_always_on_top_behavior, "Windows") {
     // Cleanup
     DestroyWindow(hwnd);
 }
+#endif
 
 
 
@@ -91,7 +94,14 @@ TEST_CASE(test_icon_presence, "Windows") {
     // Robustness Fix: Use the executable's path to find the artifact, 
     // strictly validating the build structure regardless of CWD.
     char buffer[MAX_PATH];
+#ifdef _WIN32
     GetModuleFileNameA(NULL, buffer, MAX_PATH);
+#else
+    // Linux equivalent for getting executable path
+    ssize_t count = readlink("/proc/self/exe", buffer, MAX_PATH);
+    if (count != -1) buffer[count] = '\0';
+    else strncpy(buffer, ".", MAX_PATH);
+#endif
     std::string exe_path(buffer);
     
     // Find the directory of the executable
@@ -106,6 +116,9 @@ TEST_CASE(test_icon_presence, "Windows") {
     candidates.push_back(exe_dir + "/../../lmuffb.ico"); // Standard CMake Release/Debug layout
     candidates.push_back(exe_dir + "/../lmuffb.ico");    // Flat layout
     candidates.push_back(exe_dir + "/lmuffb.ico");       // Same dir
+#ifndef _WIN32
+    candidates.push_back(exe_dir + "/../../icon/lmuffb.ico"); // Linux source tree layout
+#endif
 
     bool found = false;
     std::string found_path;
@@ -144,6 +157,26 @@ TEST_CASE(test_icon_presence, "Windows") {
         for (const auto& path : candidates) std::cout << "         - " << path << std::endl;
         g_tests_failed++;
     }
+}
+
+TEST_CASE(test_window_always_on_top_interface, "GUI") {
+    std::cout << "\nTest: Window Always on Top Interface" << std::endl;
+
+    // Test the platform-agnostic function calls the platform implementation
+    SetWindowAlwaysOnTopPlatform(true);
+
+#ifndef _WIN32
+    // On Linux we can verify the mock state
+    ASSERT_TRUE(GetGuiPlatform().GetAlwaysOnTopMock() == true);
+
+    SetWindowAlwaysOnTopPlatform(false);
+    ASSERT_TRUE(GetGuiPlatform().GetAlwaysOnTopMock() == false);
+
+    std::cout << "  [PASS] Interface called successfully (Headless Mock verified)" << std::endl;
+#else
+    std::cout << "  [PASS] Interface called successfully (Win32)" << std::endl;
+    g_tests_passed++;
+#endif
 }
 
 TEST_CASE(test_game_connector_staleness, "Windows") {

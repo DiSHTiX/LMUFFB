@@ -12,18 +12,37 @@ if(MSVC)
     add_link_options(/DYNAMICBASE /NXCOMPAT)
 endif()
 
-# ImGui Core Detection (Always enabled for testing)
+# ImGui Core Detection & FetchContent
+include(FetchContent)
 set(IMGUI_DIR "vendor/imgui")
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp")
-    message(STATUS "ImGui Core found.")
+    message(STATUS "ImGui Core found locally.")
+    set(IMGUI_LOCAL_FOUND TRUE)
+else()
+    message(STATUS "ImGui not found locally. Using FetchContent...")
+    FetchContent_Declare(
+      imgui
+      GIT_REPOSITORY https://github.com/ocornut/imgui.git
+      GIT_TAG        master
+    )
+    FetchContent_GetProperties(imgui)
+    if(NOT imgui_POPULATED)
+        FetchContent_Populate(imgui)
+    endif()
+    set(IMGUI_DIR "${imgui_SOURCE_DIR}")
+    set(IMGUI_FETCHED TRUE)
+endif()
+
+if(EXISTS "${IMGUI_DIR}/imgui.cpp")
     add_definitions(-DENABLE_IMGUI)
 
     set(IMGUI_CORE_SOURCES
-        ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp
-        ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_demo.cpp
-        ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_draw.cpp
-        ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_tables.cpp
-        ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_widgets.cpp
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_demo.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp
     )
     include_directories(${IMGUI_DIR})
     include_directories(${IMGUI_DIR}/backends)
@@ -39,8 +58,8 @@ set(IMGUI_BACKEND_SOURCES "")
 if(NOT BUILD_HEADLESS AND IMGUI_CORE_SOURCES)
     if(WIN32)
         list(APPEND IMGUI_BACKEND_SOURCES
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_win32.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
         )
         link_libraries(d3d11 d3dcompiler dxguid)
         add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX -DIMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS)
@@ -50,8 +69,8 @@ if(NOT BUILD_HEADLESS AND IMGUI_CORE_SOURCES)
         find_package(OpenGL REQUIRED)
 
         list(APPEND IMGUI_BACKEND_SOURCES
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
         )
 
         include_directories(${OPENGL_INCLUDE_DIR})
@@ -120,8 +139,6 @@ endif()
 if(NOT WIN32 AND NOT BUILD_HEADLESS)
     target_link_libraries(LMUFFB PRIVATE glfw OpenGL::GL dl pthread)
 endif()
-
-# Read Version
 
 # Copy Distribution Files
 add_custom_command(TARGET LMUFFB POST_BUILD

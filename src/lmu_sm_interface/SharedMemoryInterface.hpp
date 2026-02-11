@@ -98,7 +98,7 @@ enum SharedMemoryEvent : uint32_t {
 class SharedMemoryLock {
 public:
     static std::optional<SharedMemoryLock> MakeSharedMemoryLock() {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         SharedMemoryLock memoryLock;
         if (memoryLock.Init()) {
             return std::move(memoryLock);
@@ -107,7 +107,7 @@ public:
         return std::nullopt;
     }
     bool Lock(DWORD dwMilliseconds = 0xFFFFFFFF) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         auto* data = (LockData*)mDataPtr;
         int MAX_SPINS = 4000;
         for (int spins = 0; spins < MAX_SPINS; ++spins) {
@@ -128,7 +128,7 @@ public:
 #endif
     }
     void Unlock() {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         auto* data = (LockData*)mDataPtr;
         InterlockedExchange(&data->busy, 0);
         if (data->waiters > 0) {
@@ -137,14 +137,14 @@ public:
 #endif
     }
     void Reset() {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         auto* data = (LockData*)mDataPtr;
         data->waiters = 0;
         data->busy = 0;
 #endif
     }
     ~SharedMemoryLock() {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         if (mWaitEventHandle)
             CloseHandle(mWaitEventHandle);
         if (mMapHandle)
@@ -162,7 +162,7 @@ public:
         return *this;
     }
 private:
-#ifdef _WIN32
+#if defined(_WIN32) || defined(HEADLESS_GUI)
     struct LockData {
         volatile LONG waiters;
         volatile LONG busy;
@@ -170,7 +170,7 @@ private:
 #endif
     SharedMemoryLock() = default;
     bool Init() {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         mMapHandle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, (DWORD)sizeof(LockData), "LMU_SharedMemoryLockData");
         if (!mMapHandle) {
             return false;
