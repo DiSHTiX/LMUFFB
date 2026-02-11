@@ -130,16 +130,23 @@ TEST_CASE(test_game_connector_lifecycle, "Logic") {
     bool after_disconnect = GameConnector::Get().IsConnected();
     ASSERT_TRUE(after_disconnect == false);
 
+    // Mock shared memory to ensure connection succeeds even on Linux
+    HANDLE hMap = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, (DWORD)sizeof(SharedMemoryLayout), LMU_SHARED_MEMORY_FILE);
+    auto mockLock = SharedMemoryLock::MakeSharedMemoryLock();
+
     bool connect_result = GameConnector::Get().TryConnect();
     
     if (connect_result) {
-        std::cout << "  [WARN] GameConnector connected (Shared Memory found). Verifying Disconnect persistence..." << std::endl;
+        std::cout << "  [PASS] GameConnector connected (Shared Memory mocked). Verifying Disconnect persistence..." << std::endl;
         ASSERT_TRUE(GameConnector::Get().IsConnected() == true);
         GameConnector::Get().Disconnect();
         ASSERT_TRUE(GameConnector::Get().IsConnected() == false);
     } else {
-        ASSERT_TRUE(GameConnector::Get().IsConnected() == false);
+        std::cout << "  [FAIL] GameConnector failed to connect despite mocking." << std::endl;
+        ASSERT_TRUE(false);
     }
+
+    if (hMap) CloseHandle(hMap);
 }
 
 TEST_CASE(test_game_connector_thread_safety, "Logic") {
