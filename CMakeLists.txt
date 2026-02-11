@@ -3,6 +3,15 @@ project(LMUFFB_CPP)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Security Flags (MSVC)
+if(MSVC)
+    # Compile flags: Buffer Security Check (/GS) is usually default, but good to ensure.
+    add_compile_options(/GS)
+    
+    # Linker flags: ASLR (/DYNAMICBASE) and DEP (/NXCOMPAT)
+    add_link_options(/DYNAMICBASE /NXCOMPAT)
+endif()
+
 # ImGui Core Detection (Always enabled for testing)
 set(IMGUI_DIR "vendor/imgui")
 if(EXISTS "${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp")
