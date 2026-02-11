@@ -71,6 +71,8 @@ else()
     list(APPEND TEST_SOURCES ../src/GuiLayer_Linux.cpp)
     if(BUILD_HEADLESS)
         add_definitions(-DHEADLESS_GUI)
+        # Enable some Windows-style tests on Linux using mocks
+        list(APPEND TEST_SOURCES test_windows_platform.cpp)
     endif()
 endif()
 

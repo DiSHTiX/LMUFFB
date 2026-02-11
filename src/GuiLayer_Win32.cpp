@@ -1,4 +1,5 @@
 #include "GuiLayer.h"
+#include "GuiPlatform.h"
 #include "Version.h"
 #include "Logger.h"
 #include "Config.h"
@@ -43,73 +44,90 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 extern std::atomic<bool> g_running;
 
-void ResizeWindowPlatform(int x, int y, int w, int h) {
-    if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
-    if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
-    ::SetWindowPos(g_hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
-}
+class Win32GuiPlatform : public IGuiPlatform {
+public:
+    void SetAlwaysOnTop(bool enabled) override {
+        if (!g_hwnd) return;
+        HWND insertAfter = enabled ? HWND_TOPMOST : HWND_NOTOPMOST;
+        ::SetWindowPos(g_hwnd, insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
 
-void SaveCurrentWindowGeometryPlatform(bool is_graph_mode) {
-    RECT rect;
-    if (::GetWindowRect(g_hwnd, &rect)) {
-        Config::win_pos_x = rect.left;
-        Config::win_pos_y = rect.top;
-        int w = rect.right - rect.left;
-        int h = rect.bottom - rect.top;
+    void ResizeWindow(int x, int y, int w, int h) override {
         if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
         if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
-        if (is_graph_mode) {
-            Config::win_w_large = w;
-            Config::win_h_large = h;
-        } else {
-            Config::win_w_small = w;
-            Config::win_h_small = h;
+        ::SetWindowPos(g_hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    void SaveWindowGeometry(bool is_graph_mode) override {
+        RECT rect;
+        if (::GetWindowRect(g_hwnd, &rect)) {
+            Config::win_pos_x = rect.left;
+            Config::win_pos_y = rect.top;
+            int w = rect.right - rect.left;
+            int h = rect.bottom - rect.top;
+            if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
+            if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
+            if (is_graph_mode) {
+                Config::win_w_large = w;
+                Config::win_h_large = h;
+            } else {
+                Config::win_w_small = w;
+                Config::win_h_small = h;
+            }
         }
     }
-}
 
-void SetWindowAlwaysOnTopPlatform(bool enabled) {
-    if (!g_hwnd) return;
-    HWND insertAfter = enabled ? HWND_TOPMOST : HWND_NOTOPMOST;
-    ::SetWindowPos(g_hwnd, insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-}
-
-bool OpenPresetFileDialogPlatform(std::string& outPath) {
-    char filename[MAX_PATH] = "";
-    OPENFILENAMEA ofn;
-    ZeroMemory(&ofn, sizeof(ofn));
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = g_hwnd;
-    ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = filename;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-    ofn.lpstrDefExt = "ini";
-    if (GetOpenFileNameA(&ofn)) {
-        outPath = filename;
-        return true;
+    bool OpenPresetFileDialog(std::string& outPath) override {
+        char filename[MAX_PATH] = "";
+        OPENFILENAMEA ofn;
+        ZeroMemory(&ofn, sizeof(ofn));
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = g_hwnd;
+        ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile = filename;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+        ofn.lpstrDefExt = "ini";
+        if (GetOpenFileNameA(&ofn)) {
+            outPath = filename;
+            return true;
+        }
+        return false;
     }
-    return false;
-}
 
-bool SavePresetFileDialogPlatform(std::string& outPath, const std::string& defaultName) {
-    char filename[MAX_PATH] = "";
-    strncpy_s(filename, defaultName.c_str(), _TRUNCATE);
-    OPENFILENAMEA ofn;
-    ZeroMemory(&ofn, sizeof(ofn));
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = g_hwnd;
-    ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = filename;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
-    ofn.lpstrDefExt = "ini";
-    if (GetSaveFileNameA(&ofn)) {
-        outPath = filename;
-        return true;
+    bool SavePresetFileDialog(std::string& outPath, const std::string& defaultName) override {
+        char filename[MAX_PATH] = "";
+        strncpy_s(filename, defaultName.c_str(), _TRUNCATE);
+        OPENFILENAMEA ofn;
+        ZeroMemory(&ofn, sizeof(ofn));
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = g_hwnd;
+        ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile = filename;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
+        ofn.lpstrDefExt = "ini";
+        if (GetSaveFileNameA(&ofn)) {
+            outPath = filename;
+            return true;
+        }
+        return false;
     }
-    return false;
-}
+
+    void* GetWindowHandle() override {
+        return (void*)g_hwnd;
+    }
+};
+
+static Win32GuiPlatform g_platform;
+IGuiPlatform& GetGuiPlatform() { return g_platform; }
+
+// Compatibility Helpers
+void ResizeWindowPlatform(int x, int y, int w, int h) { GetGuiPlatform().ResizeWindow(x, y, w, h); }
+void SaveCurrentWindowGeometryPlatform(bool is_graph_mode) { GetGuiPlatform().SaveWindowGeometry(is_graph_mode); }
+void SetWindowAlwaysOnTopPlatform(bool enabled) { GetGuiPlatform().SetAlwaysOnTop(enabled); }
+bool OpenPresetFileDialogPlatform(std::string& outPath) { return GetGuiPlatform().OpenPresetFileDialog(outPath); }
+bool SavePresetFileDialogPlatform(std::string& outPath, const std::string& defaultName) { return GetGuiPlatform().SavePresetFileDialog(outPath, defaultName); }
 
 
 bool GuiLayer::Init() {
