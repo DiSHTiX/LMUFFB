@@ -14,9 +14,9 @@ endif()
 
 # ImGui Core Detection & FetchContent
 include(FetchContent)
-set(IMGUI_DIR "vendor/imgui")
+set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/vendor/imgui")
 
-if(EXISTS "${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp")
+if(EXISTS "${IMGUI_DIR}/imgui.cpp")
     message(STATUS "ImGui Core found locally.")
     set(IMGUI_LOCAL_FOUND TRUE)
 else()

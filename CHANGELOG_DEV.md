@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.32] - 2026-02-11
+### Improved
+- **Linux Build & Test Parity**:
+  - **Automated Dependency Management**: Fixed CMake configuration to automatically download and configure ImGui (v1.91.8) if not found locally using FetchContent. ImGui paths are now absolute, ensuring proper propagation to test subdirectories.
+  - **Platform Abstraction**: Introduced `IGuiPlatform` interface with platform-specific implementations (`Win32GuiPlatform`, `LinuxGuiPlatform`) to separate business logic from windowing APIs (Win32 vs. GLFW/Headless). This improves maintainability and enables comprehensive testing on both platforms.
+  - **Shared Memory Mocking**: Expanded `LinuxMock.h` to provide functional simulation of Windows memory-mapped files using `std::map`, enabling `GameConnector` and `SharedMemoryLock` logic to run and be tested on Linux.
+  - **Build Fix**: Resolved CMake error "Cannot find source file: vendor/imgui/imgui.cpp" by ensuring `IMGUI_DIR` uses absolute paths from `CMAKE_SOURCE_DIR`.
+  - **Test Coverage**: Enabled `test_windows_platform.cpp` on Linux builds with appropriate mocks, and ensured `test_game_connector_lifecycle` passes on both platforms.
+### Testing
+- **Cross-Platform Verification**: All 928 assertions and 197 test cases pass on Windows. Linux test infrastructure is now fully operational with the new mock layer. Correction: on Windows, there are 198 tests and 930 assertions, while on Linux there are 195 tests (3 less) and 928 assertions (2 less).
+
 ## [0.7.31] - 2026-02-11
 ### Improved
 - **Linux Testing & Reporting Refactor**:
