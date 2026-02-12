@@ -8,6 +8,7 @@
 #include <iostream>
 #include <chrono>
 #include <array>
+#include <cstring>
 #include "lmu_sm_interface/InternalsPluginWrapper.h"
 #include "AsyncLogger.h"
 
@@ -222,9 +223,8 @@ class FFBEngine {
     // ⚠ IMPORTANT MAINTENANCE WARNING:
     // When adding new FFB parameters to this class, you MUST also update:
     // 1. Preset struct in Config.h
-    // 2. Preset::Apply() and Preset::UpdateFromEngine() in Config.h
+    // 2. Preset::Apply(), UpdateFromEngine(), and Equals() in Config.h
     // 3. Config::Save() and Config::Load() in Config.cpp
-    // 4. Config::IsEngineDirtyRelativeToPreset() in Config.cpp (for the '*' indicator)
 
 public:
     // Settings (GUI Sliders)
@@ -864,13 +864,19 @@ public:
         m_slope_dAlpha_dt = dAlpha_dt;
 
         // 3. Estimate Slope (dG/dAlpha)
-        // Handle small dAlpha/dt to avoid noise/division by zero
-        // FIX 1: Configurable threshold (was hard-coded 0.001)
+        // v0.7.21 FIX: Denominator protection and gated calculation.
+        // We calculate the physical slope when steering movement is sufficient,
+        // and decay it toward zero otherwise to prevent "sticky" understeer.
         if (std::abs(dAlpha_dt) > (double)m_slope_alpha_threshold) {
-            m_slope_current = dG_dt / dAlpha_dt;
+            double abs_dAlpha = std::abs(dAlpha_dt);
+            double sign_dAlpha = (dAlpha_dt >= 0) ? 1.0 : -1.0;
+            double protected_denom = (std::max)(0.005, abs_dAlpha) * sign_dAlpha;
+            m_slope_current = dG_dt / protected_denom;
+
+            // v0.7.17 FIX: Hard clamp to physically possible range [-20.0, 20.0]
+            m_slope_current = std::clamp(m_slope_current, -20.0, 20.0);
         } else {
-            // FIX 2: Decay slope toward 0 when not actively cornering
-            // This prevents "sticky" understeer on straights
+            // Decay slope toward 0 when not actively cornering
             m_slope_current += (double)m_slope_decay_rate * dt * (0.0 - m_slope_current);
         }
 
@@ -902,8 +908,10 @@ public:
     // Extracted to avoid code duplication between slope detection and logging
     inline double calculate_slope_confidence(double dAlpha_dt) {
         if (!m_slope_confidence_enabled) return 1.0;
-        double conf_raw = std::abs(dAlpha_dt) / 0.1; // Normalize to 0.1 rad/s
-        return (std::min)(1.0, conf_raw);
+
+        // v0.7.21 FIX: Use smoothstep confidence ramp [m_slope_alpha_threshold, 0.10] rad/s
+        // to reject singularity artifacts near zero.
+        return smoothstep((double)m_slope_alpha_threshold, 0.10, std::abs(dAlpha_dt));
     }
 
     // Helper: Inverse linear interpolation - v0.7.11
@@ -969,10 +977,17 @@ public:
         // Update Context strings (for UI/Logging)
         // Only update if first char differs to avoid redundant copies
         if (m_vehicle_name[0] != data->mVehicleName[0] || m_vehicle_name[10] != data->mVehicleName[10]) {
+#ifdef _WIN32
              strncpy_s(m_vehicle_name, data->mVehicleName, 63);
              m_vehicle_name[63] = '\0';
              strncpy_s(m_track_name, data->mTrackName, 63);
              m_track_name[63] = '\0';
+#else
+             strncpy(m_vehicle_name, data->mVehicleName, 63);
+             m_vehicle_name[63] = '\0';
+             strncpy(m_track_name, data->mTrackName, 63);
+             m_track_name[63] = '\0';
+#endif
         }
 
         // --- 2. SIGNAL CONDITIONING (STATE UPDATES) ---

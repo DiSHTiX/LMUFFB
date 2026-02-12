@@ -69,6 +69,12 @@ int main(int argc, char* argv[])
 
 */
 
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(HEADLESS_GUI)
+#include "LinuxMock.h"
+#endif
+
 #define LMU_SHARED_MEMORY_FILE "LMU_Data"
 #define LMU_SHARED_MEMORY_EVENT "LMU_Data_Event"
 enum SharedMemoryEvent : uint32_t {
@@ -94,45 +100,60 @@ enum SharedMemoryEvent : uint32_t {
 class SharedMemoryLock {
 public:
     static std::optional<SharedMemoryLock> MakeSharedMemoryLock() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         SharedMemoryLock memoryLock;
         if (memoryLock.Init()) {
             return std::move(memoryLock);
         }
+#endif
         return std::nullopt;
     }
-    bool Lock(DWORD dwMilliseconds = INFINITE) {
+    bool Lock(DWORD dwMilliseconds = 0xFFFFFFFF) {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        auto* data = (LockData*)mDataPtr;
         int MAX_SPINS = 4000;
         for (int spins = 0; spins < MAX_SPINS; ++spins) {
-            if (InterlockedCompareExchange(&mDataPtr->busy, 1, 0) == 0)
+            if (InterlockedCompareExchange(&data->busy, 1, 0) == 0)
                 return true;
             YieldProcessor(); // CPU pause hint
         }
-        InterlockedIncrement(&mDataPtr->waiters);
+        InterlockedIncrement(&data->waiters);
         while (true) {
-            if (InterlockedCompareExchange(&mDataPtr->busy, 1, 0) == 0) {
-                InterlockedDecrement(&mDataPtr->waiters);
+            if (InterlockedCompareExchange(&data->busy, 1, 0) == 0) {
+                InterlockedDecrement(&data->waiters);
                 return true;
             }
-            return WaitForSingleObject(mWaitEventHandle, dwMilliseconds) == WAIT_OBJECT_0;
+            return WaitForSingleObject(mWaitEventHandle, dwMilliseconds) == 0; // WAIT_OBJECT_0
         }
+#else
+        return false;
+#endif
     }
     void Unlock() {
-        InterlockedExchange(&mDataPtr->busy, 0);
-        if (mDataPtr->waiters > 0) {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        auto* data = (LockData*)mDataPtr;
+        InterlockedExchange(&data->busy, 0);
+        if (data->waiters > 0) {
             SetEvent(mWaitEventHandle);
         }
+#endif
     }
-    void Reset() { // Call this function only from the core application.
-        mDataPtr->waiters = 0;
-        mDataPtr->busy = 0;
+    void Reset() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        auto* data = (LockData*)mDataPtr;
+        data->waiters = 0;
+        data->busy = 0;
+#endif
     }
     ~SharedMemoryLock() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         if (mWaitEventHandle)
             CloseHandle(mWaitEventHandle);
         if (mMapHandle)
             CloseHandle(mMapHandle);
         if (mDataPtr)
             UnmapViewOfFile(mDataPtr);
+#endif
     }
     SharedMemoryLock(SharedMemoryLock&& other) : mMapHandle(std::exchange(other.mMapHandle, nullptr)), mWaitEventHandle(std::exchange(other.mWaitEventHandle, nullptr)) ,
         mDataPtr(std::exchange(other.mDataPtr, nullptr)) {}
@@ -143,12 +164,15 @@ public:
         return *this;
     }
 private:
+#if defined(_WIN32) || defined(HEADLESS_GUI)
     struct LockData {
         volatile LONG waiters;
         volatile LONG busy;
     };
+#endif
     SharedMemoryLock() = default;
     bool Init() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
         mMapHandle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, (DWORD)sizeof(LockData), "LMU_SharedMemoryLockData");
         if (!mMapHandle) {
             return false;
@@ -168,10 +192,13 @@ private:
             return false;
         }
         return true;
+#else
+        return false;
+#endif
     }
     HANDLE mMapHandle = NULL;
     HANDLE mWaitEventHandle = NULL;
-    LockData* mDataPtr = nullptr;
+    void* mDataPtr = nullptr;
 };
 
 struct SharedMemoryScoringData { // Remember to check CopySharedMemoryObj still works properly when updating this struct

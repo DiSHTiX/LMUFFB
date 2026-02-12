@@ -1,9 +1,14 @@
 #ifndef GAMECONNECTOR_H
 #define GAMECONNECTOR_H
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include "lmu_sm_interface/LinuxMock.h"
+#endif
+
 #include "lmu_sm_interface/LmuSharedMemoryWrapper.h"
 #include "lmu_sm_interface/SafeSharedMemoryLock.h"
-#include <windows.h>
 #include <mutex>
 #include <atomic>
 
@@ -37,7 +42,7 @@ private:
     SharedMemoryLayout* m_pSharedMemLayout = nullptr;
     mutable std::optional<SafeSharedMemoryLock> m_smLock;
     HANDLE m_hMapFile = NULL;
-    mutable HANDLE m_hProcess = NULL;
+    mutable HWND m_hwndGame = NULL;
     DWORD m_processId = 0;
 
     std::atomic<bool> m_connected{false};

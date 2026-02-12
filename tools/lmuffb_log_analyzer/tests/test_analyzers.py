@@ -57,8 +57,29 @@ def test_analyze_slope_stability_unstable(unstable_df):
     assert any("HIGH SLOPE VARIANCE" in issue for issue in results['issues'])
     assert any("FREQUENT FLOOR HITS" in issue for issue in results['issues'])
 
+    # New metrics checks
+    assert 'zero_crossing_rate' in results
+    assert 'binary_residence' in results
+    assert 'derivative_energy_ratio' in results
+
+    # New metrics checks
+    assert 'zero_crossing_rate' in results
+    assert 'binary_residence' in results
+    assert 'derivative_energy_ratio' in results
+
 def test_detect_oscillation_events(unstable_df):
     events = detect_oscillation_events(unstable_df, threshold=2.0)
     assert len(events) >= 1
     assert events[0]['duration'] > 0
     assert events[0]['amplitude'] > 2.0
+
+def test_detect_singularities():
+    from lmuffb_log_analyzer.analyzers.slope_analyzer import detect_singularities
+    data = {
+        'SlopeCurrent': [100.0, 5.0, -100.0, 1.0],
+        'dAlpha_dt': [0.01, 0.01, 0.04, 0.1],
+    }
+    df = pd.DataFrame(data)
+    count, worst = detect_singularities(df, slope_thresh=10.0, alpha_rate_thresh=0.05)
+    assert count == 2
+    assert abs(worst) == 100.0

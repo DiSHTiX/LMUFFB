@@ -5,7 +5,11 @@
 // windows.h include which is required for some of the types/definitions used.
 // We include it here BEFORE including the vendor file.
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "LinuxMock.h"
+#endif
 
 // Include the official vendor file
 #include "PluginObjects.hpp"

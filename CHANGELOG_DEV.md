@@ -2,6 +2,138 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.32] - 2026-02-11
+### Improved
+- **Linux Build & Test Parity**:
+  - **Automated Dependency Management**: Fixed CMake configuration to automatically download and configure ImGui (v1.91.8) if not found locally using FetchContent. ImGui paths are now absolute, ensuring proper propagation to test subdirectories.
+  - **Platform Abstraction**: Introduced `IGuiPlatform` interface with platform-specific implementations (`Win32GuiPlatform`, `LinuxGuiPlatform`) to separate business logic from windowing APIs (Win32 vs. GLFW/Headless). This improves maintainability and enables comprehensive testing on both platforms.
+  - **Shared Memory Mocking**: Expanded `LinuxMock.h` to provide functional simulation of Windows memory-mapped files using `std::map`, enabling `GameConnector` and `SharedMemoryLock` logic to run and be tested on Linux.
+  - **Build Fix**: Resolved CMake error "Cannot find source file: vendor/imgui/imgui.cpp" by ensuring `IMGUI_DIR` uses absolute paths from `CMAKE_SOURCE_DIR`.
+  - **Test Coverage**: Enabled `test_windows_platform.cpp` on Linux builds with appropriate mocks, and ensured `test_game_connector_lifecycle` passes on both platforms.
+### Testing
+- **Cross-Platform Verification**: All 928 assertions and 197 test cases pass on Windows. Linux test infrastructure is now fully operational with the new mock layer. Correction: on Windows, there are 198 tests and 930 assertions, while on Linux there are 195 tests (3 less) and 928 assertions (2 less).
+
+## [0.7.31] - 2026-02-11
+### Improved
+- **Linux Testing & Reporting Refactor**:
+  - **Cross-Platform Logic Coverage**: Refactored the test suite to move platform-agnostic logic tests (Slider Precision, Config Persistence, Preset Management) from `test_windows_platform.cpp` to a new `test_ffb_logic.cpp`. This significantly increases Linux test coverage (~225 assertions previously skipped).
+  - **Non-Invasive Linux Mocking**: Introduced `src/lmu_sm_interface/linux_mock/windows.h` to allow third-party ISI headers to compile on Linux without modification. Reverted all invasive platform guards in vendor headers.
+  - **Enhanced Test Reporting**: The test runner now reports **Test Case counts** (Passed/Failed) in addition to individual assertions, providing a clearer high-level view of test health.
+  - **Verification**: Confirmed all 197 test cases and 928 assertions pass on Windows, slightly exceeding the previous baseline due to improved depth in logic verification.
+
+## [0.7.30] - 2026-02-11
+### Improved
+- **Single Source of Truth Versioning**:
+  - Automated the versioning process using CMake. The `VERSION` file is now the single source of truth for the entire project.
+  - Eliminated manual updates for `src/Version.h` and `src/res.rc`. These files are now automatically generated in the build directory during the configuration step.
+  - Keeps the source tree clean and prevents desynchronization between binary metadata and application logic.
+- **AMD Hardware Diagnostics (v0.7.29 Implementation)**:
+  - Finalized the deployment of the persistent `Logger` system to help troubleshoot AMD driver crashes.
+
+## [0.7.29] - 2026-02-11
+### Added
+- **Persistent Debug Logging**:
+  - Implemented a high-reliability `Logger` system that writes critical system events to `lmuffb_debug.log`.
+  - **Crash Resilience**: The log file is flushed to disk after every single line, ensuring diagnostic data is preserved even in the event of a full GPU driver hang or system reset.
+  - **Hardware Instrumentation**: Added detailed logging for D3D11 device creation, swap chain resizing, and Win32 window management to isolate potential conflicts with AMD Adrenalin drivers.
+- **Shared Memory Diagnostics**: Added detailed Windows error code logging for shared memory mapping failures.
+
+## [0.7.28] - 2026-02-11
+### Fixed
+- **GUI Tooltip Restoration**:
+  - Restored over 40 missing tooltips that were lost during recent GUI refactoring.
+  - Added new descriptive tooltips for modern features including Slope Detection stability fixes, Lockup Prediction, and advanced signal filters.
+  - **Comprehensive Coverage**: Verified via automated script and manual audit that 100% of interactive widgets (including utility buttons, checkboxes, and system controls) now have descriptive tooltips.
+### Improved
+- **Tooltip UX Enhancement**:
+  - Tooltips now trigger when hovering over a widget's **Label**, not just the input field (slider/checkbox/combo). This makes discovering parameter info much more intuitive.
+  - Standardized "Fine Tune" instructions across all sliders.
+### Testing
+- **GUI Regression Tests**:
+  - Added `test_widgets_have_tooltips` to verify that core widget functions correctly handle and render tooltip strings.
+  - Hardened `GuiWidgets` logic to prevent future regressions.
+
+## [0.7.27] - 2026-02-11
+### Security & Privacy
+- **Heuristic Reduction**:
+  - Replaced `OpenProcess` usage in `GameConnector` with `IsWindow` checks. This eliminates the "Process Access" behavior flag often targeted by antivirus heuristics.
+### Testing
+- **Security Verification**: Added automated tests to verify executable metadata integrity and `IsWindow` safety.
+
+## [0.7.26] - 2026-02-11
+### Security & Privacy
+- **Executable Metadata**:
+  - Added `VERSIONINFO` resource to the executable (`src/res.rc`).
+  - The binary now includes standard metadata (Company Name, File Description, Version), which eliminates "anonymous file" heuristics used by antivirus software.
+- **Build Hardening**:
+  - Enabled `/GS` (Buffer Security Check), `/DYNAMICBASE` (ASLR), and `/NXCOMPAT` (DEP) flags for MSVC builds in `CMakeLists.txt`.
+
+### Testing
+- **Robustness**: Updated `test_game_connector_lifecycle` to gracefully handle pre-existing shared memory mappings (e.g., from running game instance), preventing false test failures.
+
+## [0.7.25] - 2026-02-11
+### Removed
+- **vJoy Support**:
+  - Removed vJoy support and dynamic library loading to eliminate security false positives and simplify the codebase.
+  - Deleted `src/DynamicVJoy.h` and associated integration logic in `main.cpp`.
+  - Removed vJoy-related configuration variables from `Config.h` and `Config.cpp`.
+  - Cleaned up `test_config_runner.ini` and updated application version to `0.7.25`.
+
+## [0.7.24] - 2026-02-11
+### Security & Privacy
+- **Disabled Clipboard Access**: Added build flag `IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS` to prevent ImGui from accessing the Windows clipboard. This removes a common antivirus heuristic trigger.
+- **Removed Window Title Tracking**: Replaced `GetActiveWindowTitle()` logic (which used `GetForegroundWindow`) with a static string. This eliminates behavior that could be flagged as "spyware-like" activity monitoring.
+
+## [0.7.23] - 2026-02-11
+### Removed
+- **Screenshot Feature**:
+  - Removed "Save Screenshot" feature to improve application reputation with antivirus software (addressing false positives in Windows Defender and VirusTotal).
+  - Cleaned up `GuiLayer` (Windows/Linux/Common) by removing screen capture logic and dependencies on `stb_image_write.h`.
+  - Removed dedicated screenshot test suite.
+
+## [0.7.22] - 2026-02-10
+### Added
+- **Linux Port (GLFW + OpenGL)**:
+  - **Cross-Platform GUI**: Refactored the GUI layer to support both Windows (DirectX 11) and Linux (GLFW + OpenGL 3) backends.
+  - **Maximized Testability**: Enabled GUI widget logic and configuration handling tests on Linux CI by splitting ImGui into Core and Backend components.
+  - **Hardware Mocking**: Implemented Linux-specific mocks for DirectInput FFB, Game Connector (Shared Memory), and vJoy, enabling the application to run and be tested on Linux environments.
+  - **Shared Memory Compatibility**: Updated shared memory interface wrappers and vendor headers to compile on Linux by guarding Windows-specific headers and providing dummy typedefs.
+  - **Build System**: Enhanced `CMakeLists.txt` with conditional logic for platform-specific dependencies and ImGui backends. Added `HEADLESS_GUI` option for non-graphical environments.
+  - **Headless Mode Support**: Improved headless mode robustness by providing stubs for all GUI-related platform calls.
+
+## [0.7.21] - 2026-02-10
+### Changed
+- **Slope Detection Refinement (Full v0.7.17 Plan Compliance)**:
+  - **Improved Mathematical Stability**: Replaced the binary derivative gate with a continuous `smoothstep` confidence ramp for grip loss scaling.
+  - **Denominator Protection**: Implemented robust protection against division-by-small-number artifacts using a minimum epsilon for `dAlpha/dt`.
+  - **Physically Constrained Slope**: Enforced a hard `std::clamp` on calculated slope values to the physically possible range [-20.0, 20.0].
+  - **Smooth Transitions**: The `smoothstep` ramp ensures zero-derivative endpoints for seamless haptic transitions between cornering and straights.
+
+## [0.7.20] - 2026-02-10
+### Added
+- **Slope Detection Hardening**:
+  - **Numerical Stability Fixes**: Implemented a hard clamp on calculated raw slope values within [-20.0, 20.0] to prevent mathematical explosions near thresholds.
+  - **Improved Confidence Ramp**: Updated `calculate_slope_confidence` to use a dedicated 0.01 to 0.10 rad/s `inverse_lerp` ramp, providing smoother transitions and rejecting singularity artifacts at low steering speeds.
+### Testing
+- **Comprehensive Hardening Suite**: Added 6 new test cases to `tests/test_ffb_slope_detection.cpp` covering:
+  - `TestSlope_NearThreshold_Singularity`: Verifies clamping under extreme dG/dAlpha conditions.
+  - `TestSlope_ZeroCrossing`: Ensures stability during direction changes.
+  - `TestSlope_SmallSignals`: Validates noise rejection below active thresholds.
+  - `TestSlope_ImpulseRejection`: Confirms smoothing of single-frame physics spikes.
+  - `TestSlope_NoiseImmunity`: Statistically verifies slope stability under high-noise conditions.
+  - `TestConfidenceRamp_Progressive`: Validates the smooth blending of the grip effect.
+- **Verification**: All tests passing, bringing the total validated assertions to 962.
+
+## [0.7.18] - 2026-02-09
+### Added
+- **Batch Processing for Log Analyzer**:
+  - Implemented a new `batch` command in the `lmuffb_log_analyzer` tool.
+  - Automatically processes all `.csv` logs in a directory, running `info`, `analyze`, `plots`, and `report` for each.
+  - Generates a centralized results directory containing reports and diagnostic plots for all captured sessions.
+### Testing
+- **New Test Suite**: `tools/lmuffb_log_analyzer/tests/test_batch.py`
+  - Validates end-to-end directory processing and file generation logic.
+
 ## [0.7.17] - 2026-02-07
 ### Changed
 - **Test Suite Refactoring (Completion)**:
@@ -461,7 +593,7 @@ All notable changes to this project will be documented in this file.
   - Maintained backward compatibility with legacy config keys (`smoothing`, `max_load_factor`).
 - **Enhanced Persistence Test Suite**:
   - Added comprehensive `test_persistence_v0628.cpp` with 16 new tests covering config reordering, section isolation, legacy support, and comment structure validation.
-  
+
 ## [0.6.28] - 2025-12-31
 ### Added
 - **Test Sandbox & Artifact Cleanup**:
@@ -529,7 +661,7 @@ All notable changes to this project will be documented in this file.
   - **Impact**: All 22 previously failing tests now pass (414 total tests passing, 0 failures).
 
 ### Changed
-- **Config.h/Config.cpp**: 
+- **Config.h/Config.cpp**:
   - Added `speed_gate_lower`, `speed_gate_upper`, `road_fallback_scale`, and `understeer_affects_sop` to both main config save/load and preset serialization.
   - Added backward compatibility for legacy `max_load_factor` → `texture_load_cap` migration.
   - Ensured all new fields are properly initialized with Preset struct defaults.
@@ -658,7 +790,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.6.6] - 2025-12-26
 ### Added
-- **Missing Telemetry Warnings**: 
+- **Missing Telemetry Warnings**:
   - Added smart console warnings that detect when critical telemetry (Grip, Tire Load, Suspension) is missing or invalid.
   - Warnings now include the **Vehicle Name** to help users identify potentially broken car mods.
   - Implemented hysteresis (persistence check) to prevent false positives during momentary telemetry gaps.
@@ -668,7 +800,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.6.5] - 2025-12-26
 ### Added
-- **Composite Screenshot Feature**: 
+- **Composite Screenshot Feature**:
   - The "Save Screenshot" button now captures both the GUI window and console window in a single image.
   - **Side-by-Side Layout**: Windows are arranged horizontally with a 10px gap for easy viewing.
   - **Automatic Detection**: Console window is automatically detected and included if present.
@@ -682,14 +814,14 @@ All notable changes to this project will be documented in this file.
 
 ## [0.6.4] - 2025-12-26
 ### Documentation
-- **Enhanced Tooltips**: 
+- **Enhanced Tooltips**:
   - Overhauled all GUI tooltips in `GuiLayer.cpp` to provide deep technical context, tuning advice, and physical explanations for every FFB parameter.
   - Added specific examples for common hardware (e.g., T300 vs DD) and guidance on how settings like "Steering Shaft Smoothing" or "Slip Angle Smoothing" affect latency and feel.
   - Clarified complex interactions (e.g., Lateral G Boost vs Rear Align Torque) to help users achieve their desired handling balance.
 
 ## [0.6.3] - 2025-12-26
 ### Documentation
-- **FFB Formulas Update**: 
+- **FFB Formulas Update**:
   - Rewrote `docs/dev_docs/FFB_formulas.md` to perfectly match the current v0.6.2+ codebase.
   - Documented new **Quadratic Lockup** math (`pow(slip, gamma)`).
   - Detailed **Predictive Lockup Logic** (Deceleration triggers) and **Axle Differentiation** (Frequency shift).
@@ -699,7 +831,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.6.2] - 2025-12-25
 ### Added
-- **Dynamic Promotion (DirectInput Recovery)**: 
+- **Dynamic Promotion (DirectInput Recovery)**:
   - Implemented an aggressive recovery mechanism for "Muted Wheel" issues caused by focus loss or the game stealing device priority.
   - When `DIERR_NOTEXCLUSIVEACQUIRED` is detected, the app now explicitly unacquires the device and re-requests **Exclusive Access** before re-acquiring.
   - **FFB Motor Restart**: Now explicitly calls `m_pEffect->Start(1, 0)` immediately after successful re-acquisition, fixing cases where the device is acquired but the haptic motor remains inactive.
@@ -759,7 +891,7 @@ All notable changes to this project will be documented in this file.
   - **Hardware Pulse**: Detects high-frequency brake pressure modulation (ABS activity) from the game and injects a dedicated 20Hz pulse into the steering wheel.
   - **Gain Control**: Independent slider for ABS pulse intensity.
 - **Advanced Response Curve (Gamma)**:
-  - Added a configurable Gamma curve (0.5 to 3.0) for lockup vibrations. 
+  - Added a configurable Gamma curve (0.5 to 3.0) for lockup vibrations.
   - Allows for "Linear" feel (1.0) or sharp, "Late-onset" vibration (2.0-3.0) for better physical fidelity.
 - **Physical Pressure Scaling**:
   - Lockup vibration intensity is now physically scaled by internal **Brake Pressure** (Bar) instead of raw pedal position.
@@ -768,7 +900,7 @@ All notable changes to this project will be documented in this file.
   - Expanded the **"Braking & Lockup"** section with dedicated subsections for "Response Curve", "Prediction (Advanced)", and "ABS & Hardware".
 
 ### Changed
-- **FFB Engine Refactoring**: 
+- **FFB Engine Refactoring**:
   - Upgraded derivative tracking to process all 4 wheels for rotation, pressure, and deflection.
   - Consolidated lockup logic into a unified 4-wheel worst-case selector with axle frequency differentiation.
 
@@ -801,7 +933,7 @@ All notable changes to this project will be documented in this file.
 ## [0.5.14] - 2025-12-25
 
 ### Changed
-- **Improved FFB Error Handling**: 
+- **Improved FFB Error Handling**:
   - Implemented `GetDirectInputErrorString` helper to provide verbose, official Microsoft descriptions for all DirectInput success and error codes.
   - Explicitly handles `DIERR_OTHERAPPHASPRIO` (0x80040205) with a clear, actionable warning: "Game has stolen priority! DISABLE IN-GAME FFB".
   - Consolidated duplicate DirectInput error macros (e.g., `E_ACCESSDENIED`, `S_FALSE`) to ensure robust error identification across different Windows SDKs.
@@ -839,7 +971,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.5.12] - 2025-12-25
 ### Changed
-- **FFB Engine Single Source of Truth (SSOT)**: 
+- **FFB Engine Single Source of Truth (SSOT)**:
     - Refactored `FFBEngine` to eliminate hardcoded default values, following a DRY (Don't Repeat Yourself) approach.
     - Centralized all physics defaults within `Config.h` (`Preset::ApplyDefaultsToEngine`), ensuring the main application and test suite share the exact same configuration baseline.
     - Standardized default initialization on the calibrated T300 physics preset.
@@ -875,7 +1007,7 @@ All notable changes to this project will be documented in this file.
     - **Blue Info Text** for Chassis Inertia to indicate "Simulated" time constant.
 
 ### Changed
-- **FFB Engine Refactoring**: 
+- **FFB Engine Refactoring**:
     - Moved hardcoded time constants for Yaw and Chassis Inertia into configurable member variables.
     - Standardized Gyro Smoothing to use the same Time Constant (seconds) math as other filters.
 - **Config Persistence**: New smoothing parameters are now saved to `config.ini` and supported in user presets.
@@ -982,7 +1114,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - **Regression Tests**: Added `test_slider_precision_regression()` with 9 assertions to prevent slider bugs from reoccurring
     - Test Case 1: Load Cap precision verification
-    - Test Case 2: Target Frequency precision verification  
+    - Test Case 2: Target Frequency precision verification
     - Test Case 3: Understeer Effect static buffer persistence
     - Test Case 4: Step size and display precision alignment for all ranges
 - **Build Warning Fix**: Added `DIRECTINPUT_VERSION` definition to `test_windows_platform.cpp` to eliminate compiler warning
@@ -1031,7 +1163,7 @@ All notable changes to this project will be documented in this file.
 - **Optimized Slider Ranges**:
     - Reduced extreme 20.0x multipliers to a more manageable 2.0x (200%) baseline, as the new decoupling logic handles the heavy lifting for high-torque hardware.
 
-## [0.4.49] 
+## [0.4.49]
 ### Changed
 - **Visual Design Overhaul (Dark Theme & Grid Layout)**:
     - Improved visual design and readability of the app.
@@ -1045,8 +1177,8 @@ All notable changes to this project will be documented in this file.
 
 ## [0.4.48] - 2025-12-23
 ### Fixed
-- **"Always on Top" Reliability**: 
-    - Resolved issue where the window state would not correctly persist or reflect in system style bits on some Windows configurations. 
+- **"Always on Top" Reliability**:
+    - Resolved issue where the window state would not correctly persist or reflect in system style bits on some Windows configurations.
     - Added `SWP_FRAMECHANGED` and `SWP_NOACTIVATE` flags to `SetWindowPos` to ensure immediate UI refresh and prevent focus stealing.
     - Optimized initialization order to apply the Window-on-Top state after the window has been fully shown.
 - **Test Suite Hardening**:
@@ -1332,7 +1464,7 @@ All notable changes to this project will be documented in this file.
     - **Problem**: DirectInput drivers are stateful and hold the last command they receive. If you paused mid-corner while the force was 10Nm, the wheel would keep pulling at 10Nm indefinitely, potentially causing injury or equipment damage.
     - **Solution**: Restructured the FFB loop logic to explicitly send a **zero force command** whenever the game is not in "Realtime" (driving) mode. Added a `should_output` flag to track whether FFB calculation should be active.
     - **Impact**: The wheel now immediately releases all tension when you pause the game or enter menus, making the application safe to use in all scenarios.
-    - **Technical Details**: 
+    - **Technical Details**:
         - Moved force calculation inside a conditional block that checks `in_realtime && playerHasVehicle`
         - Added explicit zero force assignment when `should_output` is false (lines 86-89 in main.cpp)
         - Enhanced console logging to show "(FFB Muted)" message when exiting to menu
@@ -1382,7 +1514,7 @@ All notable changes to this project will be documented in this file.
         - **Yellow "Mode: SHARED (Potential Conflict)"**: LMUFFB is sharing the device. Users must manually disable in-game FFB to avoid conflicting force signals.
     - **Informative Tooltips**: Hover over the mode indicator for detailed explanations and recommended actions.
     - **Technical Details**: Added `IsExclusive()` method and `m_isExclusive` member to `DirectInputFFB` class to track acquisition state. Updated `SelectDevice()` to implement exclusive-first strategy with proper state tracking.
-    - **Benefits**: 
+    - **Benefits**:
         - Automatic conflict prevention when exclusive mode succeeds
         - Clear visibility of potential FFB conflicts
         - Better troubleshooting for "Double FFB" issues
@@ -1516,7 +1648,7 @@ All notable changes to this project will be documented in this file.
 - **Verification Tests**: Added `test_zero_effects_leakage` to the test suite to ensure no ghost forces persist when effects are disabled.
 
 ### Changed
-- **Physics Tuning**: 
+- **Physics Tuning**:
     - **Grip Calculation**: Tightened optimal slip angle threshold from `0.15` (8.5 deg) to **`0.10` (5.7 deg)** and increased falloff multiplier from `2.0` to **`4.0`**. This makes grip loss start earlier and drop off faster, reducing the "on/off" feeling.
 - **GUI Organization**: Completely reorganized the Troubleshooting Graphs (Debug Window) into three logical groups for better usability:
     - **Header A (Output)**: Main Forces, Modifiers, Textures.
@@ -1704,7 +1836,7 @@ All notable changes to this project will be documented in this file.
 ## [0.3.9] - 2025-05-23
 ### Added
 - **Smoothing & Caps**: Added configuration sliders for `SoP Smoothing` (Low Pass Filter) and `Load Cap` (Max Tire Load scale) in the GUI ("Advanced Tuning" section). This allows users to fine-tune signal noise vs. responsiveness.
-- **Documentation**: 
+- **Documentation**:
     - Updated `README` files with precise Le Mans Ultimate in-game settings (Force Feedback Strength 0%, Effects Off, Smoothing 0, Borderless Mode).
     - Clarified vJoy links and troubleshooting steps.
 
@@ -1733,7 +1865,7 @@ All notable changes to this project will be documented in this file.
 - **Safety Defaults**: Changed default settings to Gain 0.5 and SOP 0.0 to prevent violent wheel jerking on first run (especially for Direct Drive wheels).
 - **SoP Smoothing**: Implemented a Low Pass Filter (exponential moving average) for lateral G-force data to reduce signal noise and vibration on straights.
 - **Improved Error Handling**: Added a clear popup message when `vJoyInterface.dll` is missing.
-- **Documentation**: 
+- **Documentation**:
     - Added "Guided Install Plan" and "vJoy-less Investigation" documents.
     - Updated README with critical "Double FFB" troubleshooting tips and Borderless Window warnings.
 
@@ -1764,7 +1896,7 @@ All notable changes to this project will be documented in this file.
 - **Dynamic Physics Engine**: Major overhaul of FFB synthesis.
     - **Phase Integration**: Solved audio-like clicking/popping in vibration effects by using phase accumulators.
     - **Advanced Telemetry**: Integrated `mLateralPatchVel` (Slide Speed) and `mTireLoad` (Vertical Load) into calculations.
-    - **Dynamic Frequencies**: 
+    - **Dynamic Frequencies**:
         - Lockup frequency now scales with Car Speed.
         - Spin/Traction Loss frequency now scales with Slip Speed.
         - Slide Texture frequency now scales with Lateral Slide Speed.

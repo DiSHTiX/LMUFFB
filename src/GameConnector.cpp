@@ -1,4 +1,8 @@
 #include "GameConnector.h"
+#include "Logger.h"
+#ifndef _WIN32
+#include "lmu_sm_interface/LinuxMock.h"
+#endif
 #include "lmu_sm_interface/SafeSharedMemoryLock.h"
 #include <iostream>
 
@@ -21,6 +25,7 @@ void GameConnector::Disconnect() {
 }
 
 void GameConnector::_DisconnectLocked() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
     if (m_pSharedMemLayout) {
         UnmapViewOfFile(m_pSharedMemLayout);
         m_pSharedMemLayout = nullptr;
@@ -29,10 +34,8 @@ void GameConnector::_DisconnectLocked() {
         CloseHandle(m_hMapFile);
         m_hMapFile = NULL;
     }
-    if (m_hProcess) {
-        CloseHandle(m_hProcess);
-        m_hProcess = NULL;
-    }
+    m_hwndGame = NULL;
+#endif
     m_smLock.reset();
     m_connected = false;
     m_processId = 0;
@@ -45,16 +48,17 @@ bool GameConnector::TryConnect() {
     // Ensure we don't leak handles from a previous partial/failed attempt
     _DisconnectLocked();
 
+#if defined(_WIN32) || defined(HEADLESS_GUI)
     m_hMapFile = OpenFileMappingA(FILE_MAP_READ, FALSE, LMU_SHARED_MEMORY_FILE);
     
     if (m_hMapFile == NULL) {
-        // Not running yet
         return false;
     } 
 
     m_pSharedMemLayout = (SharedMemoryLayout*)MapViewOfFile(m_hMapFile, FILE_MAP_READ, 0, 0, sizeof(SharedMemoryLayout));
     if (m_pSharedMemLayout == NULL) {
         std::cerr << "[GameConnector] Could not map view of file." << std::endl;
+        Logger::Get().LogWin32Error("MapViewOfFile", GetLastError());
         _DisconnectLocked();
         return false;
     }
@@ -62,43 +66,37 @@ bool GameConnector::TryConnect() {
     m_smLock = SafeSharedMemoryLock::MakeSafeSharedMemoryLock();
     if (!m_smLock.has_value()) {
         std::cerr << "[GameConnector] Failed to init LMU Shared Memory Lock" << std::endl;
+        Logger::Get().Log("Failed to init SafeSharedMemoryLock.");
         _DisconnectLocked();
         return false;
     }
 
-    // Try to get process handle for lifecycle management
-    // But don't treat missing handle as fatal - allow connection to proceed
     HWND hwnd = m_pSharedMemLayout->data.generic.appInfo.mAppWindow;
     if (hwnd) {
-        DWORD pid = 0;
-        GetWindowThreadProcessId(hwnd, &pid);
-        if (pid) {
-            m_processId = pid;
-            m_hProcess = OpenProcess(
-                SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-            if (!m_hProcess) {
-                std::cout << "[GameConnector] Note: Failed to open process handle (Error: " << GetLastError() << "). Connection will continue without lifecycle monitoring." << std::endl;
-            }
-        }
-    } else {
-        std::cout << "[GameConnector] Note: Window handle not yet available. Will retry process handle acquisition later." << std::endl;
+        m_hwndGame = hwnd; // Store HWND for liveness check (IsWindow)
+        // Note: multiple threads might access shared memory, but HWND is usually stable during session.
+        // We use IsWindow(m_hwndGame) instead of OpenProcess to avoid AV heuristics flagging "Process Access".
     }
 
-    // Mark as connected even if process handle isn't available yet
-    // Process monitoring is optional - core functionality is shared memory access
     m_connected = true;
-    m_lastUpdateLocalTime = std::chrono::steady_clock::now(); // Initialize heartbeat
+    m_lastUpdateLocalTime = std::chrono::steady_clock::now();
     std::cout << "[GameConnector] Connected to LMU Shared Memory." << std::endl;
+    Logger::Get().Log("Connected to LMU Shared Memory.");
     return true;
+#else
+    return false;
+#endif
 }
 
 bool GameConnector::CheckLegacyConflict() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
     HANDLE hLegacy = OpenFileMappingA(FILE_MAP_READ, FALSE, LEGACY_SHARED_MEMORY_NAME);
     if (hLegacy) {
         std::cout << "[Warning] Legacy rFactor 2 Shared Memory Plugin detected. This may conflict with LMU 1.2 data." << std::endl;
         CloseHandle(hLegacy);
         return true;
     }
+#endif
     return false;
 }
 
@@ -106,37 +104,30 @@ bool GameConnector::IsConnected() const {
   if (!m_connected.load(std::memory_order_acquire)) return false;
 
   std::lock_guard<std::mutex> lock(m_mutex);
-  // Double check under lock to ensure we don't access closed handles
   if (!m_connected.load(std::memory_order_relaxed)) return false;
 
-  // Check if the game process is still running
-  if (m_hProcess) {
-    DWORD wait = WaitForSingleObject(m_hProcess, 0);
-    if (wait == WAIT_OBJECT_0 || wait == WAIT_FAILED) {
-      // Process has exited or handle is invalid - clean up everything immediately
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+  if (m_hwndGame) {
+    if (!IsWindow(m_hwndGame)) {
+      // Window is gone, game likely exited
       const_cast<GameConnector*>(this)->_DisconnectLocked();
       return false;
     }
   }
+#endif
 
-  return m_connected.load(std::memory_order_relaxed) && m_pSharedMemLayout &&
-         m_smLock.has_value();
+  return m_connected.load(std::memory_order_relaxed) && m_pSharedMemLayout && m_smLock.has_value();
 }
 
 bool GameConnector::CopyTelemetry(SharedMemoryObjectOut& dest) {
-    // Fast path check
     if (!m_connected.load(std::memory_order_acquire)) return false;
 
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_connected.load(std::memory_order_relaxed) || !m_pSharedMemLayout || !m_smLock.has_value()) return false;
 
-    // Use a reasonable timeout (e.g., 50ms) to avoid hanging forever if the game crashes while holding the lock
     if (m_smLock->Lock(50)) {
         CopySharedMemoryObj(dest, m_pSharedMemLayout->data);
         
-        // Update heartbeat (v0.7.15)
-        // If the game freezes or crashes, mElapsedTime will stop advancing.
-        // We use this to detect staleness and mute FFB in main.cpp
         if (dest.telemetry.playerHasVehicle) {
             uint8_t idx = dest.telemetry.playerVehicleIdx;
             if (idx < 104) {
@@ -147,21 +138,13 @@ bool GameConnector::CopyTelemetry(SharedMemoryObjectOut& dest) {
                 }
             }
         } else {
-            // If not driving, just keep heartbeat alive to avoid false staleness
-            // trigger during menu transitions.
             m_lastUpdateLocalTime = std::chrono::steady_clock::now();
         }
 
-        // Get realtime status while we have the lock
-        // mInRealtime: 0=menu/replay/monitor, 1=driving/practice/race
         bool isRealtime = (m_pSharedMemLayout->data.scoring.scoringInfo.mInRealtime != 0);
-        
         m_smLock->Unlock();
-        
         return isRealtime;
     } else {
-        // Timeout - game may have crashed while holding lock
-        // Return false to indicate not in realtime (safe fallback)
         return false;
     }
 }
