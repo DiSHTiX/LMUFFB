@@ -17,6 +17,12 @@ git push origin --delete <branch name>
 Update your remote references:
 git fetch origin
 
+squash branch commits into one: 
+git reset --soft $(git merge-base main HEAD)
+(This moves your branch pointer back to the moment you branched off main, but keeps all your work staged in the index.)
+Commit the single "squashed" result:
+git commit -m "Your combined commit message"
+
 git merge --abort
 git merge -X theirs <branch name>
 
