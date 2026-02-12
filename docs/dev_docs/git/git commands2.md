@@ -17,14 +17,29 @@ git push origin --delete <branch name>
 Update your remote references:
 git fetch origin
 
+
+
+
+git merge --abort
+git merge -X theirs <branch name>
+
+# squash branch and merge into main
+
+## Option 1
 squash branch commits into one: 
 git reset --soft $(git merge-base main HEAD)
 (This moves your branch pointer back to the moment you branched off main, but keeps all your work staged in the index.)
 Commit the single "squashed" result:
 git commit -m "Your combined commit message"
 
-git merge --abort
-git merge -X theirs <branch name>
+
+## Option 2
+alternative:
+git checkout main
+git merge --squash feature-branch
+git commit -m "Features from branch"
+
+(This is the "simple" way to merge, but it doesn't "clean up" the history of the original branch.)
 
 # Rebase approach
 
