@@ -10,6 +10,8 @@ The investigation identified that the aggressive 100ms background sleep was actu
 
 However, it only became a critical regression in the **v0.7.32** release cycle (around commit **`b1eb6e2754bd968c4ba3504df98bd63d4d7723a8`**).
 
+USER EDIT: After investigating, it was found that the 100ms delay was present in much earlier code, at least since commit 41e93060e8764aceebdffc79028cc654a81a5342 (version 0.3.2), in main.cpp.
+
 ### 2. Why it became a problem in v0.7.32
 The v0.7.32 refactoring (Linux Port & Platform Abstraction) formalized the `bool active = GuiLayer::Render()` return logic. Before this refactoring, the monolithic `GuiLayer.cpp` was more tightly coupled with the Win32 message pump.
 
