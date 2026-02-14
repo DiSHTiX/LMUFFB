@@ -1621,6 +1621,7 @@ void Config::ParsePresetLine(const std::string& line, Preset& current_preset, st
                 else if (key == "sop_smoothing_factor") current_preset.sop_smoothing = std::stof(value);
                 else if (key == "min_force") current_preset.min_force = std::stof(value);
                 else if (key == "oversteer_boost") current_preset.oversteer_boost = std::stof(value);
+                else if (key == "dynamic_weight_gain") current_preset.dynamic_weight_gain = std::stof(value);
                 else if (key == "lockup_enabled") current_preset.lockup_enabled = std::stoi(value);
                 else if (key == "lockup_gain") current_preset.lockup_gain = (std::min)(3.0f, std::stof(value));
                 else if (key == "lockup_start_pct") current_preset.lockup_start_pct = std::stof(value);
@@ -2403,6 +2404,7 @@ void Config::WritePresetFields(std::ofstream& file, const Preset& p) {
     file << "static_notch_width=" << p.static_notch_width << "\n";
 
     file << "oversteer_boost=" << p.oversteer_boost << "\n";
+    file << "dynamic_weight_gain=" << p.dynamic_weight_gain << "\n";
     file << "sop=" << p.sop << "\n";
     file << "rear_align_effect=" << p.rear_align_effect << "\n";
     file << "sop_yaw_gain=" << p.sop_yaw_gain << "\n";
@@ -2671,6 +2673,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
 
         file << "\n; --- Rear Axle (Oversteer) ---\n";
         file << "oversteer_boost=" << engine.m_oversteer_boost << "\n";
+        file << "dynamic_weight_gain=" << engine.m_dynamic_weight_gain << "\n";
         file << "sop=" << engine.m_sop_effect << "\n";
         file << "rear_align_effect=" << engine.m_rear_align_effect << "\n";
         file << "sop_yaw_gain=" << engine.m_sop_yaw_gain << "\n";
@@ -2806,6 +2809,7 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "sop") engine.m_sop_effect = std::stof(value);
                     else if (key == "min_force") engine.m_min_force = std::stof(value);
                     else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
+                    else if (key == "dynamic_weight_gain") engine.m_dynamic_weight_gain = std::stof(value);
                     // v0.4.50: SAFETY CLAMPING for Generator Effects (Gain Compensation Migration)
                     // Legacy configs may have high gains (e.g., 5.0) to compensate for lack of auto-scaling.
                     // With new decoupling, these would cause 25x force explosions. Clamp to safe maximums.
@@ -3064,6 +3068,7 @@ struct Preset {
     float slip_smoothing = 0.002f;
     float min_force = 0.0f;
     float oversteer_boost = 2.52101f;
+    float dynamic_weight_gain = 0.0f; // NEW v0.7.46
     
     bool lockup_enabled = true;
     float lockup_gain = 0.37479f;
@@ -3167,6 +3172,7 @@ struct Preset {
     Preset& SetSmoothing(float v) { sop_smoothing = v; return *this; }
     Preset& SetMinForce(float v) { min_force = v; return *this; }
     Preset& SetOversteer(float v) { oversteer_boost = v; return *this; }
+    Preset& SetDynamicWeight(float v) { dynamic_weight_gain = v; return *this; }
     Preset& SetSlipSmoothing(float v) { slip_smoothing = v; return *this; }
     
     Preset& SetLockup(bool enabled, float g, float start = 5.0f, float full = 15.0f, float boost = 1.5f) { 
@@ -3286,6 +3292,7 @@ struct Preset {
         engine.m_slip_angle_smoothing = (std::max)(0.0001f, slip_smoothing);
         engine.m_min_force = (std::max)(0.0f, min_force);
         engine.m_oversteer_boost = (std::max)(0.0f, oversteer_boost);
+        engine.m_dynamic_weight_gain = (std::max)(0.0f, (std::min)(2.0f, dynamic_weight_gain));
 
         engine.m_lockup_enabled = lockup_enabled;
         engine.m_lockup_gain = (std::max)(0.0f, lockup_gain);
@@ -3374,6 +3381,7 @@ struct Preset {
         slip_smoothing = (std::max)(0.0001f, slip_smoothing);
         min_force = (std::max)(0.0f, min_force);
         oversteer_boost = (std::max)(0.0f, oversteer_boost);
+        dynamic_weight_gain = (std::max)(0.0f, (std::min)(2.0f, dynamic_weight_gain));
         lockup_gain = (std::max)(0.0f, lockup_gain);
         lockup_start_pct = (std::max)(0.1f, lockup_start_pct);
         lockup_full_pct = (std::max)(0.2f, lockup_full_pct);
@@ -3430,6 +3438,7 @@ struct Preset {
         slip_smoothing = engine.m_slip_angle_smoothing;
         min_force = engine.m_min_force;
         oversteer_boost = engine.m_oversteer_boost;
+        dynamic_weight_gain = engine.m_dynamic_weight_gain;
         lockup_enabled = engine.m_lockup_enabled;
         lockup_gain = engine.m_lockup_gain;
         lockup_start_pct = engine.m_lockup_start_pct;
@@ -3518,6 +3527,7 @@ struct Preset {
         if (!is_near(slip_smoothing, p.slip_smoothing, eps)) return false;
         if (!is_near(min_force, p.min_force, eps)) return false;
         if (!is_near(oversteer_boost, p.oversteer_boost, eps)) return false;
+        if (!is_near(dynamic_weight_gain, p.dynamic_weight_gain, eps)) return false;
 
         if (lockup_enabled != p.lockup_enabled) return false;
         if (!is_near(lockup_gain, p.lockup_gain, eps)) return false;
@@ -4481,6 +4491,7 @@ public:
     float m_understeer_effect;
     float m_sop_effect;
     float m_min_force;
+    float m_dynamic_weight_gain; // NEW v0.7.46
     
     // Configurable Smoothing & Caps (v0.3.9)
     float m_sop_smoothing_factor;
@@ -4720,6 +4731,9 @@ public:
     double m_debug_slope_torque_num = 0.0;
     double m_debug_slope_torque_den = 0.0;
     double m_debug_lat_g_slew = 0.0;
+
+    // Dynamic Weight State (v0.7.46)
+    double m_static_front_load = 0.0; // Learned baseline load
 
     // Context for Logging (v0.7.x)
     char m_vehicle_name[64] = "Unknown";
@@ -4979,6 +4993,21 @@ private:
         }
     }
 
+    // Helper: Learn static front load reference (v0.7.46)
+    void update_static_load_reference(double current_load, double speed, double dt) {
+        // Update only at low speeds (e.g., 2-15 m/s) where aero is negligible
+        if (speed > 2.0 && speed < 15.0) {
+            if (m_static_front_load < 100.0) {
+                 m_static_front_load = current_load; // Quick init
+            } else {
+                 // Slow LPF (5.0s time constant)
+                 m_static_front_load += (dt / 5.0) * (current_load - m_static_front_load);
+            }
+        }
+        // Safety floor
+        if (m_static_front_load < 1000.0) m_static_front_load = 4000.0;
+    }
+
     // Initialize the load reference based on vehicle class and name seeding
     void InitializeLoadReference(const char* className, const char* vehicleName) {
         ParsedVehicleClass vclass = ParseVehicleClass(className, vehicleName);
@@ -5049,7 +5078,16 @@ public:
                               const TelemInfoV01* data,
                               bool is_front = true) {
         GripResult result;
-        result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
+
+        // v0.7.46: Load-weighted average for original grip estimation
+        double total_load = w1.mTireLoad + w2.mTireLoad;
+        if (total_load > 1.0) {
+            result.original = (w1.mGripFract * w1.mTireLoad + w2.mGripFract * w2.mTireLoad) / total_load;
+        } else {
+            // Fallback for zero load (e.g. jump/missing data)
+            result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
+        }
+
         result.value = result.original;
         result.approximated = false;
         result.slip_angle = 0.0;
@@ -5656,8 +5694,20 @@ public:
         // Apply Grip Modulation
         double grip_loss = (1.0 - ctx.avg_grip) * m_understeer_effect;
         ctx.grip_factor = (std::max)(0.0, 1.0 - grip_loss);
+
+        // v0.7.46: Dynamic Weight logic
+        update_static_load_reference(ctx.avg_load, ctx.car_speed, ctx.dt);
+        double dynamic_weight_factor = 1.0;
+
+        // Only apply if enabled AND we have real load data (no warnings)
+        if (m_dynamic_weight_gain > 0.0 && !ctx.frame_warn_load) {
+            double load_ratio = ctx.avg_load / m_static_front_load;
+            // Blend: 1.0 + (Ratio - 1.0) * Gain
+            dynamic_weight_factor = 1.0 + (load_ratio - 1.0) * (double)m_dynamic_weight_gain;
+            dynamic_weight_factor = std::clamp(dynamic_weight_factor, 0.5, 2.0);
+        }
         
-        double output_force = (base_input * (double)m_steering_shaft_gain) * ctx.grip_factor;
+        double output_force = (base_input * (double)m_steering_shaft_gain) * dynamic_weight_factor * ctx.grip_factor;
         output_force *= ctx.speed_gate;
         
         // B. SoP Lateral (Oversteer)
@@ -6920,6 +6970,11 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
         FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 2.0f, FormatPct(engine.m_understeer_effect),
             "Scales how much front grip loss reduces steering force.");
+
+        FloatSetting("Dynamic Weight", &engine.m_dynamic_weight_gain, 0.0f, 2.0f, FormatPct(engine.m_dynamic_weight_gain),
+            "Scales steering weight based on longitudinal load transfer.\n"
+            "Heavier under braking, lighter under acceleration.\n"
+            "Requires valid tire load data (Hypercars).");
 
         const char* base_modes[] = { "Native (Steering Shaft Torque)", "Synthetic (Constant)", "Muted (Off)" };
         IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes)/sizeof(base_modes[0]),
@@ -10298,6 +10353,7 @@ set(TEST_SOURCES
     test_ffb_safety.cpp
     test_issue_100_timing.cpp
     test_issue_104_slope_disconnect.cpp
+    test_ffb_dynamic_weight.cpp
 
     # Core Application Logic (Now with Linux Mocks)
     ../src/Config.cpp
