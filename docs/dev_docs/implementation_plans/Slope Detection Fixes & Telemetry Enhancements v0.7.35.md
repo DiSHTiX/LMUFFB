@@ -9,7 +9,12 @@ The Slope Detection feature, intended to estimate front tire grip loss by analyz
 3.  Expand the `AsyncLogger` to capture internal math states for validation.
 
 **Reference Documents:**
-*   Diagnostic Reports: `results_mclaren_pr.zip`, `results_oreca_spa.zip` (Provided in context)
+*   Diagnostic Reports: 
+    - `https://github.com/coasting-nc/LMUFFB/issues/25#issuecomment-3899222192`
+    - `https://github.com/coasting-nc/LMUFFB/issues/25#issuecomment-3899252429`
+    
+*   `docs\dev_docs\investigations\Recommended Additions to Telemetry Logger.md`
+*   `docs\dev_docs\investigations\improve_slope_Detection_v0.7.35+.md`
 
 ## 2. Codebase Analysis
 
