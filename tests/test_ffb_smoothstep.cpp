@@ -89,6 +89,7 @@ TEST_CASE(test_speed_gate_custom_thresholds, "SpeedGate") {
     std::cout << "\nTest: Speed Gate Custom Thresholds" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
+    FFBEngineTestAccess::SetAutoPeakLoad(engine, 4000.0);
     
     // Verify default upper threshold (Reset to expected for test)
     engine.m_speed_gate_upper = 5.0f;

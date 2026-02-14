@@ -35,6 +35,7 @@ TEST_CASE(test_road_texture_teleport, "RoadTexture") {
     std::cout << "\nTest: Road Texture Teleport (Delta Clamp) [Texture][Physics]" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine); // v0.5.12: Initialize with T300 defaults
+    FFBEngineTestAccess::SetAutoPeakLoad(engine, 4000.0);
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
     

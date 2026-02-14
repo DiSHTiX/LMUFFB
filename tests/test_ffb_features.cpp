@@ -8,6 +8,7 @@ TEST_CASE(test_stationary_gate, "Texture") {
     std::cout << "\nTest: Stationary Signal Gate" << std::endl;
     FFBEngine engine;
     InitializeEngine(engine);
+    FFBEngineTestAccess::SetAutoPeakLoad(engine, 4000.0);
     engine.m_speed_gate_lower = 1.0f;
     engine.m_speed_gate_upper = 5.0f;
     
