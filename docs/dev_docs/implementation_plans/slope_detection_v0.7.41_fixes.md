@@ -134,10 +134,3 @@ Persist the new parameter in `config.ini`.
     *   [ ] `Config.cpp`: `Config::Save`
     *   [ ] `Config.cpp`: `Config::Load`
 
-```json
-{
-  "status": "success",
-  "plan_path": "docs/dev_docs/implementation_plans/Slope Detection Fixes v0.7.41.md",
-  "backlog_items": []
-}
-```
