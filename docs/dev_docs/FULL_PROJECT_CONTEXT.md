@@ -164,6 +164,8727 @@ add_custom_command(TARGET LMUFFB POST_BUILD
 
 ```
 
+# File: src\AsyncLogger.h
+```cpp
+#ifndef ASYNCLOGGER_H
+#define ASYNCLOGGER_H
+
+#include <vector>
+#include <string>
+#include <fstream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <algorithm> // For std::max
+#include <filesystem>
+
+// Forward declaration
+struct TelemInfoV01;
+class FFBEngine;
+
+// Log frame structure - captures one physics tick
+struct LogFrame {
+    double timestamp;
+    double delta_time;
+    
+    // Driver Inputs
+    float steering;
+    float throttle;
+    float brake;
+    
+    // Vehicle State
+    float speed;             // m/s
+    float lat_accel;         // m/s²
+    float long_accel;        // m/s²
+    float yaw_rate;          // rad/s
+    
+    // Front Axle - Raw Telemetry
+    float slip_angle_fl;
+    float slip_angle_fr;
+    float slip_ratio_fl;
+    float slip_ratio_fr;
+    float grip_fl;
+    float grip_fr;
+    float load_fl;
+    float load_fr;
+    
+    // Front Axle - Calculated
+    float calc_slip_angle_front;
+    float calc_grip_front;
+    
+    // Slope Detection Specific
+    float dG_dt;             // Derivative of lateral G
+    float dAlpha_dt;         // Derivative of slip angle
+    float slope_current;     // dG/dAlpha ratio
+    float slope_smoothed;    // Smoothed grip output
+    float confidence;        // Confidence factor (v0.7.3)
+    
+    // Rear Axle
+    float calc_grip_rear;
+    float grip_delta;        // Front - Rear
+    
+    // FFB Output
+    float ffb_total;         // Normalized output
+    float ffb_base;          // Base steering shaft force
+    float ffb_sop;           // Seat of Pants force
+    float ffb_grip_factor;   // Applied grip modulation
+    float speed_gate;        // Speed gate factor
+    bool clipping;           // Output clipping flag
+    
+    // User Markers
+    bool marker;             // User-triggered marker
+};
+
+// Session metadata for header
+struct SessionInfo {
+    std::string driver_name;
+    std::string vehicle_name;
+    std::string track_name;
+    std::string app_version;
+    
+    // Key settings snapshot
+    float gain;
+    float understeer_effect;
+    float sop_effect;
+    bool slope_enabled;
+    float slope_sensitivity;
+    float slope_threshold;
+    float slope_alpha_threshold;
+    float slope_decay_rate;
+};
+
+class AsyncLogger {
+public:
+    static AsyncLogger& Get() {
+        static AsyncLogger instance;
+        return instance;
+    }
+
+    // Start logging - called from GUI
+    void Start(const SessionInfo& info, const std::string& base_path = "") {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_running) return;
+
+        m_buffer_active.reserve(BUFFER_THRESHOLD * 2);
+        m_buffer_writing.reserve(BUFFER_THRESHOLD * 2);
+        m_frame_count = 0;
+        m_pending_marker = false;
+        m_decimation_counter = 0;
+
+        // Generate filename
+        auto now = std::chrono::system_clock::now();
+        auto in_time_t = std::chrono::system_clock::to_time_t(now);
+        
+        // Use localtime_s for thread safety (MSVC)
+        std::tm time_info;
+        #ifdef _WIN32
+            localtime_s(&time_info, &in_time_t);
+        #else
+            localtime_r(&in_time_t, &time_info);
+        #endif
+        
+        std::stringstream ss;
+        ss << std::put_time(&time_info, "%Y-%m-%d_%H-%M-%S");
+        std::string timestamp_str = ss.str();
+        
+        std::string car = SanitizeFilename(info.vehicle_name);
+        std::string track = SanitizeFilename(info.track_name);
+        
+        std::string path_prefix = base_path;
+        if (!path_prefix.empty()) {
+            // Ensure directory exists
+            try {
+                std::filesystem::create_directories(path_prefix);
+            } catch (...) {
+                // Ignore, let file open fail if necessary
+            }
+            
+            if (path_prefix.back() != '/' && path_prefix.back() != '\\') {
+                 path_prefix += "/";
+            }
+        }
+
+        m_filename = path_prefix + "lmuffb_log_" + timestamp_str + "_" + car + "_" + track + ".csv";
+
+        // Open file
+        m_file.open(m_filename);
+        if (m_file.is_open()) {
+            WriteHeader(info);
+            m_running = true;
+            m_worker = std::thread(&AsyncLogger::WorkerThread, this);
+        }
+    }
+    
+    // Stop logging and flush
+    void Stop() {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (!m_running) return;
+            m_running = false;
+        }
+        m_cv.notify_one();
+        if (m_worker.joinable()) {
+            m_worker.join();
+        }
+        if (m_file.is_open()) {
+            m_file.close();
+        }
+        m_buffer_active.clear();
+        m_buffer_writing.clear();
+    }
+    
+    // Log a frame - called from FFB thread (must be fast!)
+    void Log(const LogFrame& frame) {
+        if (!m_running) return;
+        
+        // Decimation: 400Hz -> 100Hz
+        if (++m_decimation_counter < DECIMATION_FACTOR && !frame.marker && !m_pending_marker) {
+            return;
+        }
+        m_decimation_counter = 0;
+
+        LogFrame f = frame;
+        if (m_pending_marker) {
+            f.marker = true;
+            m_pending_marker = false;
+        }
+
+        bool should_notify = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (!m_running) return; 
+            m_buffer_active.push_back(f);
+            should_notify = (m_buffer_active.size() >= BUFFER_THRESHOLD);
+        }
+        
+        m_frame_count++;
+        
+        if (should_notify) {
+             m_cv.notify_one();
+        }
+    }
+    
+    // Trigger a user marker
+    void SetMarker() { m_pending_marker = true; }
+    
+    // Status getters
+    bool IsLogging() const { return m_running; }
+    size_t GetFrameCount() const { return m_frame_count; }
+    std::string GetFilename() const { return m_filename; }
+    size_t GetFileSizeBytes() const { return m_file_size_bytes; }
+
+private:
+    AsyncLogger() : m_running(false), m_pending_marker(false), m_frame_count(0), m_decimation_counter(0), 
+                    m_file_size_bytes(0), m_last_flush_time(std::chrono::steady_clock::now()) {}
+    ~AsyncLogger() { Stop(); }
+    
+    // No copy
+    AsyncLogger(const AsyncLogger&) = delete;
+    AsyncLogger& operator=(const AsyncLogger&) = delete;
+    
+    void WorkerThread() {
+        while (true) {
+            std::unique_lock<std::mutex> lock(m_mutex);
+            m_cv.wait(lock, [this] { return !m_running || !m_buffer_active.empty(); });
+            
+            // Swap buffers
+            if (!m_buffer_active.empty()) {
+                std::swap(m_buffer_active, m_buffer_writing);
+            }
+            
+            // If stopped and empty, exit
+            if (!m_running && m_buffer_writing.empty()) {
+                 break;
+            }
+            
+            lock.unlock();
+            
+            // Write buffer to disk
+            for (const auto& frame : m_buffer_writing) {
+                WriteFrame(frame);
+            }
+            m_buffer_writing.clear();
+            
+            // Periodic flush to minimize data loss on crash
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - m_last_flush_time).count();
+            if (elapsed >= FLUSH_INTERVAL_SECONDS) {
+                m_file.flush();
+                m_last_flush_time = now;
+            }
+            
+            if (!m_running) break;
+        }
+    }
+
+    void WriteHeader(const SessionInfo& info) {
+        m_file << "# LMUFFB Telemetry Log v1.0\n";
+        m_file << "# App Version: " << info.app_version << "\n";
+        m_file << "# ========================\n";
+        m_file << "# Session Info\n";
+        m_file << "# ========================\n";
+        m_file << "# Driver: " << info.driver_name << "\n";
+        m_file << "# Vehicle: " << info.vehicle_name << "\n";
+        m_file << "# Track: " << info.track_name << "\n";
+        m_file << "# ========================\n";
+        m_file << "# FFB Settings\n";
+        m_file << "# ========================\n";
+        m_file << "# Gain: " << info.gain << "\n";
+        m_file << "# Understeer Effect: " << info.understeer_effect << "\n";
+        m_file << "# SoP Effect: " << info.sop_effect << "\n";
+        m_file << "# Slope Detection: " << (info.slope_enabled ? "Enabled" : "Disabled") << "\n";
+        m_file << "# Slope Sensitivity: " << info.slope_sensitivity << "\n";
+        m_file << "# Slope Threshold: " << info.slope_threshold << "\n";
+        m_file << "# Slope Alpha Threshold: " << info.slope_alpha_threshold << "\n";
+        m_file << "# Slope Decay Rate: " << info.slope_decay_rate << "\n";
+        m_file << "# ========================\n";
+        
+        // CSV Header
+        m_file << "Time,DeltaTime,Speed,LatAccel,LongAccel,YawRate,Steering,Throttle,Brake,"
+               << "SlipAngleFL,SlipAngleFR,SlipRatioFL,SlipRatioFR,GripFL,GripFR,LoadFL,LoadFR,"
+               << "CalcSlipAngle,CalcGripFront,CalcGripRear,GripDelta,"
+               << "dG_dt,dAlpha_dt,SlopeCurrent,SlopeSmoothed,Confidence,"
+               << "FFBTotal,FFBBase,FFBSoP,GripFactor,SpeedGate,Clipping,Marker\n";
+    }
+
+    void WriteFrame(const LogFrame& frame) {
+        m_file << std::fixed << std::setprecision(4)
+               << frame.timestamp << "," << frame.delta_time << "," 
+               << frame.speed << "," << frame.lat_accel << "," << frame.long_accel << "," << frame.yaw_rate << ","
+               << frame.steering << "," << frame.throttle << "," << frame.brake << ","
+               
+               << frame.slip_angle_fl << "," << frame.slip_angle_fr << "," 
+               << frame.slip_ratio_fl << "," << frame.slip_ratio_fr << ","
+               << frame.grip_fl << "," << frame.grip_fr << ","
+               << frame.load_fl << "," << frame.load_fr << ","
+               
+               << frame.calc_slip_angle_front << "," << frame.calc_grip_front << "," << frame.calc_grip_rear << "," << frame.grip_delta << ","
+               
+               << frame.dG_dt << "," << frame.dAlpha_dt << "," << frame.slope_current << "," << frame.slope_smoothed << "," << frame.confidence << ","
+               
+               << frame.ffb_total << "," << frame.ffb_base << "," << frame.ffb_sop << "," 
+               << frame.ffb_grip_factor << "," << frame.speed_gate << "," 
+               << (frame.clipping ? 1 : 0) << "," << (frame.marker ? 1 : 0) << "\n";
+        
+        // Track file size for monitoring
+        m_file_size_bytes += 200; // Approximate bytes per line
+    }
+
+    std::string SanitizeFilename(const std::string& input) {
+        std::string out = input;
+        // Replace invalid Windows filename characters
+        std::replace(out.begin(), out.end(), ' ', '_');
+        std::replace(out.begin(), out.end(), '/', '_');
+        std::replace(out.begin(), out.end(), '\\', '_');
+        std::replace(out.begin(), out.end(), ':', '_');
+        std::replace(out.begin(), out.end(), '*', '_');
+        std::replace(out.begin(), out.end(), '?', '_');
+        std::replace(out.begin(), out.end(), '"', '_');
+        std::replace(out.begin(), out.end(), '<', '_');
+        std::replace(out.begin(), out.end(), '>', '_');
+        std::replace(out.begin(), out.end(), '|', '_');
+        return out;
+    }
+    
+    std::ofstream m_file;
+    std::string m_filename;
+    std::thread m_worker;
+    
+    std::vector<LogFrame> m_buffer_active;
+    std::vector<LogFrame> m_buffer_writing;
+    
+    std::mutex m_mutex;
+    std::condition_variable m_cv;
+    std::atomic<bool> m_running;
+    std::atomic<bool> m_pending_marker;
+    std::atomic<size_t> m_frame_count;
+    
+    int m_decimation_counter;
+    std::atomic<size_t> m_file_size_bytes;
+    std::chrono::steady_clock::time_point m_last_flush_time;
+    
+    static const int DECIMATION_FACTOR = 4; // 400Hz -> 100Hz
+    static const size_t BUFFER_THRESHOLD = 200; // ~0.5s of data
+    static const int FLUSH_INTERVAL_SECONDS = 5; // Flush every 5 seconds
+};
+
+#endif // ASYNCLOGGER_H
+
+```
+
+# File: src\Config.cpp
+```cpp
+﻿#include "Config.h"
+#include "Version.h"
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <algorithm>
+
+bool Config::m_always_on_top = true;
+std::string Config::m_last_device_guid = "";
+std::string Config::m_last_preset_name = "Default";
+std::string Config::m_config_path = "config.ini";
+bool Config::m_auto_start_logging = false;
+std::string Config::m_log_path = "logs/";
+
+// Window Geometry Defaults (v0.5.5)
+int Config::win_pos_x = 100;
+int Config::win_pos_y = 100;
+int Config::win_w_small = 500;   // Narrow (Config Only)
+int Config::win_h_small = 800;
+int Config::win_w_large = 1400;  // Wide (Config + Graphs)
+int Config::win_h_large = 800;
+bool Config::show_graphs = false;
+
+std::vector<Preset> Config::presets;
+
+void Config::ParsePresetLine(const std::string& line, Preset& current_preset, std::string& current_preset_version, bool& needs_save) {
+    std::istringstream is_line(line);
+    std::string key;
+    if (std::getline(is_line, key, '=')) {
+        std::string value;
+        if (std::getline(is_line, value)) {
+            try {
+                // Map keys to struct members
+                if (key == "app_version") current_preset_version = value;
+                else if (key == "gain") current_preset.gain = std::stof(value);
+                else if (key == "understeer") {
+                    float val = std::stof(value);
+                    if (val > 2.0f) {
+                        float old_val = val;
+                        val = val / 100.0f; // Migrating 0-200 range to 0-2
+                        std::cout << "[Preset] Migrated legacy understeer: " << old_val
+                                    << " -> " << val << std::endl;
+                        needs_save = true;
+                    }
+                    current_preset.understeer = (std::min)(2.0f, (std::max)(0.0f, val));
+                }
+                else if (key == "sop") current_preset.sop = (std::min)(2.0f, std::stof(value));
+                else if (key == "sop_scale") current_preset.sop_scale = std::stof(value);
+                else if (key == "sop_smoothing_factor") current_preset.sop_smoothing = std::stof(value);
+                else if (key == "min_force") current_preset.min_force = std::stof(value);
+                else if (key == "oversteer_boost") current_preset.oversteer_boost = std::stof(value);
+                else if (key == "lockup_enabled") current_preset.lockup_enabled = std::stoi(value);
+                else if (key == "lockup_gain") current_preset.lockup_gain = (std::min)(3.0f, std::stof(value));
+                else if (key == "lockup_start_pct") current_preset.lockup_start_pct = std::stof(value);
+                else if (key == "lockup_full_pct") current_preset.lockup_full_pct = std::stof(value);
+                else if (key == "lockup_rear_boost") current_preset.lockup_rear_boost = std::stof(value);
+                else if (key == "lockup_gamma") current_preset.lockup_gamma = std::stof(value);
+                else if (key == "lockup_prediction_sens") current_preset.lockup_prediction_sens = std::stof(value);
+                else if (key == "lockup_bump_reject") current_preset.lockup_bump_reject = std::stof(value);
+                else if (key == "brake_load_cap") current_preset.brake_load_cap = (std::min)(10.0f, std::stof(value));
+                else if (key == "texture_load_cap") current_preset.texture_load_cap = std::stof(value); // NEW v0.6.25
+                else if (key == "max_load_factor") current_preset.texture_load_cap = std::stof(value); // Legacy Backward Compatibility
+                else if (key == "abs_pulse_enabled") current_preset.abs_pulse_enabled = std::stoi(value);
+                else if (key == "abs_gain") current_preset.abs_gain = std::stof(value);
+                else if (key == "spin_enabled") current_preset.spin_enabled = std::stoi(value);
+                else if (key == "spin_gain") current_preset.spin_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "slide_enabled") current_preset.slide_enabled = std::stoi(value);
+                else if (key == "slide_gain") current_preset.slide_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "slide_freq") current_preset.slide_freq = std::stof(value);
+                else if (key == "road_enabled") current_preset.road_enabled = std::stoi(value);
+                else if (key == "road_gain") current_preset.road_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "invert_force") current_preset.invert_force = std::stoi(value);
+                else if (key == "max_torque_ref") current_preset.max_torque_ref = std::stof(value);
+                else if (key == "abs_freq") current_preset.abs_freq = std::stof(value);
+                else if (key == "lockup_freq_scale") current_preset.lockup_freq_scale = std::stof(value);
+                else if (key == "spin_freq_scale") current_preset.spin_freq_scale = std::stof(value);
+                else if (key == "bottoming_method") current_preset.bottoming_method = std::stoi(value);
+                else if (key == "scrub_drag_gain") current_preset.scrub_drag_gain = (std::min)(1.0f, std::stof(value));
+                else if (key == "rear_align_effect") current_preset.rear_align_effect = (std::min)(2.0f, std::stof(value));
+                else if (key == "sop_yaw_gain") current_preset.sop_yaw_gain = (std::min)(2.0f, std::stof(value));
+                else if (key == "steering_shaft_gain") current_preset.steering_shaft_gain = std::stof(value);
+                else if (key == "slip_angle_smoothing") current_preset.slip_smoothing = std::stof(value);
+                else if (key == "base_force_mode") current_preset.base_force_mode = std::stoi(value);
+                else if (key == "gyro_gain") current_preset.gyro_gain = (std::min)(1.0f, std::stof(value));
+                else if (key == "flatspot_suppression") current_preset.flatspot_suppression = std::stoi(value);
+                else if (key == "notch_q") current_preset.notch_q = std::stof(value);
+                else if (key == "flatspot_strength") current_preset.flatspot_strength = std::stof(value);
+                else if (key == "static_notch_enabled") current_preset.static_notch_enabled = std::stoi(value);
+                else if (key == "static_notch_freq") current_preset.static_notch_freq = std::stof(value);
+                else if (key == "static_notch_width") current_preset.static_notch_width = std::stof(value);
+                else if (key == "yaw_kick_threshold") current_preset.yaw_kick_threshold = std::stof(value);
+                else if (key == "optimal_slip_angle") current_preset.optimal_slip_angle = std::stof(value);
+                else if (key == "optimal_slip_ratio") current_preset.optimal_slip_ratio = std::stof(value);
+                else if (key == "slope_detection_enabled") current_preset.slope_detection_enabled = (value == "1");
+                else if (key == "slope_sg_window") current_preset.slope_sg_window = std::stoi(value);
+                else if (key == "slope_sensitivity") current_preset.slope_sensitivity = std::stof(value);
+                else if (key == "slope_negative_threshold") current_preset.slope_min_threshold = std::stof(value);
+                else if (key == "slope_smoothing_tau") current_preset.slope_smoothing_tau = std::stof(value);
+                else if (key == "slope_min_threshold") current_preset.slope_min_threshold = std::stof(value);
+                else if (key == "slope_max_threshold") current_preset.slope_max_threshold = std::stof(value);
+                else if (key == "slope_alpha_threshold") current_preset.slope_alpha_threshold = std::stof(value);
+                else if (key == "slope_decay_rate") current_preset.slope_decay_rate = std::stof(value);
+                else if (key == "slope_confidence_enabled") current_preset.slope_confidence_enabled = (value == "1");
+                else if (key == "steering_shaft_smoothing") current_preset.steering_shaft_smoothing = std::stof(value);
+                else if (key == "gyro_smoothing_factor") current_preset.gyro_smoothing = std::stof(value);
+                else if (key == "yaw_accel_smoothing") current_preset.yaw_smoothing = std::stof(value);
+                else if (key == "chassis_inertia_smoothing") current_preset.chassis_smoothing = std::stof(value);
+                else if (key == "speed_gate_lower") current_preset.speed_gate_lower = std::stof(value); // NEW v0.6.25
+                else if (key == "speed_gate_upper") current_preset.speed_gate_upper = std::stof(value); // NEW v0.6.25
+                else if (key == "road_fallback_scale") current_preset.road_fallback_scale = std::stof(value); // NEW v0.6.25
+                else if (key == "understeer_affects_sop") current_preset.understeer_affects_sop = std::stoi(value); // NEW v0.6.25
+            } catch (...) {}
+        }
+    }
+}
+
+void Config::LoadPresets() {
+    presets.clear();
+    
+    // 1. Default - Uses Preset struct defaults from Config.h (Single Source of Truth)
+    presets.push_back(Preset("Default", true));
+    
+    // 2. T300 (Custom optimized)
+    {
+        Preset p("T300", true);
+        p.invert_force = true;
+        p.gain = 1.0f;
+        p.max_torque_ref = 100.1f;
+        p.min_force = 0.01f;
+        p.steering_shaft_gain = 1.0f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 0.5f;
+        p.base_force_mode = 0;
+        p.flatspot_suppression = false;
+        p.notch_q = 2.0f;
+        p.flatspot_strength = 1.0f;
+        p.static_notch_enabled = false;
+        p.static_notch_freq = 11.0f;
+        p.static_notch_width = 2.0f;
+        p.oversteer_boost = 2.40336f;
+        p.sop = 0.425003f;
+        p.rear_align_effect = 0.966383f;
+        p.sop_yaw_gain = 0.386555f;
+        p.yaw_kick_threshold = 1.68f;
+        p.yaw_smoothing = 0.005f;
+        p.gyro_gain = 0.0336134f;
+        p.gyro_smoothing = 0.0f;
+        p.sop_smoothing = 1.0f;
+        p.sop_scale = 1.0f;
+        p.understeer_affects_sop = false;
+        p.slip_smoothing = 0.0f;
+        p.chassis_smoothing = 0.0f;
+        p.optimal_slip_angle = 0.10f;   // CHANGED from 0.06f
+        p.optimal_slip_ratio = 0.12f;
+        p.lockup_enabled = true;
+        p.lockup_gain = 2.0f;
+        p.brake_load_cap = 10.0f;
+        p.lockup_freq_scale = 1.02f;
+        p.lockup_gamma = 0.1f;
+        p.lockup_start_pct = 1.0f;
+        p.lockup_full_pct = 5.0f;
+        p.lockup_prediction_sens = 10.0f;
+        p.lockup_bump_reject = 0.1f;
+        p.lockup_rear_boost = 10.0f;
+        p.abs_pulse_enabled = true;
+        p.abs_gain = 2.0f;
+        p.abs_freq = 20.0f;
+        p.texture_load_cap = 1.96f;
+        p.slide_enabled = true;
+        p.slide_gain = 0.235294f;
+        p.slide_freq = 1.0f;
+        p.road_enabled = true;
+        p.road_gain = 2.0f;
+        p.road_fallback_scale = 0.05f;
+        p.spin_enabled = true;
+        p.spin_gain = 0.5f;
+        p.spin_freq_scale = 1.0f;
+        p.scrub_drag_gain = 0.0462185f;
+        p.bottoming_method = 0;
+        p.speed_gate_lower = 0.0f;
+        p.speed_gate_upper = 0.277778f;
+        presets.push_back(p);
+    }
+    
+    // 3. GT3 DD 15 Nm (Simagic Alpha)
+    {
+        Preset p("GT3 DD 15 Nm (Simagic Alpha)", true);
+        p.gain = 1.0f;
+        p.max_torque_ref = 100.0f;
+        p.min_force = 0.0f;
+        p.steering_shaft_gain = 1.0f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 1.0f;
+        p.base_force_mode = 0;
+        p.flatspot_suppression = false;
+        p.notch_q = 2.0f;
+        p.flatspot_strength = 1.0f;
+        p.static_notch_enabled = false;
+        p.static_notch_freq = 11.0f;
+        p.static_notch_width = 2.0f;
+        p.oversteer_boost = 2.52101f;
+        p.sop = 1.666f;
+        p.rear_align_effect = 0.666f;
+        p.sop_yaw_gain = 0.333f;
+        p.yaw_kick_threshold = 0.0f;
+        p.yaw_smoothing = 0.001f;
+        p.gyro_gain = 0.0f;
+        p.gyro_smoothing = 0.0f;
+        p.sop_smoothing = 0.99f;
+        p.sop_scale = 1.98f;
+        p.understeer_affects_sop = false;
+        p.slip_smoothing = 0.002f;
+        p.chassis_smoothing = 0.012f;
+        p.optimal_slip_angle = 0.1f;
+        p.optimal_slip_ratio = 0.12f;
+        p.lockup_enabled = true;
+        p.lockup_gain = 0.37479f;
+        p.brake_load_cap = 2.0f;
+        p.lockup_freq_scale = 1.0f;
+        p.lockup_gamma = 1.0f;
+        p.lockup_start_pct = 1.0f;
+        p.lockup_full_pct = 7.5f;
+        p.lockup_prediction_sens = 10.0f;
+        p.lockup_bump_reject = 0.1f;
+        p.lockup_rear_boost = 1.0f;
+        p.abs_pulse_enabled = false;
+        p.abs_gain = 2.1f;
+        p.abs_freq = 25.5f;
+        p.texture_load_cap = 1.5f;
+        p.slide_enabled = false;
+        p.slide_gain = 0.226562f;
+        p.slide_freq = 1.47f;
+        p.road_enabled = true;
+        p.road_gain = 0.0f;
+        p.road_fallback_scale = 0.05f;
+        p.spin_enabled = true;
+        p.spin_gain = 0.462185f;
+        p.spin_freq_scale = 1.8f;
+        p.scrub_drag_gain = 0.333f;
+        p.bottoming_method = 1;
+        p.speed_gate_lower = 1.0f;
+        p.speed_gate_upper = 5.0f;
+        presets.push_back(p);
+    }
+    
+    // 4. LMPx/HY DD 15 Nm (Simagic Alpha)
+    {
+        Preset p("LMPx/HY DD 15 Nm (Simagic Alpha)", true);
+        p.gain = 1.0f;
+        p.max_torque_ref = 100.0f;
+        p.min_force = 0.0f;
+        p.steering_shaft_gain = 1.0f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 1.0f;
+        p.base_force_mode = 0;
+        p.flatspot_suppression = false;
+        p.notch_q = 2.0f;
+        p.flatspot_strength = 1.0f;
+        p.static_notch_enabled = false;
+        p.static_notch_freq = 11.0f;
+        p.static_notch_width = 2.0f;
+        p.oversteer_boost = 2.52101f;
+        p.sop = 1.666f;
+        p.rear_align_effect = 0.666f;
+        p.sop_yaw_gain = 0.333f;
+        p.yaw_kick_threshold = 0.0f;
+        p.yaw_smoothing = 0.003f;
+        p.gyro_gain = 0.0f;
+        p.gyro_smoothing = 0.003f;
+        p.sop_smoothing = 0.97f;
+        p.sop_scale = 1.59f;
+        p.understeer_affects_sop = false;
+        p.slip_smoothing = 0.003f;
+        p.chassis_smoothing = 0.019f;
+        p.optimal_slip_angle = 0.12f;
+        p.optimal_slip_ratio = 0.12f;
+        p.lockup_enabled = true;
+        p.lockup_gain = 0.37479f;
+        p.brake_load_cap = 2.0f;
+        p.lockup_freq_scale = 1.0f;
+        p.lockup_gamma = 1.0f;
+        p.lockup_start_pct = 1.0f;
+        p.lockup_full_pct = 7.5f;
+        p.lockup_prediction_sens = 10.0f;
+        p.lockup_bump_reject = 0.1f;
+        p.lockup_rear_boost = 1.0f;
+        p.abs_pulse_enabled = false;
+        p.abs_gain = 2.1f;
+        p.abs_freq = 25.5f;
+        p.texture_load_cap = 1.5f;
+        p.slide_enabled = false;
+        p.slide_gain = 0.226562f;
+        p.slide_freq = 1.47f;
+        p.road_enabled = true;
+        p.road_gain = 0.0f;
+        p.road_fallback_scale = 0.05f;
+        p.spin_enabled = true;
+        p.spin_gain = 0.462185f;
+        p.spin_freq_scale = 1.8f;
+        p.scrub_drag_gain = 0.333f;
+        p.bottoming_method = 1;
+        p.speed_gate_lower = 1.0f;
+        p.speed_gate_upper = 5.0f;
+        presets.push_back(p);
+    }
+    
+    // 5. GM DD 21 Nm (Moza R21 Ultra)
+    {
+        Preset p("GM DD 21 Nm (Moza R21 Ultra)", true);
+        p.gain = 1.454f;
+        p.max_torque_ref = 100.1f;
+        p.min_force = 0.0f;
+        p.steering_shaft_gain = 1.989f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 0.638f;
+        p.base_force_mode = 0;
+        p.flatspot_suppression = true;
+        p.notch_q = 0.57f;
+        p.flatspot_strength = 1.0f;
+        p.static_notch_enabled = false;
+        p.static_notch_freq = 11.0f;
+        p.static_notch_width = 2.0f;
+        p.oversteer_boost = 0.0f;
+        p.sop = 0.0f;
+        p.rear_align_effect = 0.29f;
+        p.sop_yaw_gain = 0.0f;
+        p.yaw_kick_threshold = 0.0f;
+        p.yaw_smoothing = 0.015f;
+        p.gyro_gain = 0.0f;
+        p.gyro_smoothing = 0.0f;
+        p.sop_smoothing = 0.0f;
+        p.sop_scale = 0.89f;
+        p.understeer_affects_sop = false;
+        p.slip_smoothing = 0.002f;
+        p.chassis_smoothing = 0.0f;
+        p.optimal_slip_angle = 0.1f;
+        p.optimal_slip_ratio = 0.12f;
+        p.lockup_enabled = true;
+        p.lockup_gain = 0.977f;
+        p.brake_load_cap = 81.0f;
+        p.lockup_freq_scale = 1.0f;
+        p.lockup_gamma = 1.0f;
+        p.lockup_start_pct = 1.0f;
+        p.lockup_full_pct = 7.5f;
+        p.lockup_prediction_sens = 10.0f;
+        p.lockup_bump_reject = 0.1f;
+        p.lockup_rear_boost = 1.0f;
+        p.abs_pulse_enabled = false;
+        p.abs_gain = 2.1f;
+        p.abs_freq = 25.5f;
+        p.texture_load_cap = 1.5f;
+        p.slide_enabled = false;
+        p.slide_gain = 0.0f;
+        p.slide_freq = 1.47f;
+        p.road_enabled = true;
+        p.road_gain = 0.0f;
+        p.road_fallback_scale = 0.05f;
+        p.spin_enabled = true;
+        p.spin_gain = 0.462185f;
+        p.spin_freq_scale = 1.8f;
+        p.scrub_drag_gain = 0.333f;
+        p.bottoming_method = 1;
+        p.speed_gate_lower = 1.0f;
+        p.speed_gate_upper = 5.0f;
+        presets.push_back(p);
+    }
+    
+    // 6. GM + Yaw Kick DD 21 Nm (Moza R21 Ultra)
+    {
+        // Copy GM preset and add yaw kick
+        Preset p("GM + Yaw Kick DD 21 Nm (Moza R21 Ultra)", true);
+        p.gain = 1.454f;
+        p.max_torque_ref = 100.1f;
+        p.min_force = 0.0f;
+        p.steering_shaft_gain = 1.989f;
+        p.steering_shaft_smoothing = 0.0f;
+        p.understeer = 0.638f;
+        p.base_force_mode = 0;
+        p.flatspot_suppression = true;
+        p.notch_q = 0.57f;
+        p.flatspot_strength = 1.0f;
+        p.static_notch_enabled = false;
+        p.static_notch_freq = 11.0f;
+        p.static_notch_width = 2.0f;
+        p.oversteer_boost = 0.0f;
+        p.sop = 0.0f;
+        p.rear_align_effect = 0.29f;
+        p.sop_yaw_gain = 0.333f;  // ONLY DIFFERENCE: Added yaw kick
+        p.yaw_kick_threshold = 0.0f;
+        p.yaw_smoothing = 0.003f;
+        p.gyro_gain = 0.0f;
+        p.gyro_smoothing = 0.0f;
+        p.sop_smoothing = 0.0f;
+        p.sop_scale = 0.89f;
+        p.understeer_affects_sop = false;
+        p.slip_smoothing = 0.002f;
+        p.chassis_smoothing = 0.0f;
+        p.optimal_slip_angle = 0.1f;
+        p.optimal_slip_ratio = 0.12f;
+        p.lockup_enabled = true;
+        p.lockup_gain = 0.977f;
+        p.brake_load_cap = 81.0f;
+        p.lockup_freq_scale = 1.0f;
+        p.lockup_gamma = 1.0f;
+        p.lockup_start_pct = 1.0f;
+        p.lockup_full_pct = 7.5f;
+        p.lockup_prediction_sens = 10.0f;
+        p.lockup_bump_reject = 0.1f;
+        p.lockup_rear_boost = 1.0f;
+        p.abs_pulse_enabled = false;
+        p.abs_gain = 2.1f;
+        p.abs_freq = 25.5f;
+        p.texture_load_cap = 1.5f;
+        p.slide_enabled = false;
+        p.slide_gain = 0.0f;
+        p.slide_freq = 1.47f;
+        p.road_enabled = true;
+        p.road_gain = 0.0f;
+        p.road_fallback_scale = 0.05f;
+        p.spin_enabled = true;
+        p.spin_gain = 0.462185f;
+        p.spin_freq_scale = 1.8f;
+        p.scrub_drag_gain = 0.333f;
+        p.bottoming_method = 1;
+        p.speed_gate_lower = 1.0f;
+        p.speed_gate_upper = 5.0f;
+        presets.push_back(p);
+    }
+    
+    // 8. Test: Game Base FFB Only
+    presets.push_back(Preset("Test: Game Base FFB Only", true)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSoPScale(1.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+    );
+
+    // 9. Test: SoP Only
+    presets.push_back(Preset("Test: SoP Only", true)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.08f)
+        .SetSoPScale(1.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
+        .SetBaseMode(2) // Muted
+    );
+
+    // 10. Test: Understeer Only (Updated v0.6.31 for proper effect isolation)
+    presets.push_back(Preset("Test: Understeer Only", true)
+        // PRIMARY EFFECT
+        .SetUndersteer(0.61f)
+        
+        // DISABLE ALL OTHER EFFECTS
+        .SetSoP(0.0f)
+        .SetSoPScale(1.0f)
+        .SetOversteer(0.0f)          // Disable oversteer boost
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)             // Disable yaw kick
+        .SetGyro(0.0f)               // Disable gyro damping
+        
+        // DISABLE ALL TEXTURES
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)        // Disable road texture
+        .SetSpin(false, 0.0f)        // Disable spin
+        .SetLockup(false, 0.0f)      // Disable lockup vibration
+        .SetAdvancedBraking(0.5f, 20.0f, 0.1f, false, 0.0f)  // Disable ABS pulse
+        .SetScrub(0.0f)
+        
+        // SMOOTHING
+        .SetSmoothing(0.85f)         // SoP smoothing (doesn't affect test since SoP=0)
+        .SetSlipSmoothing(0.015f)    // Slip angle smoothing (important for grip calculation)
+        
+        // PHYSICS PARAMETERS (Explicit for clarity and future-proofing)
+        .SetOptimalSlip(0.10f, 0.12f)  // Explicit optimal slip thresholds
+        .SetBaseMode(0)                 // Native physics mode (required for understeer)
+        .SetSpeedGate(0.0f, 0.0f)      // Disable speed gate (0 = no gating)
+    );
+
+    // 11. Test: Yaw Kick Only
+    presets.push_back(Preset("Test: Yaw Kick Only", true)
+        // PRIMARY EFFECT
+        .SetSoPYaw(0.386555f)        // Yaw kick at T300 level
+        .SetYawKickThreshold(1.68f)  // T300 threshold
+        .SetYawSmoothing(0.005f)     // T300 smoothing
+        
+        // DISABLE ALL OTHER EFFECTS
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSoPScale(1.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetGyro(0.0f)
+        
+        // DISABLE ALL TEXTURES
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetLockup(false, 0.0f)
+        .SetAdvancedBraking(0.5f, 20.0f, 0.1f, false, 0.0f)
+        .SetScrub(0.0f)
+        
+        // SMOOTHING
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        
+        // BASE MODE
+        .SetBaseMode(2)  // Muted: Feel only the yaw kick impulse
+    );
+
+    // 12. Test: Textures Only
+    presets.push_back(Preset("Test: Textures Only", true)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSoPScale(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetLockup(true, 1.0f)
+        .SetSpin(true, 1.0f)
+        .SetSlide(true, 0.39f)
+        .SetRoad(true, 1.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
+
+    // 13. Test: Rear Align Torque Only
+    presets.push_back(Preset("Test: Rear Align Torque Only", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.90f)
+        .SetSoPYaw(0.0f)
+    );
+
+    // 14. Test: SoP Base Only
+    presets.push_back(Preset("Test: SoP Base Only", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.08f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
+        .SetBaseMode(2) // Muted
+    );
+
+    // 15. Test: Slide Texture Only
+    presets.push_back(Preset("Test: Slide Texture Only", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetSlide(true, 0.39f, 1.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
+
+    // 16. Test: No Effects
+    presets.push_back(Preset("Test: No Effects", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetSlide(false, 0.0f)
+        .SetRearAlign(0.0f)
+        .SetBaseMode(2) // Muted
+    );
+
+    // --- NEW GUIDE PRESETS (v0.4.24) ---
+
+    // 17. Guide: Understeer (Front Grip Loss)
+    presets.push_back(Preset("Guide: Understeer (Front Grip)", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.61f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
+        .SetGyro(0.0f)
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetBaseMode(0) // Native Physics needed to feel the drop
+    );
+
+    // 18. Guide: Oversteer (Rear Grip Loss)
+    presets.push_back(Preset("Guide: Oversteer (Rear Grip)", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.08f)
+        .SetSoPScale(1.0f)
+        .SetRearAlign(0.90f)
+        .SetOversteer(0.65f)
+        .SetSoPYaw(0.0f)
+        .SetGyro(0.0f)
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetBaseMode(0) // Native Physics + Boost
+    );
+
+    // 19. Guide: Slide Texture (Scrubbing)
+    presets.push_back(Preset("Guide: Slide Texture (Scrub)", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSlide(true, 0.39f, 1.0f) // Gain 0.39, Freq 1.0 (Rumble)
+        .SetScrub(1.0f)
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetBaseMode(2) // Muted for clear texture feel
+    );
+
+    // 20. Guide: Braking Lockup
+    presets.push_back(Preset("Guide: Braking Lockup", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetLockup(true, 1.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetBaseMode(2) // Muted
+    );
+
+    // 21. Guide: Traction Loss (Wheel Spin)
+    presets.push_back(Preset("Guide: Traction Loss (Spin)", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSpin(true, 1.0f)
+        .SetLockup(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetBaseMode(2) // Muted
+    );
+
+     // 22. Guide: SoP Yaw (Kick)
+    presets.push_back(Preset("Guide: SoP Yaw (Kick)", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(5.0f) // Standard T300 level
+        .SetGyro(0.0f)
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetBaseMode(2) // Muted: Feel only the rotation impulse
+    );
+
+    // 23. Guide: Gyroscopic Damping
+    presets.push_back(Preset("Guide: Gyroscopic Damping", true)
+        .SetGain(1.0f)
+        .SetUndersteer(0.0f)
+        .SetSoP(0.0f)
+        .SetOversteer(0.0f)
+        .SetRearAlign(0.0f)
+        .SetSoPYaw(0.0f)
+        .SetGyro(1.0f) // Max damping
+        .SetLockup(false, 0.0f)
+        .SetSpin(false, 0.0f)
+        .SetSlide(false, 0.0f)
+        .SetRoad(false, 0.0f)
+        .SetScrub(0.0f)
+        .SetSmoothing(0.85f)
+        .SetSlipSmoothing(0.015f)
+        .SetBaseMode(2) // Muted: Feel only the resistance to movement
+    );
+
+    // --- Parse User Presets from config.ini ---
+    // (Keep the existing parsing logic below, it works fine for file I/O)
+    std::ifstream file(m_config_path);
+    if (!file.is_open()) return;
+
+    std::string line;
+    bool in_presets = false;
+    bool needs_save = false;
+    
+    std::string current_preset_name = "";
+    Preset current_preset; // Uses default constructor with default values
+    std::string current_preset_version = "";
+    bool preset_pending = false;
+
+    while (std::getline(file, line)) {
+        // Strip whitespace
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+        
+        if (line.empty() || line[0] == ';') continue;
+
+        if (line[0] == '[') {
+            if (preset_pending && !current_preset_name.empty()) {
+                current_preset.name = current_preset_name;
+                current_preset.is_builtin = false; // User preset
+                
+                // MIGRATION: If version is missing or old, update it
+                if (current_preset_version.empty()) {
+                    current_preset.app_version = LMUFFB_VERSION;
+                    needs_save = true;
+                    std::cout << "[Config] Migrated legacy preset '" << current_preset_name << "' to version " << LMUFFB_VERSION << std::endl;
+                } else {
+                    current_preset.app_version = current_preset_version;
+                }
+                
+                current_preset.Validate(); // v0.7.15: Validate before adding
+                presets.push_back(current_preset);
+                preset_pending = false;
+            }
+            
+            if (line == "[Presets]") {
+                in_presets = true;
+            } else if (line.rfind("[Preset:", 0) == 0) { 
+                in_presets = false; 
+                size_t end_pos = line.find(']');
+                if (end_pos != std::string::npos) {
+                    current_preset_name = line.substr(8, end_pos - 8);
+                    current_preset = Preset(current_preset_name, false); // Reset to defaults, not builtin
+                    preset_pending = true;
+                    current_preset_version = "";
+                }
+            } else {
+                in_presets = false;
+            }
+            continue;
+        }
+
+        if (preset_pending) {
+            ParsePresetLine(line, current_preset, current_preset_version, needs_save);
+        }
+    }
+    
+    if (preset_pending && !current_preset_name.empty()) {
+        current_preset.name = current_preset_name;
+        current_preset.is_builtin = false;
+        
+        // MIGRATION: If version is missing or old, update it
+        if (current_preset_version.empty()) {
+            current_preset.app_version = LMUFFB_VERSION;
+            needs_save = true;
+            std::cout << "[Config] Migrated legacy preset '" << current_preset_name << "' to version " << LMUFFB_VERSION << std::endl;
+        } else {
+            current_preset.app_version = current_preset_version;
+        }
+        
+        current_preset.Validate(); // v0.7.15: Validate before adding
+        presets.push_back(current_preset);
+    }
+
+    // Auto-save if migration occurred
+    if (needs_save) {
+        FFBEngine temp_engine; // Just to satisfy the Save signature
+        // We might want a version of Save that doesn't overwrite current engine settings
+        // but for now, the plan says "call Config::SaveManualPresetsOnly() (or similar)".
+        // Looking at Save(), it saves everything. 
+        // If we just loaded presets, we haven't applied them to any engine yet.
+        // But Config::Save takes an engine.
+        // Actually, if we just want to update the presets on disk, we should call Save.
+        Save(temp_engine);
+    }
+}
+
+void Config::ApplyPreset(int index, FFBEngine& engine) {
+    if (index >= 0 && index < presets.size()) {
+        presets[index].Apply(engine);
+        m_last_preset_name = presets[index].name;
+        std::cout << "[Config] Applied preset: " << presets[index].name << std::endl;
+        Save(engine); // Integrated Auto-Save (v0.6.27)
+    }
+}
+
+void Config::WritePresetFields(std::ofstream& file, const Preset& p) {
+    file << "app_version=" << p.app_version << "\n";
+    file << "invert_force=" << (p.invert_force ? "1" : "0") << "\n";
+    file << "gain=" << p.gain << "\n";
+    file << "max_torque_ref=" << p.max_torque_ref << "\n";
+    file << "min_force=" << p.min_force << "\n";
+
+    file << "steering_shaft_gain=" << p.steering_shaft_gain << "\n";
+    file << "steering_shaft_smoothing=" << p.steering_shaft_smoothing << "\n";
+    file << "understeer=" << p.understeer << "\n";
+    file << "base_force_mode=" << p.base_force_mode << "\n";
+    file << "flatspot_suppression=" << p.flatspot_suppression << "\n";
+    file << "notch_q=" << p.notch_q << "\n";
+    file << "flatspot_strength=" << p.flatspot_strength << "\n";
+    file << "static_notch_enabled=" << p.static_notch_enabled << "\n";
+    file << "static_notch_freq=" << p.static_notch_freq << "\n";
+    file << "static_notch_width=" << p.static_notch_width << "\n";
+
+    file << "oversteer_boost=" << p.oversteer_boost << "\n";
+    file << "sop=" << p.sop << "\n";
+    file << "rear_align_effect=" << p.rear_align_effect << "\n";
+    file << "sop_yaw_gain=" << p.sop_yaw_gain << "\n";
+    file << "yaw_kick_threshold=" << p.yaw_kick_threshold << "\n";
+    file << "yaw_accel_smoothing=" << p.yaw_smoothing << "\n";
+    file << "gyro_gain=" << p.gyro_gain << "\n";
+    file << "gyro_smoothing_factor=" << p.gyro_smoothing << "\n";
+    file << "sop_smoothing_factor=" << p.sop_smoothing << "\n";
+    file << "sop_scale=" << p.sop_scale << "\n";
+    file << "understeer_affects_sop=" << p.understeer_affects_sop << "\n";
+    file << "slope_detection_enabled=" << p.slope_detection_enabled << "\n";
+    file << "slope_sg_window=" << p.slope_sg_window << "\n";
+    file << "slope_sensitivity=" << p.slope_sensitivity << "\n";
+
+    file << "slope_smoothing_tau=" << p.slope_smoothing_tau << "\n";
+    file << "slope_min_threshold=" << p.slope_min_threshold << "\n";
+    file << "slope_max_threshold=" << p.slope_max_threshold << "\n";
+    file << "slope_alpha_threshold=" << p.slope_alpha_threshold << "\n";
+    file << "slope_decay_rate=" << p.slope_decay_rate << "\n";
+    file << "slope_confidence_enabled=" << p.slope_confidence_enabled << "\n";
+
+    file << "slip_angle_smoothing=" << p.slip_smoothing << "\n";
+    file << "chassis_inertia_smoothing=" << p.chassis_smoothing << "\n";
+    file << "optimal_slip_angle=" << p.optimal_slip_angle << "\n";
+    file << "optimal_slip_ratio=" << p.optimal_slip_ratio << "\n";
+
+    file << "lockup_enabled=" << (p.lockup_enabled ? "1" : "0") << "\n";
+    file << "lockup_gain=" << p.lockup_gain << "\n";
+    file << "brake_load_cap=" << p.brake_load_cap << "\n";
+    file << "lockup_freq_scale=" << p.lockup_freq_scale << "\n";
+    file << "lockup_gamma=" << p.lockup_gamma << "\n";
+    file << "lockup_start_pct=" << p.lockup_start_pct << "\n";
+    file << "lockup_full_pct=" << p.lockup_full_pct << "\n";
+    file << "lockup_prediction_sens=" << p.lockup_prediction_sens << "\n";
+    file << "lockup_bump_reject=" << p.lockup_bump_reject << "\n";
+    file << "lockup_rear_boost=" << p.lockup_rear_boost << "\n";
+    file << "abs_pulse_enabled=" << (p.abs_pulse_enabled ? "1" : "0") << "\n";
+    file << "abs_gain=" << p.abs_gain << "\n";
+    file << "abs_freq=" << p.abs_freq << "\n";
+
+    file << "texture_load_cap=" << p.texture_load_cap << "\n";
+    file << "slide_enabled=" << (p.slide_enabled ? "1" : "0") << "\n";
+    file << "slide_gain=" << p.slide_gain << "\n";
+    file << "slide_freq=" << p.slide_freq << "\n";
+    file << "road_enabled=" << (p.road_enabled ? "1" : "0") << "\n";
+    file << "road_gain=" << p.road_gain << "\n";
+    file << "road_fallback_scale=" << p.road_fallback_scale << "\n";
+    file << "spin_enabled=" << (p.spin_enabled ? "1" : "0") << "\n";
+    file << "spin_gain=" << p.spin_gain << "\n";
+    file << "spin_freq_scale=" << p.spin_freq_scale << "\n";
+    file << "scrub_drag_gain=" << p.scrub_drag_gain << "\n";
+    file << "bottoming_method=" << p.bottoming_method << "\n";
+
+    file << "speed_gate_lower=" << p.speed_gate_lower << "\n";
+    file << "speed_gate_upper=" << p.speed_gate_upper << "\n";
+}
+
+void Config::ExportPreset(int index, const std::string& filename) {
+    if (index < 0 || index >= presets.size()) return;
+
+    const Preset& p = presets[index];
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        file << "[Preset:" << p.name << "]\n";
+        WritePresetFields(file, p);
+        file.close();
+        std::cout << "[Config] Exported preset '" << p.name << "' to " << filename << std::endl;
+    } else {
+        std::cerr << "[Config] Failed to export preset to " << filename << std::endl;
+    }
+}
+
+bool Config::ImportPreset(const std::string& filename, const FFBEngine& engine) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return false;
+
+    std::string line;
+    std::string current_preset_name = "";
+    Preset current_preset;
+    std::string current_preset_version = "";
+    bool preset_pending = false;
+    bool imported = false;
+
+    while (std::getline(file, line)) {
+        // Strip whitespace
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+
+        if (line.empty() || line[0] == ';') continue;
+
+        if (line[0] == '[') {
+            if (line.rfind("[Preset:", 0) == 0) {
+                size_t end_pos = line.find(']');
+                if (end_pos != std::string::npos) {
+                    current_preset_name = line.substr(8, end_pos - 8);
+                    current_preset = Preset(current_preset_name, false);
+                    preset_pending = true;
+                    current_preset_version = "";
+                }
+            }
+            continue;
+        }
+
+        if (preset_pending) {
+            bool dummy_needs_save = false;
+            ParsePresetLine(line, current_preset, current_preset_version, dummy_needs_save);
+        }
+    }
+
+    if (preset_pending && !current_preset_name.empty()) {
+        current_preset.name = current_preset_name;
+        current_preset.is_builtin = false;
+        current_preset.app_version = current_preset_version.empty() ? LMUFFB_VERSION : current_preset_version;
+
+        // Handle name collision
+        std::string base_name = current_preset.name;
+        int counter = 1;
+        bool exists = true;
+        while (exists) {
+            exists = false;
+            for (const auto& p : presets) {
+                if (p.name == current_preset.name) {
+                    current_preset.name = base_name + " (" + std::to_string(counter++) + ")";
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        current_preset.Validate(); // v0.7.15: Validate before adding
+        presets.push_back(current_preset);
+        imported = true;
+    }
+
+    if (imported) {
+        Save(engine);
+        std::cout << "[Config] Imported preset '" << current_preset.name << "' from " << filename << std::endl;
+        return true;
+    }
+
+    return false;
+}
+
+void Config::AddUserPreset(const std::string& name, const FFBEngine& engine) {
+    // Check if name exists and overwrite, or add new
+    bool found = false;
+    for (auto& p : presets) {
+        if (p.name == name && !p.is_builtin) {
+            p.UpdateFromEngine(engine);
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        Preset p(name, false);
+        p.UpdateFromEngine(engine);
+        presets.push_back(p);
+    }
+    
+    m_last_preset_name = name;
+
+    // Save immediately to persist
+    Save(engine);
+}
+
+void Config::DeletePreset(int index, const FFBEngine& engine) {
+    if (index < 0 || index >= (int)presets.size()) return;
+    if (presets[index].is_builtin) return; // Cannot delete builtin presets
+
+    std::string name = presets[index].name;
+    presets.erase(presets.begin() + index);
+    std::cout << "[Config] Deleted preset: " << name << std::endl;
+
+    // If the deleted preset was the last used one, reset it
+    if (m_last_preset_name == name) {
+        m_last_preset_name = "Default";
+    }
+
+    Save(engine);
+}
+
+void Config::DuplicatePreset(int index, const FFBEngine& engine) {
+    if (index < 0 || index >= (int)presets.size()) return;
+
+    Preset p = presets[index];
+    p.name = p.name + " (Copy)";
+    p.is_builtin = false;
+    p.app_version = LMUFFB_VERSION;
+
+    // Ensure unique name
+    std::string base_name = p.name;
+    int counter = 1;
+    bool exists = true;
+    while (exists) {
+        exists = false;
+        for (const auto& existing : presets) {
+            if (existing.name == p.name) {
+                p.name = base_name + " " + std::to_string(counter++);
+                exists = true;
+                break;
+            }
+        }
+    }
+
+    presets.push_back(p);
+    m_last_preset_name = p.name;
+    std::cout << "[Config] Duplicated preset to: " << p.name << std::endl;
+    Save(engine);
+}
+
+bool Config::IsEngineDirtyRelativeToPreset(int index, const FFBEngine& engine) {
+    if (index < 0 || index >= (int)presets.size()) return false;
+
+    Preset current_state;
+    current_state.UpdateFromEngine(engine);
+
+    return !presets[index].Equals(current_state);
+}
+
+void Config::Save(const FFBEngine& engine, const std::string& filename) {
+    std::string final_path = filename.empty() ? m_config_path : filename;
+    std::ofstream file(final_path);
+    if (file.is_open()) {
+        file << "; --- System & Window ---\n";
+        // Config Version Tracking: The ini_version field serves dual purposes:
+        // 1. Records the app version that last saved this config
+        // 2. Acts as an implicit config format version for migration logic
+        // NOTE: Currently migration is threshold-based (e.g., understeer > 2.0 = legacy).
+        //       For more complex migrations, consider adding explicit config_format_version field.
+        file << "ini_version=" << LMUFFB_VERSION << "\n";
+        file << "always_on_top=" << m_always_on_top << "\n";
+        file << "last_device_guid=" << m_last_device_guid << "\n";
+        file << "last_preset_name=" << m_last_preset_name << "\n";
+        file << "win_pos_x=" << win_pos_x << "\n";
+        file << "win_pos_y=" << win_pos_y << "\n";
+        file << "win_w_small=" << win_w_small << "\n";
+        file << "win_h_small=" << win_h_small << "\n";
+        file << "win_w_large=" << win_w_large << "\n";
+        file << "win_h_large=" << win_h_large << "\n";
+        file << "show_graphs=" << show_graphs << "\n";
+        file << "auto_start_logging=" << m_auto_start_logging << "\n";
+        file << "log_path=" << m_log_path << "\n";
+
+        file << "\n; --- General FFB ---\n";
+        file << "invert_force=" << engine.m_invert_force << "\n";
+        file << "gain=" << engine.m_gain << "\n";
+        file << "max_torque_ref=" << engine.m_max_torque_ref << "\n";
+        file << "min_force=" << engine.m_min_force << "\n";
+
+        file << "\n; --- Front Axle (Understeer) ---\n";
+        file << "steering_shaft_gain=" << engine.m_steering_shaft_gain << "\n";
+        file << "steering_shaft_smoothing=" << engine.m_steering_shaft_smoothing << "\n";
+        file << "understeer=" << engine.m_understeer_effect << "\n";
+        file << "base_force_mode=" << engine.m_base_force_mode << "\n";
+        file << "flatspot_suppression=" << engine.m_flatspot_suppression << "\n";
+        file << "notch_q=" << engine.m_notch_q << "\n";
+        file << "flatspot_strength=" << engine.m_flatspot_strength << "\n";
+        file << "static_notch_enabled=" << engine.m_static_notch_enabled << "\n";
+        file << "static_notch_freq=" << engine.m_static_notch_freq << "\n";
+        file << "static_notch_width=" << engine.m_static_notch_width << "\n";
+
+        file << "\n; --- Rear Axle (Oversteer) ---\n";
+        file << "oversteer_boost=" << engine.m_oversteer_boost << "\n";
+        file << "sop=" << engine.m_sop_effect << "\n";
+        file << "rear_align_effect=" << engine.m_rear_align_effect << "\n";
+        file << "sop_yaw_gain=" << engine.m_sop_yaw_gain << "\n";
+        file << "yaw_kick_threshold=" << engine.m_yaw_kick_threshold << "\n";
+        file << "yaw_accel_smoothing=" << engine.m_yaw_accel_smoothing << "\n";
+        file << "gyro_gain=" << engine.m_gyro_gain << "\n";
+        file << "gyro_smoothing_factor=" << engine.m_gyro_smoothing << "\n";
+        file << "sop_smoothing_factor=" << engine.m_sop_smoothing_factor << "\n";
+        file << "sop_scale=" << engine.m_sop_scale << "\n";
+        file << "understeer_affects_sop=" << engine.m_understeer_affects_sop << "\n";
+
+        file << "\n; --- Physics (Grip & Slip Angle) ---\n";
+        file << "slip_angle_smoothing=" << engine.m_slip_angle_smoothing << "\n";
+        file << "chassis_inertia_smoothing=" << engine.m_chassis_inertia_smoothing << "\n";
+        file << "optimal_slip_angle=" << engine.m_optimal_slip_angle << "\n";
+        file << "optimal_slip_ratio=" << engine.m_optimal_slip_ratio << "\n";
+        file << "slope_detection_enabled=" << engine.m_slope_detection_enabled << "\n";
+        file << "slope_sg_window=" << engine.m_slope_sg_window << "\n";
+        file << "slope_sensitivity=" << engine.m_slope_sensitivity << "\n";
+
+        file << "slope_smoothing_tau=" << engine.m_slope_smoothing_tau << "\n";
+        file << "slope_min_threshold=" << engine.m_slope_min_threshold << "\n";
+        file << "slope_max_threshold=" << engine.m_slope_max_threshold << "\n";
+        file << "slope_alpha_threshold=" << engine.m_slope_alpha_threshold << "\n";
+        file << "slope_decay_rate=" << engine.m_slope_decay_rate << "\n";
+        file << "slope_confidence_enabled=" << engine.m_slope_confidence_enabled << "\n";
+
+        file << "\n; --- Braking & Lockup ---\n";
+        file << "lockup_enabled=" << engine.m_lockup_enabled << "\n";
+        file << "lockup_gain=" << engine.m_lockup_gain << "\n";
+        file << "brake_load_cap=" << engine.m_brake_load_cap << "\n";
+        file << "lockup_freq_scale=" << engine.m_lockup_freq_scale << "\n";
+        file << "lockup_gamma=" << engine.m_lockup_gamma << "\n";
+        file << "lockup_start_pct=" << engine.m_lockup_start_pct << "\n";
+        file << "lockup_full_pct=" << engine.m_lockup_full_pct << "\n";
+        file << "lockup_prediction_sens=" << engine.m_lockup_prediction_sens << "\n";
+        file << "lockup_bump_reject=" << engine.m_lockup_bump_reject << "\n";
+        file << "lockup_rear_boost=" << engine.m_lockup_rear_boost << "\n";
+        file << "abs_pulse_enabled=" << engine.m_abs_pulse_enabled << "\n";
+        file << "abs_gain=" << engine.m_abs_gain << "\n";
+        file << "abs_freq=" << engine.m_abs_freq_hz << "\n";
+
+        file << "\n; --- Tactile Textures ---\n";
+        file << "texture_load_cap=" << engine.m_texture_load_cap << "\n";
+        file << "slide_enabled=" << engine.m_slide_texture_enabled << "\n";
+        file << "slide_gain=" << engine.m_slide_texture_gain << "\n";
+        file << "slide_freq=" << engine.m_slide_freq_scale << "\n";
+        file << "road_enabled=" << engine.m_road_texture_enabled << "\n";
+        file << "road_gain=" << engine.m_road_texture_gain << "\n";
+        file << "road_fallback_scale=" << engine.m_road_fallback_scale << "\n";
+        file << "spin_enabled=" << engine.m_spin_enabled << "\n";
+        file << "spin_gain=" << engine.m_spin_gain << "\n";
+        file << "spin_freq_scale=" << engine.m_spin_freq_scale << "\n";
+        file << "scrub_drag_gain=" << engine.m_scrub_drag_gain << "\n";
+        file << "bottoming_method=" << engine.m_bottoming_method << "\n";
+
+        file << "\n; --- Advanced Settings ---\n";
+        file << "speed_gate_lower=" << engine.m_speed_gate_lower << "\n";
+        file << "speed_gate_upper=" << engine.m_speed_gate_upper << "\n";
+
+        file << "\n[Presets]\n";
+        for (const auto& p : presets) {
+            if (!p.is_builtin) {
+                file << "[Preset:" << p.name << "]\n";
+                WritePresetFields(file, p);
+                file << "\n";
+            }
+        }
+        
+        file.close();
+
+    } else {
+        std::cerr << "[Config] Failed to save to " << final_path << std::endl;
+    }
+}
+
+void Config::Load(FFBEngine& engine, const std::string& filename) {
+    std::string final_path = filename.empty() ? m_config_path : filename;
+    std::ifstream file(final_path);
+    if (!file.is_open()) {
+        std::cout << "[Config] No config found, using defaults." << std::endl;
+        return;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        // Strip whitespace and check for section headers
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        if (line.empty() || line[0] == ';') continue;
+        if (line[0] == '[') break; // Top-level settings end here (e.g. [Presets])
+
+        std::istringstream is_line(line);
+        std::string key;
+        if (std::getline(is_line, key, '=')) {
+            std::string value;
+            if (std::getline(is_line, value)) {
+                try {
+                    if (key == "ini_version") {
+                        // Config Version Tracking: This field records the app version that last saved the config.
+                        // It serves as an implicit config format version for migration decisions.
+                        // Current approach: Threshold-based detection (e.g., understeer > 2.0 = legacy format).
+                        // Future improvement: Add explicit config_format_version field if migrations become
+                        // more complex (e.g., structural changes, removed fields, renamed keys).
+                        std::string config_version = value;
+                        std::cout << "[Config] Loading config version: " << config_version << std::endl;
+                    }
+                    else if (key == "always_on_top") m_always_on_top = std::stoi(value);
+                    else if (key == "last_device_guid") m_last_device_guid = value;
+                    else if (key == "last_preset_name") m_last_preset_name = value;
+                    // Window Geometry (v0.5.5)
+                    else if (key == "win_pos_x") win_pos_x = std::stoi(value);
+                    else if (key == "win_pos_y") win_pos_y = std::stoi(value);
+                    else if (key == "win_w_small") win_w_small = std::stoi(value);
+                    else if (key == "win_h_small") win_h_small = std::stoi(value);
+                    else if (key == "win_w_large") win_w_large = std::stoi(value);
+                    else if (key == "win_h_large") win_h_large = std::stoi(value);
+                    else if (key == "show_graphs") show_graphs = std::stoi(value);
+                    else if (key == "auto_start_logging") m_auto_start_logging = std::stoi(value);
+                    else if (key == "log_path") m_log_path = value;
+                    else if (key == "gain") engine.m_gain = std::stof(value);
+                    else if (key == "sop_smoothing_factor") engine.m_sop_smoothing_factor = std::stof(value);
+                    else if (key == "sop_scale") engine.m_sop_scale = std::stof(value);
+                    else if (key == "slip_angle_smoothing") engine.m_slip_angle_smoothing = std::stof(value);
+                    else if (key == "texture_load_cap") engine.m_texture_load_cap = std::stof(value);
+                    else if (key == "max_load_factor") engine.m_texture_load_cap = std::stof(value); // Legacy Backward Compatibility
+                    else if (key == "brake_load_cap") engine.m_brake_load_cap = std::stof(value);
+                    else if (key == "smoothing") engine.m_sop_smoothing_factor = std::stof(value); // Legacy support
+                    else if (key == "understeer") engine.m_understeer_effect = std::stof(value);
+                    else if (key == "sop") engine.m_sop_effect = std::stof(value);
+                    else if (key == "min_force") engine.m_min_force = std::stof(value);
+                    else if (key == "oversteer_boost") engine.m_oversteer_boost = std::stof(value);
+                    // v0.4.50: SAFETY CLAMPING for Generator Effects (Gain Compensation Migration)
+                    // Legacy configs may have high gains (e.g., 5.0) to compensate for lack of auto-scaling.
+                    // With new decoupling, these would cause 25x force explosions. Clamp to safe maximums.
+                    else if (key == "lockup_enabled") engine.m_lockup_enabled = std::stoi(value);
+                    else if (key == "lockup_gain") engine.m_lockup_gain = std::stof(value);
+                    else if (key == "lockup_start_pct") engine.m_lockup_start_pct = std::stof(value);
+                    else if (key == "lockup_full_pct") engine.m_lockup_full_pct = std::stof(value);
+                    else if (key == "lockup_rear_boost") engine.m_lockup_rear_boost = std::stof(value);
+                    else if (key == "lockup_gamma") engine.m_lockup_gamma = std::stof(value);
+                    else if (key == "lockup_prediction_sens") engine.m_lockup_prediction_sens = std::stof(value);
+                    else if (key == "lockup_bump_reject") engine.m_lockup_bump_reject = std::stof(value);
+                    else if (key == "abs_pulse_enabled") engine.m_abs_pulse_enabled = std::stoi(value);
+                    else if (key == "abs_gain") engine.m_abs_gain = std::stof(value);
+                    else if (key == "spin_enabled") engine.m_spin_enabled = std::stoi(value);
+                    else if (key == "spin_gain") engine.m_spin_gain = std::stof(value);
+                    else if (key == "slide_enabled") engine.m_slide_texture_enabled = std::stoi(value);
+                    else if (key == "slide_gain") engine.m_slide_texture_gain = std::stof(value);
+                    else if (key == "slide_freq") engine.m_slide_freq_scale = std::stof(value);
+                    else if (key == "road_enabled") engine.m_road_texture_enabled = std::stoi(value);
+                    else if (key == "road_gain") engine.m_road_texture_gain = std::stof(value);
+                    else if (key == "invert_force") engine.m_invert_force = std::stoi(value);
+                    else if (key == "max_torque_ref") engine.m_max_torque_ref = std::stof(value);
+                    else if (key == "abs_freq") engine.m_abs_freq_hz = std::stof(value);
+                    else if (key == "lockup_freq_scale") engine.m_lockup_freq_scale = std::stof(value);
+                    else if (key == "spin_freq_scale") engine.m_spin_freq_scale = std::stof(value);
+                    else if (key == "bottoming_method") engine.m_bottoming_method = std::stoi(value);
+                    else if (key == "scrub_drag_gain") engine.m_scrub_drag_gain = (std::min)(1.0f, std::stof(value));
+                    else if (key == "rear_align_effect") engine.m_rear_align_effect = std::stof(value);
+                    else if (key == "sop_yaw_gain") engine.m_sop_yaw_gain = std::stof(value);
+                    else if (key == "steering_shaft_gain") engine.m_steering_shaft_gain = std::stof(value);
+                    else if (key == "base_force_mode") engine.m_base_force_mode = std::stoi(value);
+                    else if (key == "gyro_gain") engine.m_gyro_gain = (std::min)(1.0f, std::stof(value));
+                    else if (key == "flatspot_suppression") engine.m_flatspot_suppression = std::stoi(value);
+                    else if (key == "notch_q") engine.m_notch_q = std::stof(value);
+                    else if (key == "flatspot_strength") engine.m_flatspot_strength = std::stof(value);
+                    else if (key == "static_notch_enabled") engine.m_static_notch_enabled = std::stoi(value);
+                    else if (key == "static_notch_freq") engine.m_static_notch_freq = std::stof(value);
+                    else if (key == "static_notch_width") engine.m_static_notch_width = std::stof(value);
+                    else if (key == "yaw_kick_threshold") engine.m_yaw_kick_threshold = std::stof(value);
+                    else if (key == "optimal_slip_angle") engine.m_optimal_slip_angle = std::stof(value);
+                    else if (key == "optimal_slip_ratio") engine.m_optimal_slip_ratio = std::stof(value);
+                    else if (key == "slope_detection_enabled") engine.m_slope_detection_enabled = (value == "1");
+                    else if (key == "slope_sg_window") engine.m_slope_sg_window = std::stoi(value);
+                    else if (key == "slope_sensitivity") engine.m_slope_sensitivity = std::stof(value);
+                    else if (key == "slope_negative_threshold") engine.m_slope_min_threshold = std::stof(value);
+                    else if (key == "slope_smoothing_tau") engine.m_slope_smoothing_tau = std::stof(value);
+                    else if (key == "slope_min_threshold") engine.m_slope_min_threshold = std::stof(value);
+                    else if (key == "slope_max_threshold") engine.m_slope_max_threshold = std::stof(value);
+                    else if (key == "slope_alpha_threshold") engine.m_slope_alpha_threshold = std::stof(value);
+                    else if (key == "slope_decay_rate") engine.m_slope_decay_rate = std::stof(value);
+                    else if (key == "slope_confidence_enabled") engine.m_slope_confidence_enabled = (value == "1");
+                    else if (key == "steering_shaft_smoothing") engine.m_steering_shaft_smoothing = std::stof(value);
+                    else if (key == "gyro_smoothing_factor") engine.m_gyro_smoothing = std::stof(value);
+                    else if (key == "yaw_accel_smoothing") engine.m_yaw_accel_smoothing = std::stof(value);
+                    else if (key == "chassis_inertia_smoothing") engine.m_chassis_inertia_smoothing = std::stof(value);
+                    else if (key == "speed_gate_lower") engine.m_speed_gate_lower = std::stof(value); // NEW v0.6.25
+                    else if (key == "speed_gate_upper") engine.m_speed_gate_upper = std::stof(value); // NEW v0.6.25
+                    else if (key == "road_fallback_scale") engine.m_road_fallback_scale = std::stof(value); // NEW v0.6.25
+                    else if (key == "understeer_affects_sop") engine.m_understeer_affects_sop = std::stoi(value); // NEW v0.6.25
+                } catch (...) {
+                    std::cerr << "[Config] Error parsing line: " << line << std::endl;
+                }
+            }
+        }
+    }
+    
+    // v0.7.16: Comprehensive Safety Validation & Clamping
+    // These checks ensure that even if config.ini is manually edited with invalid values,
+    // the engine remains stable and doesn't crash or produce NaN.
+
+    engine.m_gain = (std::max)(0.0f, engine.m_gain);
+    engine.m_max_torque_ref = (std::max)(1.0f, engine.m_max_torque_ref);
+    engine.m_min_force = (std::max)(0.0f, engine.m_min_force);
+    engine.m_sop_scale = (std::max)(0.01f, engine.m_sop_scale);
+    engine.m_slip_angle_smoothing = (std::max)(0.0001f, engine.m_slip_angle_smoothing);
+    engine.m_notch_q = (std::max)(0.1f, engine.m_notch_q);
+    engine.m_static_notch_width = (std::max)(0.1f, engine.m_static_notch_width);
+    engine.m_speed_gate_upper = (std::max)(0.1f, engine.m_speed_gate_upper);
+
+    if (engine.m_optimal_slip_angle < 0.01f) {
+        std::cerr << "[Config] Invalid optimal_slip_angle (" << engine.m_optimal_slip_angle 
+                  << "), resetting to default 0.10" << std::endl;
+        engine.m_optimal_slip_angle = 0.10f;
+    }
+    if (engine.m_optimal_slip_ratio < 0.01f) {
+        std::cerr << "[Config] Invalid optimal_slip_ratio (" << engine.m_optimal_slip_ratio 
+                  << "), resetting to default 0.12" << std::endl;
+        engine.m_optimal_slip_ratio = 0.12f;
+    }
+    
+    // Slope Detection Validation
+    if (engine.m_slope_sg_window < 5) engine.m_slope_sg_window = 5;
+    if (engine.m_slope_sg_window > 41) engine.m_slope_sg_window = 41;
+    if (engine.m_slope_sg_window % 2 == 0) engine.m_slope_sg_window++; // Must be odd
+    if (engine.m_slope_sensitivity < 0.1f) engine.m_slope_sensitivity = 0.1f;
+    if (engine.m_slope_sensitivity > 10.0f) engine.m_slope_sensitivity = 10.0f;
+    if (engine.m_slope_smoothing_tau < 0.001f) engine.m_slope_smoothing_tau = 0.04f;
+    
+    if (engine.m_slope_alpha_threshold < 0.001f || engine.m_slope_alpha_threshold > 0.1f) {
+        std::cerr << "[Config] Invalid slope_alpha_threshold (" << engine.m_slope_alpha_threshold 
+                  << "), resetting to 0.02f" << std::endl;
+        engine.m_slope_alpha_threshold = 0.02f;
+    }
+    if (engine.m_slope_decay_rate < 0.1f || engine.m_slope_decay_rate > 20.0f) {
+        std::cerr << "[Config] Invalid slope_decay_rate (" << engine.m_slope_decay_rate 
+                  << "), resetting to 5.0f" << std::endl;
+        engine.m_slope_decay_rate = 5.0f;
+    }
+
+    // Migration: v0.7.x sensitivity â†’ v0.7.11 thresholds
+    // If loading old config with sensitivity but at default thresholds
+    if (engine.m_slope_min_threshold == -0.3f && 
+        engine.m_slope_max_threshold == -2.0f &&
+        engine.m_slope_sensitivity != 0.5f) {
+        
+        // Old formula: factor = 1 - (excess * 0.1 * sens)
+        // At factor=0.2 (floor): excess * 0.1 * sens = 0.8
+        // excess = 0.8 / (0.1 * sens) = 8 / sens
+        // max = min - excess = -0.3 - (8/sens)
+        double sens = (double)engine.m_slope_sensitivity;
+        if (sens > 0.01) {
+            engine.m_slope_max_threshold = (float)(engine.m_slope_min_threshold - (8.0 / sens));
+            std::cout << "[Config] Migrated slope_sensitivity " << sens 
+                      << " to max_threshold " << engine.m_slope_max_threshold << std::endl;
+        }
+    }
+
+    // Validation: max should be more negative than min
+    if (engine.m_slope_max_threshold > engine.m_slope_min_threshold) {
+        std::swap(engine.m_slope_min_threshold, engine.m_slope_max_threshold);
+        std::cout << "[Config] Swapped slope thresholds (min should be > max)" << std::endl;
+    }
+    
+    // v0.6.20: Safety Validation - Clamp Advanced Braking Parameters to Valid Ranges
+    if (engine.m_lockup_gamma < 0.1f || engine.m_lockup_gamma > 4.0f) {
+        std::cerr << "[Config] Invalid lockup_gamma (" << engine.m_lockup_gamma 
+                  << "), clamping to range [0.1, 4.0]" << std::endl;
+        engine.m_lockup_gamma = (std::max)(0.1f, (std::min)(4.0f, engine.m_lockup_gamma));
+    }
+    if (engine.m_lockup_prediction_sens < 10.0f || engine.m_lockup_prediction_sens > 100.0f) {
+        std::cerr << "[Config] Invalid lockup_prediction_sens (" << engine.m_lockup_prediction_sens 
+                  << "), clamping to range [10.0, 100.0]" << std::endl;
+        engine.m_lockup_prediction_sens = (std::max)(10.0f, (std::min)(100.0f, engine.m_lockup_prediction_sens));
+    }
+    if (engine.m_lockup_bump_reject < 0.1f || engine.m_lockup_bump_reject > 5.0f) {
+        std::cerr << "[Config] Invalid lockup_bump_reject (" << engine.m_lockup_bump_reject 
+                  << "), clamping to range [0.1, 5.0]" << std::endl;
+        engine.m_lockup_bump_reject = (std::max)(0.1f, (std::min)(5.0f, engine.m_lockup_bump_reject));
+    }
+    if (engine.m_abs_gain < 0.0f || engine.m_abs_gain > 10.0f) {
+        std::cerr << "[Config] Invalid abs_gain (" << engine.m_abs_gain 
+                  << "), clamping to range [0.0, 10.0]" << std::endl;
+        engine.m_abs_gain = (std::max)(0.0f, (std::min)(10.0f, engine.m_abs_gain));
+    }
+    // Legacy Migration: Convert 0-200 range to 0-2.0 range
+    if (engine.m_understeer_effect > 2.0f) {
+        float old_val = engine.m_understeer_effect;
+        engine.m_understeer_effect = engine.m_understeer_effect / 100.0f;
+        std::cout << "[Config] Migrated legacy understeer_effect: " << old_val 
+                  << " -> " << engine.m_understeer_effect << std::endl;
+    }
+    // Clamp to new valid range [0.0, 2.0]
+    if (engine.m_understeer_effect < 0.0f || engine.m_understeer_effect > 2.0f) {
+        engine.m_understeer_effect = (std::max)(0.0f, (std::min)(2.0f, engine.m_understeer_effect));
+    }
+    if (engine.m_steering_shaft_gain < 0.0f || engine.m_steering_shaft_gain > 2.0f) {
+        engine.m_steering_shaft_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_steering_shaft_gain));
+    }
+    if (engine.m_lockup_gain < 0.0f || engine.m_lockup_gain > 3.0f) {
+        engine.m_lockup_gain = (std::max)(0.0f, (std::min)(3.0f, engine.m_lockup_gain));
+    }
+    if (engine.m_brake_load_cap < 1.0f || engine.m_brake_load_cap > 10.0f) {
+        engine.m_brake_load_cap = (std::max)(1.0f, (std::min)(10.0f, engine.m_brake_load_cap));
+    }
+    if (engine.m_lockup_rear_boost < 1.0f || engine.m_lockup_rear_boost > 10.0f) {
+        engine.m_lockup_rear_boost = (std::max)(1.0f, (std::min)(10.0f, engine.m_lockup_rear_boost));
+    }
+    if (engine.m_oversteer_boost < 0.0f || engine.m_oversteer_boost > 4.0f) {
+        engine.m_oversteer_boost = (std::max)(0.0f, (std::min)(4.0f, engine.m_oversteer_boost));
+    }
+    if (engine.m_sop_yaw_gain < 0.0f || engine.m_sop_yaw_gain > 1.0f) {
+         engine.m_sop_yaw_gain = (std::max)(0.0f, (std::min)(1.0f, engine.m_sop_yaw_gain));
+    }
+    if (engine.m_slide_texture_gain < 0.0f || engine.m_slide_texture_gain > 2.0f) {
+        engine.m_slide_texture_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_slide_texture_gain));
+    }
+    if (engine.m_road_texture_gain < 0.0f || engine.m_road_texture_gain > 2.0f) {
+        engine.m_road_texture_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_road_texture_gain));
+    }
+    if (engine.m_spin_gain < 0.0f || engine.m_spin_gain > 2.0f) {
+        engine.m_spin_gain = (std::max)(0.0f, (std::min)(2.0f, engine.m_spin_gain));
+    }
+    if (engine.m_rear_align_effect < 0.0f || engine.m_rear_align_effect > 2.0f) {
+        engine.m_rear_align_effect = (std::max)(0.0f, (std::min)(2.0f, engine.m_rear_align_effect));
+    }
+    if (engine.m_sop_effect < 0.0f || engine.m_sop_effect > 2.0f) {
+        engine.m_sop_effect = (std::max)(0.0f, (std::min)(2.0f, engine.m_sop_effect));
+    }
+    std::cout << "[Config] Loaded from " << filename << std::endl;
+}
+
+
+
+
+
+
+
+
+
+
+```
+
+# File: src\Config.h
+```cpp
+﻿#ifndef CONFIG_H
+#define CONFIG_H
+
+#include "FFBEngine.h"
+#include <string>
+#include <vector>
+#include <chrono>
+#include "Version.h"
+
+struct Preset {
+    std::string name;
+    bool is_builtin = false;
+    std::string app_version = LMUFFB_VERSION; // NEW: Track if this is hardcoded or user-created
+    
+    // 1. SINGLE SOURCE OF TRUTH: Default Preset Values
+    // These defaults are used by:
+    // - FFBEngine constructor (via ApplyDefaultsToEngine)
+    // - "Default" preset in LoadPresets()
+    // - "Reset Defaults" button in GUI
+    // - Test presets that don't explicitly set these values
+    //
+    // âš ï¸ IMPORTANT: When changing these defaults, you MUST also update:
+    // 1. SetAdvancedBraking() default parameters below (abs_f, lockup_f)
+    // 2. test_ffb_engine.cpp: expected_abs_freq and expected_lockup_freq_scale
+    // 3. Any test presets in Config.cpp that rely on these defaults
+    //
+    // Current defaults match: GT3 DD 15 Nm (Simagic Alpha) - v0.6.35
+   float gain = 1.0f;
+    float understeer = 1.0f;  // New scale: 0.0-2.0, where 1.0 = proportional
+    float sop = 1.666f;
+    float sop_scale = 1.0f;
+    float sop_smoothing = 1.0f;
+    float slip_smoothing = 0.002f;
+    float min_force = 0.0f;
+    float oversteer_boost = 2.52101f;
+    
+    bool lockup_enabled = true;
+    float lockup_gain = 0.37479f;
+    float lockup_start_pct = 1.0f;  // New v0.5.11
+    float lockup_full_pct = 5.0f;  // New v0.5.11
+    float lockup_rear_boost = 10.0f; // New v0.5.11
+    float lockup_gamma = 0.1f;           // New v0.6.0
+    float lockup_prediction_sens = 10.0f; // New v0.6.0
+    float lockup_bump_reject = 0.1f;     // New v0.6.0
+    float brake_load_cap = 2.0f;    // New v0.5.11
+    float texture_load_cap = 1.5f;  // NEW v0.6.25
+    
+    bool abs_pulse_enabled = false;       // New v0.6.0
+    float abs_gain = 2.0f;               // New v0.6.0
+    float abs_freq = 25.5f;              // New v0.6.20
+    
+    bool spin_enabled = true;
+    float spin_gain = 0.5f;
+    float spin_freq_scale = 1.0f;        // New v0.6.20
+    
+    bool slide_enabled = false;
+    float slide_gain = 0.226562f;
+    float slide_freq = 1.0f;
+    
+    bool road_enabled = true;
+    float road_gain = 0.0f;
+    
+    bool invert_force = true;
+    float max_torque_ref = 100.0f; // T300 Calibrated
+    
+    float lockup_freq_scale = 1.02f;      // New v0.6.20
+    int bottoming_method = 0;
+    float scrub_drag_gain = 0.0f;
+    
+    float rear_align_effect = 0.666f;
+    float sop_yaw_gain = 0.333f;
+    float gyro_gain = 0.0f;
+    
+    float steering_shaft_gain = 1.0f;
+    int base_force_mode = 0; // 0=Native
+    
+    // NEW: Grip & Smoothing (v0.5.7)
+    float optimal_slip_angle = 0.1f;
+    float optimal_slip_ratio = 0.12f;
+    float steering_shaft_smoothing = 0.0f;
+    
+    // NEW: Advanced Smoothing (v0.5.8)
+    float gyro_smoothing = 0.0f;
+    float yaw_smoothing = 0.001f;
+    float chassis_smoothing = 0.0f;
+
+    // v0.4.41: Signal Filtering
+    bool flatspot_suppression = false;
+    float notch_q = 2.0f;
+    float flatspot_strength = 1.0f;
+    
+    bool static_notch_enabled = false;
+    float static_notch_freq = 11.0f;
+    float static_notch_width = 2.0f; // New v0.6.10
+    float yaw_kick_threshold = 0.0f; // New v0.6.10
+
+    // v0.6.23 New Settings with HIGHER DEFAULTS
+    float speed_gate_lower = 1.0f; // 3.6 km/h
+    float speed_gate_upper = 5.0f; // 18.0 km/h (Fixes idle shake)
+    
+    // Reserved for future implementation (v0.6.23+)
+    float road_fallback_scale = 0.05f;      // Planned: Road texture fallback scaling
+    bool understeer_affects_sop = false;     // Planned: Understeer modulation of SoP
+
+    // ===== SLOPE DETECTION (v0.7.0 â†’ v0.7.1 defaults) =====
+    bool slope_detection_enabled = false;
+    int slope_sg_window = 15;
+    float slope_sensitivity = 0.5f;          // Reduced from 1.0 (less aggressive)
+
+    float slope_smoothing_tau = 0.04f;       // Changed from 0.02 (smoother transitions)
+
+    // v0.7.3: Slope detection stability fixes
+    float slope_alpha_threshold = 0.02f;
+    float slope_decay_rate = 5.0f;
+    bool slope_confidence_enabled = true;
+
+    // v0.7.11: Min/Max Threshold System
+    float slope_min_threshold = -0.3f;
+    float slope_max_threshold = -2.0f;
+
+    // 2. Constructors
+    Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin), app_version(LMUFFB_VERSION) {}
+    Preset() : name("Unnamed"), is_builtin(false), app_version(LMUFFB_VERSION) {} // Default constructor for file loading
+
+    // 3. Fluent Setters (The "Python Dictionary" feel)
+    Preset& SetGain(float v) { gain = v; return *this; }
+    Preset& SetUndersteer(float v) { understeer = v; return *this; }
+    Preset& SetSoP(float v) { sop = v; return *this; }
+    Preset& SetSoPScale(float v) { sop_scale = v; return *this; }
+    Preset& SetSmoothing(float v) { sop_smoothing = v; return *this; }
+    Preset& SetMinForce(float v) { min_force = v; return *this; }
+    Preset& SetOversteer(float v) { oversteer_boost = v; return *this; }
+    Preset& SetSlipSmoothing(float v) { slip_smoothing = v; return *this; }
+    
+    Preset& SetLockup(bool enabled, float g, float start = 5.0f, float full = 15.0f, float boost = 1.5f) { 
+        lockup_enabled = enabled; 
+        lockup_gain = g; 
+        lockup_start_pct = start;
+        lockup_full_pct = full;
+        lockup_rear_boost = boost;
+        return *this; 
+    }
+    Preset& SetBrakeCap(float v) { brake_load_cap = v; return *this; }
+    Preset& SetSpin(bool enabled, float g, float scale = 1.0f) { 
+        spin_enabled = enabled; 
+        spin_gain = g; 
+        spin_freq_scale = scale;
+        return *this; 
+    }
+    Preset& SetSlide(bool enabled, float g, float f = 1.0f) { 
+        slide_enabled = enabled; 
+        slide_gain = g; 
+        slide_freq = f; 
+        return *this; 
+    }
+    Preset& SetRoad(bool enabled, float g) { road_enabled = enabled; road_gain = g; return *this; }
+    
+    Preset& SetInvert(bool v) { invert_force = v; return *this; }
+    Preset& SetMaxTorque(float v) { max_torque_ref = v; return *this; }
+    
+    Preset& SetBottoming(int method) { bottoming_method = method; return *this; }
+    Preset& SetScrub(float v) { scrub_drag_gain = v; return *this; }
+    Preset& SetRearAlign(float v) { rear_align_effect = v; return *this; }
+    Preset& SetSoPYaw(float v) { sop_yaw_gain = v; return *this; }
+    Preset& SetGyro(float v) { gyro_gain = v; return *this; }
+    
+    Preset& SetShaftGain(float v) { steering_shaft_gain = v; return *this; }
+    Preset& SetBaseMode(int v) { base_force_mode = v; return *this; }
+    Preset& SetFlatspot(bool enabled, float strength = 1.0f, float q = 2.0f) { 
+        flatspot_suppression = enabled; 
+        flatspot_strength = strength;
+        notch_q = q; 
+        return *this; 
+    }
+    
+    Preset& SetStaticNotch(bool enabled, float freq, float width = 2.0f) {
+        static_notch_enabled = enabled;
+        static_notch_freq = freq;
+        static_notch_width = width;
+        return *this;
+    }
+    Preset& SetYawKickThreshold(float v) { yaw_kick_threshold = v; return *this; }
+    Preset& SetSpeedGate(float lower, float upper) { speed_gate_lower = lower; speed_gate_upper = upper; return *this; }
+
+    Preset& SetOptimalSlip(float angle, float ratio) {
+        optimal_slip_angle = angle;
+        optimal_slip_ratio = ratio;
+        return *this;
+    }
+    Preset& SetShaftSmoothing(float v) { steering_shaft_smoothing = v; return *this; }
+    
+    Preset& SetGyroSmoothing(float v) { gyro_smoothing = v; return *this; }
+    Preset& SetYawSmoothing(float v) { yaw_smoothing = v; return *this; }
+    Preset& SetChassisSmoothing(float v) { chassis_smoothing = v; return *this; }
+    
+    Preset& SetSlopeDetection(bool enabled, int window = 15, float min_thresh = -0.3f, float max_thresh = -2.0f, float tau = 0.04f) {
+        slope_detection_enabled = enabled;
+        slope_sg_window = window;
+        slope_min_threshold = min_thresh;
+        slope_max_threshold = max_thresh;
+        slope_smoothing_tau = tau;
+        return *this;
+    }
+
+    Preset& SetSlopeStability(float alpha_thresh = 0.02f, float decay = 5.0f, bool conf = true) {
+        slope_alpha_threshold = alpha_thresh;
+        slope_decay_rate = decay;
+        slope_confidence_enabled = conf;
+        return *this;
+    }
+
+    // Advanced Braking (v0.6.0)
+    // âš ï¸ IMPORTANT: Default parameters (abs_f, lockup_f) must match Config.h defaults!
+    // When changing Config.h defaults, update these values to match.
+    // Current: abs_f=25.5, lockup_f=1.02 (GT3 DD 15 Nm defaults - v0.6.35)
+    Preset& SetAdvancedBraking(float gamma, float sens, float bump, bool abs, float abs_g, float abs_f = 25.5f, float lockup_f = 1.02f) {
+        lockup_gamma = gamma;
+        lockup_prediction_sens = sens;
+        lockup_bump_reject = bump;
+        abs_pulse_enabled = abs;
+        abs_gain = abs_g;
+        abs_freq = abs_f;
+        lockup_freq_scale = lockup_f;
+        return *this;
+    }
+
+    // 4. Static method to apply defaults to FFBEngine (Single Source of Truth)
+    // This is called by FFBEngine constructor to initialize with T300 defaults
+    static void ApplyDefaultsToEngine(FFBEngine& engine) {
+        Preset defaults; // Uses default member initializers (T300 values)
+        defaults.Apply(engine);
+    }
+
+    // Apply this preset to an engine instance
+    // v0.7.16: Added comprehensive safety clamping to prevent crashes/NaN from invalid config values
+    void Apply(FFBEngine& engine) const {
+        engine.m_gain = (std::max)(0.0f, gain);
+        engine.m_understeer_effect = (std::max)(0.0f, (std::min)(2.0f, understeer));
+        engine.m_sop_effect = (std::max)(0.0f, (std::min)(2.0f, sop));
+        engine.m_sop_scale = (std::max)(0.01f, sop_scale);
+        engine.m_sop_smoothing_factor = (std::max)(0.0f, (std::min)(1.0f, sop_smoothing));
+        engine.m_slip_angle_smoothing = (std::max)(0.0001f, slip_smoothing);
+        engine.m_min_force = (std::max)(0.0f, min_force);
+        engine.m_oversteer_boost = (std::max)(0.0f, oversteer_boost);
+
+        engine.m_lockup_enabled = lockup_enabled;
+        engine.m_lockup_gain = (std::max)(0.0f, lockup_gain);
+        engine.m_lockup_start_pct = (std::max)(0.1f, lockup_start_pct);
+        engine.m_lockup_full_pct = (std::max)(0.2f, lockup_full_pct);
+        engine.m_lockup_rear_boost = (std::max)(0.0f, lockup_rear_boost);
+        engine.m_lockup_gamma = (std::max)(0.1f, lockup_gamma); // Critical: prevent pow(0, negative) crash
+        engine.m_lockup_prediction_sens = (std::max)(1.0f, lockup_prediction_sens);
+        engine.m_lockup_bump_reject = (std::max)(0.01f, lockup_bump_reject);
+        engine.m_brake_load_cap = (std::max)(1.0f, brake_load_cap);
+        engine.m_texture_load_cap = (std::max)(1.0f, texture_load_cap);
+
+        engine.m_abs_pulse_enabled = abs_pulse_enabled;
+        engine.m_abs_gain = (std::max)(0.0f, abs_gain);
+
+        engine.m_spin_enabled = spin_enabled;
+        engine.m_spin_gain = (std::max)(0.0f, spin_gain);
+        engine.m_slide_texture_enabled = slide_enabled;
+        engine.m_slide_texture_gain = (std::max)(0.0f, slide_gain);
+        engine.m_slide_freq_scale = (std::max)(0.1f, slide_freq);
+        engine.m_road_texture_enabled = road_enabled;
+        engine.m_road_texture_gain = (std::max)(0.0f, road_gain);
+        engine.m_invert_force = invert_force;
+        engine.m_max_torque_ref = (std::max)(1.0f, max_torque_ref); // Critical for normalization division
+        engine.m_abs_freq_hz = (std::max)(1.0f, abs_freq);
+        engine.m_lockup_freq_scale = (std::max)(0.1f, lockup_freq_scale);
+        engine.m_spin_freq_scale = (std::max)(0.1f, spin_freq_scale);
+        engine.m_bottoming_method = bottoming_method;
+        engine.m_scrub_drag_gain = (std::max)(0.0f, scrub_drag_gain);
+        engine.m_rear_align_effect = (std::max)(0.0f, rear_align_effect);
+        engine.m_sop_yaw_gain = (std::max)(0.0f, sop_yaw_gain);
+        engine.m_gyro_gain = (std::max)(0.0f, gyro_gain);
+        engine.m_steering_shaft_gain = (std::max)(0.0f, steering_shaft_gain);
+        engine.m_base_force_mode = base_force_mode;
+        engine.m_flatspot_suppression = flatspot_suppression;
+        engine.m_notch_q = (std::max)(0.1f, notch_q); // Critical for biquad division
+        engine.m_flatspot_strength = (std::max)(0.0f, (std::min)(1.0f, flatspot_strength));
+        engine.m_static_notch_enabled = static_notch_enabled;
+        engine.m_static_notch_freq = (std::max)(1.0f, static_notch_freq);
+        engine.m_static_notch_width = (std::max)(0.1f, static_notch_width);
+        engine.m_yaw_kick_threshold = (std::max)(0.0f, yaw_kick_threshold);
+        engine.m_speed_gate_lower = (std::max)(0.0f, speed_gate_lower);
+        engine.m_speed_gate_upper = (std::max)(0.1f, speed_gate_upper);
+        
+        // NEW: Grip & Smoothing (v0.5.7/v0.5.8)
+        engine.m_optimal_slip_angle = (std::max)(0.01f, optimal_slip_angle); // Critical for grip division
+        engine.m_optimal_slip_ratio = (std::max)(0.01f, optimal_slip_ratio); // Critical for grip division
+        engine.m_steering_shaft_smoothing = (std::max)(0.0f, steering_shaft_smoothing);
+        engine.m_gyro_smoothing = (std::max)(0.0f, gyro_smoothing);
+        engine.m_yaw_accel_smoothing = (std::max)(0.0f, yaw_smoothing);
+        engine.m_chassis_inertia_smoothing = (std::max)(0.0f, chassis_smoothing);
+        engine.m_road_fallback_scale = (std::max)(0.0f, road_fallback_scale);
+        engine.m_understeer_affects_sop = understeer_affects_sop;
+        
+        // Slope Detection (v0.7.0)
+        engine.m_slope_detection_enabled = slope_detection_enabled;
+        engine.m_slope_sg_window = (std::max)(5, (std::min)(41, slope_sg_window));
+        if (engine.m_slope_sg_window % 2 == 0) engine.m_slope_sg_window++; // Must be odd for SG
+        engine.m_slope_sensitivity = (std::max)(0.1f, slope_sensitivity);
+
+        engine.m_slope_smoothing_tau = (std::max)(0.001f, slope_smoothing_tau);
+
+        // v0.7.3: Slope stability fixes
+        engine.m_slope_alpha_threshold = (std::max)(0.001f, slope_alpha_threshold); // Critical for slope division
+        engine.m_slope_decay_rate = (std::max)(0.1f, slope_decay_rate);
+        engine.m_slope_confidence_enabled = slope_confidence_enabled;
+
+        // v0.7.11: Min/Max thresholds
+        engine.m_slope_min_threshold = slope_min_threshold;
+        engine.m_slope_max_threshold = slope_max_threshold;
+    }
+
+    // NEW: Ensure values are within safe ranges (v0.7.16)
+    void Validate() {
+        gain = (std::max)(0.0f, gain);
+        understeer = (std::max)(0.0f, (std::min)(2.0f, understeer));
+        sop = (std::max)(0.0f, (std::min)(2.0f, sop));
+        sop_scale = (std::max)(0.01f, sop_scale);
+        sop_smoothing = (std::max)(0.0f, (std::min)(1.0f, sop_smoothing));
+        slip_smoothing = (std::max)(0.0001f, slip_smoothing);
+        min_force = (std::max)(0.0f, min_force);
+        oversteer_boost = (std::max)(0.0f, oversteer_boost);
+        lockup_gain = (std::max)(0.0f, lockup_gain);
+        lockup_start_pct = (std::max)(0.1f, lockup_start_pct);
+        lockup_full_pct = (std::max)(0.2f, lockup_full_pct);
+        lockup_rear_boost = (std::max)(0.0f, lockup_rear_boost);
+        lockup_gamma = (std::max)(0.1f, lockup_gamma);
+        lockup_prediction_sens = (std::max)(1.0f, lockup_prediction_sens);
+        lockup_bump_reject = (std::max)(0.01f, lockup_bump_reject);
+        brake_load_cap = (std::max)(1.0f, brake_load_cap);
+        texture_load_cap = (std::max)(1.0f, texture_load_cap);
+        abs_gain = (std::max)(0.0f, abs_gain);
+        spin_gain = (std::max)(0.0f, spin_gain);
+        slide_gain = (std::max)(0.0f, slide_gain);
+        slide_freq = (std::max)(0.1f, slide_freq);
+        road_gain = (std::max)(0.0f, road_gain);
+        max_torque_ref = (std::max)(1.0f, max_torque_ref);
+        abs_freq = (std::max)(1.0f, abs_freq);
+        lockup_freq_scale = (std::max)(0.1f, lockup_freq_scale);
+        spin_freq_scale = (std::max)(0.1f, spin_freq_scale);
+        scrub_drag_gain = (std::max)(0.0f, scrub_drag_gain);
+        rear_align_effect = (std::max)(0.0f, rear_align_effect);
+        sop_yaw_gain = (std::max)(0.0f, sop_yaw_gain);
+        gyro_gain = (std::max)(0.0f, gyro_gain);
+        steering_shaft_gain = (std::max)(0.0f, steering_shaft_gain);
+        notch_q = (std::max)(0.1f, notch_q);
+        flatspot_strength = (std::max)(0.0f, (std::min)(1.0f, flatspot_strength));
+        static_notch_freq = (std::max)(1.0f, static_notch_freq);
+        static_notch_width = (std::max)(0.1f, static_notch_width);
+        speed_gate_upper = (std::max)(0.1f, speed_gate_upper);
+        optimal_slip_angle = (std::max)(0.01f, optimal_slip_angle);
+        optimal_slip_ratio = (std::max)(0.01f, optimal_slip_ratio);
+        steering_shaft_smoothing = (std::max)(0.0f, steering_shaft_smoothing);
+        gyro_smoothing = (std::max)(0.0f, gyro_smoothing);
+        yaw_smoothing = (std::max)(0.0f, yaw_smoothing);
+        chassis_smoothing = (std::max)(0.0f, chassis_smoothing);
+        road_fallback_scale = (std::max)(0.0f, road_fallback_scale);
+        slope_sg_window = (std::max)(5, (std::min)(41, slope_sg_window));
+        if (slope_sg_window % 2 == 0) slope_sg_window++;
+        slope_sensitivity = (std::max)(0.1f, slope_sensitivity);
+        slope_smoothing_tau = (std::max)(0.001f, slope_smoothing_tau);
+        slope_alpha_threshold = (std::max)(0.001f, slope_alpha_threshold);
+        slope_decay_rate = (std::max)(0.1f, slope_decay_rate);
+    }
+
+    // NEW: Capture current engine state into this preset
+    void UpdateFromEngine(const FFBEngine& engine) {
+        gain = engine.m_gain;
+        understeer = engine.m_understeer_effect;
+        sop = engine.m_sop_effect;
+        sop_scale = engine.m_sop_scale;
+        sop_smoothing = engine.m_sop_smoothing_factor;
+        slip_smoothing = engine.m_slip_angle_smoothing;
+        min_force = engine.m_min_force;
+        oversteer_boost = engine.m_oversteer_boost;
+        lockup_enabled = engine.m_lockup_enabled;
+        lockup_gain = engine.m_lockup_gain;
+        lockup_start_pct = engine.m_lockup_start_pct;
+        lockup_full_pct = engine.m_lockup_full_pct;
+        lockup_rear_boost = engine.m_lockup_rear_boost;
+        lockup_gamma = engine.m_lockup_gamma;
+        lockup_prediction_sens = engine.m_lockup_prediction_sens;
+        lockup_bump_reject = engine.m_lockup_bump_reject;
+        brake_load_cap = engine.m_brake_load_cap;
+        texture_load_cap = engine.m_texture_load_cap;  // NEW v0.6.25
+        abs_pulse_enabled = engine.m_abs_pulse_enabled;
+        abs_gain = engine.m_abs_gain;
+        
+        spin_enabled = engine.m_spin_enabled;
+        spin_gain = engine.m_spin_gain;
+        slide_enabled = engine.m_slide_texture_enabled;
+        slide_gain = engine.m_slide_texture_gain;
+        slide_freq = engine.m_slide_freq_scale;
+        road_enabled = engine.m_road_texture_enabled;
+        road_gain = engine.m_road_texture_gain;
+        invert_force = engine.m_invert_force;
+        max_torque_ref = engine.m_max_torque_ref;
+        abs_freq = engine.m_abs_freq_hz;
+        lockup_freq_scale = engine.m_lockup_freq_scale;
+        spin_freq_scale = engine.m_spin_freq_scale;
+        bottoming_method = engine.m_bottoming_method;
+        scrub_drag_gain = engine.m_scrub_drag_gain;
+        rear_align_effect = engine.m_rear_align_effect;
+        sop_yaw_gain = engine.m_sop_yaw_gain;
+        gyro_gain = engine.m_gyro_gain;
+        steering_shaft_gain = engine.m_steering_shaft_gain;
+        base_force_mode = engine.m_base_force_mode;
+        flatspot_suppression = engine.m_flatspot_suppression;
+        notch_q = engine.m_notch_q;
+        flatspot_strength = engine.m_flatspot_strength;
+        static_notch_enabled = engine.m_static_notch_enabled;
+        static_notch_freq = engine.m_static_notch_freq;
+        static_notch_width = engine.m_static_notch_width;
+        yaw_kick_threshold = engine.m_yaw_kick_threshold;
+        speed_gate_lower = engine.m_speed_gate_lower;
+        speed_gate_upper = engine.m_speed_gate_upper;
+
+        // NEW: Grip & Smoothing (v0.5.7/v0.5.8)
+        optimal_slip_angle = engine.m_optimal_slip_angle;
+        optimal_slip_ratio = engine.m_optimal_slip_ratio;
+        steering_shaft_smoothing = engine.m_steering_shaft_smoothing;
+        gyro_smoothing = engine.m_gyro_smoothing;
+        yaw_smoothing = engine.m_yaw_accel_smoothing;
+        chassis_smoothing = engine.m_chassis_inertia_smoothing;
+        road_fallback_scale = engine.m_road_fallback_scale;
+        understeer_affects_sop = engine.m_understeer_affects_sop;
+
+        // Slope Detection (v0.7.0)
+        slope_detection_enabled = engine.m_slope_detection_enabled;
+        slope_sg_window = engine.m_slope_sg_window;
+        slope_sensitivity = engine.m_slope_sensitivity;
+
+        slope_smoothing_tau = engine.m_slope_smoothing_tau;
+
+        // v0.7.3: Slope stability fixes
+        slope_alpha_threshold = engine.m_slope_alpha_threshold;
+        slope_decay_rate = engine.m_slope_decay_rate;
+        slope_confidence_enabled = engine.m_slope_confidence_enabled;
+
+        // v0.7.11: Min/Max thresholds
+        slope_min_threshold = engine.m_slope_min_threshold;
+        slope_max_threshold = engine.m_slope_max_threshold;
+        app_version = LMUFFB_VERSION;
+    }
+
+    bool Equals(const Preset& p) const {
+        const float eps = 0.0001f;
+        auto is_near = [](float a, float b, float epsilon) { return std::abs(a - b) < epsilon; };
+
+        if (!is_near(gain, p.gain, eps)) return false;
+        if (!is_near(understeer, p.understeer, eps)) return false;
+        if (!is_near(sop, p.sop, eps)) return false;
+        if (!is_near(sop_scale, p.sop_scale, eps)) return false;
+        if (!is_near(sop_smoothing, p.sop_smoothing, eps)) return false;
+        if (!is_near(slip_smoothing, p.slip_smoothing, eps)) return false;
+        if (!is_near(min_force, p.min_force, eps)) return false;
+        if (!is_near(oversteer_boost, p.oversteer_boost, eps)) return false;
+
+        if (lockup_enabled != p.lockup_enabled) return false;
+        if (!is_near(lockup_gain, p.lockup_gain, eps)) return false;
+        if (!is_near(lockup_start_pct, p.lockup_start_pct, eps)) return false;
+        if (!is_near(lockup_full_pct, p.lockup_full_pct, eps)) return false;
+        if (!is_near(lockup_rear_boost, p.lockup_rear_boost, eps)) return false;
+        if (!is_near(lockup_gamma, p.lockup_gamma, eps)) return false;
+        if (!is_near(lockup_prediction_sens, p.lockup_prediction_sens, eps)) return false;
+        if (!is_near(lockup_bump_reject, p.lockup_bump_reject, eps)) return false;
+        if (!is_near(brake_load_cap, p.brake_load_cap, eps)) return false;
+        if (!is_near(texture_load_cap, p.texture_load_cap, eps)) return false;
+
+        if (abs_pulse_enabled != p.abs_pulse_enabled) return false;
+        if (!is_near(abs_gain, p.abs_gain, eps)) return false;
+        if (!is_near(abs_freq, p.abs_freq, eps)) return false;
+
+        if (spin_enabled != p.spin_enabled) return false;
+        if (!is_near(spin_gain, p.spin_gain, eps)) return false;
+        if (!is_near(spin_freq_scale, p.spin_freq_scale, eps)) return false;
+
+        if (slide_enabled != p.slide_enabled) return false;
+        if (!is_near(slide_gain, p.slide_gain, eps)) return false;
+        if (!is_near(slide_freq, p.slide_freq, eps)) return false;
+
+        if (road_enabled != p.road_enabled) return false;
+        if (!is_near(road_gain, p.road_gain, eps)) return false;
+
+        if (invert_force != p.invert_force) return false;
+        if (!is_near(max_torque_ref, p.max_torque_ref, eps)) return false;
+        if (!is_near(lockup_freq_scale, p.lockup_freq_scale, eps)) return false;
+        if (bottoming_method != p.bottoming_method) return false;
+        if (!is_near(scrub_drag_gain, p.scrub_drag_gain, eps)) return false;
+        if (!is_near(rear_align_effect, p.rear_align_effect, eps)) return false;
+        if (!is_near(sop_yaw_gain, p.sop_yaw_gain, eps)) return false;
+        if (!is_near(gyro_gain, p.gyro_gain, eps)) return false;
+        if (!is_near(steering_shaft_gain, p.steering_shaft_gain, eps)) return false;
+        if (base_force_mode != p.base_force_mode) return false;
+
+        if (!is_near(optimal_slip_angle, p.optimal_slip_angle, eps)) return false;
+        if (!is_near(optimal_slip_ratio, p.optimal_slip_ratio, eps)) return false;
+        if (!is_near(steering_shaft_smoothing, p.steering_shaft_smoothing, eps)) return false;
+        if (!is_near(gyro_smoothing, p.gyro_smoothing, eps)) return false;
+        if (!is_near(yaw_smoothing, p.yaw_smoothing, eps)) return false;
+        if (!is_near(chassis_smoothing, p.chassis_smoothing, eps)) return false;
+
+        if (flatspot_suppression != p.flatspot_suppression) return false;
+        if (!is_near(notch_q, p.notch_q, eps)) return false;
+        if (!is_near(flatspot_strength, p.flatspot_strength, eps)) return false;
+
+        if (static_notch_enabled != p.static_notch_enabled) return false;
+        if (!is_near(static_notch_freq, p.static_notch_freq, eps)) return false;
+        if (!is_near(static_notch_width, p.static_notch_width, eps)) return false;
+        if (!is_near(yaw_kick_threshold, p.yaw_kick_threshold, eps)) return false;
+
+        if (!is_near(speed_gate_lower, p.speed_gate_lower, eps)) return false;
+        if (!is_near(speed_gate_upper, p.speed_gate_upper, eps)) return false;
+
+        if (!is_near(road_fallback_scale, p.road_fallback_scale, eps)) return false;
+        if (understeer_affects_sop != p.understeer_affects_sop) return false;
+
+        if (slope_detection_enabled != p.slope_detection_enabled) return false;
+        if (slope_sg_window != p.slope_sg_window) return false;
+        if (!is_near(slope_sensitivity, p.slope_sensitivity, eps)) return false;
+
+        if (!is_near(slope_smoothing_tau, p.slope_smoothing_tau, eps)) return false;
+        if (!is_near(slope_alpha_threshold, p.slope_alpha_threshold, eps)) return false;
+        if (!is_near(slope_decay_rate, p.slope_decay_rate, eps)) return false;
+        if (slope_confidence_enabled != p.slope_confidence_enabled) return false;
+        if (!is_near(slope_min_threshold, p.slope_min_threshold, eps)) return false;
+        if (!is_near(slope_max_threshold, p.slope_max_threshold, eps)) return false;
+
+        return true;
+    }
+};
+
+class Config {
+public:
+    static std::string m_config_path; // Default: "config.ini"
+    static void Save(const FFBEngine& engine, const std::string& filename = "");
+    static void Load(FFBEngine& engine, const std::string& filename = "");
+    
+    // Preset Management
+    static std::vector<Preset> presets;
+    static std::string m_last_preset_name; // NEW (v0.7.14)
+    static void LoadPresets(); // Populates presets vector
+    static void ApplyPreset(int index, FFBEngine& engine);
+    
+    // NEW: Add a user preset
+    static void AddUserPreset(const std::string& name, const FFBEngine& engine);
+
+    // NEW: Delete and Duplicate (v0.7.14)
+    static void DeletePreset(int index, const FFBEngine& engine);
+    static void DuplicatePreset(int index, const FFBEngine& engine);
+    static bool IsEngineDirtyRelativeToPreset(int index, const FFBEngine& engine);
+
+    // NEW: Import/Export (v0.7.12)
+    static void ExportPreset(int index, const std::string& filename);
+    static bool ImportPreset(const std::string& filename, const FFBEngine& engine);
+
+    // NEW: Persist selected device
+    static std::string m_last_device_guid;
+
+    // Global App Settings (not part of FFB Physics)
+    static bool m_always_on_top;      // NEW: Keep window on top
+    static bool m_auto_start_logging; // NEW: Auto-start logging
+    static std::string m_log_path;    // NEW: Path to save logs
+
+    // Window Geometry Persistence (v0.5.5)
+    static int win_pos_x, win_pos_y;
+    static int win_w_small, win_h_small; // Dimensions for Config Only
+    static int win_w_large, win_h_large; // Dimensions for Config + Graphs
+    static bool show_graphs;             // Remember if graphs were open
+
+private:
+    // Helper for parsing preset lines (v0.7.12)
+    static void ParsePresetLine(const std::string& line, Preset& p, std::string& version, bool& needs_save);
+    // Helper for writing preset fields (v0.7.12)
+    static void WritePresetFields(std::ofstream& file, const Preset& p);
+};
+
+
+inline FFBEngine::FFBEngine() {
+    last_log_time = std::chrono::steady_clock::now();
+    Preset::ApplyDefaultsToEngine(*this);
+}
+
+#endif
+
+
+
+
+
+
+```
+
+# File: src\DirectInputFFB.cpp
+```cpp
+#include "DirectInputFFB.h"
+
+// Standard Library Headers
+#include <iostream>
+#include <cmath>
+#include <cstdio> // For sscanf, sprintf
+#include <algorithm> // For std::max, std::min
+
+// Platform-Specific Headers
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#include <dinput.h>
+#include <iomanip> // For std::hex
+#include <string>
+#endif
+
+// Constants
+namespace {
+    constexpr uint32_t DIAGNOSTIC_LOG_INTERVAL_MS = 1000; // Rate limit diagnostic logging to 1 second
+    constexpr uint32_t RECOVERY_COOLDOWN_MS = 2000;       // Wait 2 seconds between recovery attempts
+}
+
+// Keep existing implementations
+DirectInputFFB& DirectInputFFB::Get() {
+    static DirectInputFFB instance;
+    return instance;
+}
+
+DirectInputFFB::DirectInputFFB() {}
+
+// NEW: Helper to get foreground window title for diagnostics - REMOVED for Security/Privacy
+std::string DirectInputFFB::GetActiveWindowTitle() {
+    return "Window Tracking Disabled";
+}
+
+// NEW: Helper Implementations for GUID
+std::string DirectInputFFB::GuidToString(const GUID& guid) {
+    char buf[64];
+#ifdef _WIN32
+    sprintf_s(buf, "{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
+        guid.Data1, guid.Data2, guid.Data3,
+        guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+        guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+#else
+    snprintf(buf, sizeof(buf), "{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        (unsigned int)guid.Data1, (unsigned int)guid.Data2, (unsigned int)guid.Data3,
+        (unsigned int)guid.Data4[0], (unsigned int)guid.Data4[1], (unsigned int)guid.Data4[2], (unsigned int)guid.Data4[3],
+        (unsigned int)guid.Data4[4], (unsigned int)guid.Data4[5], (unsigned int)guid.Data4[6], (unsigned int)guid.Data4[7]);
+#endif
+    return std::string(buf);
+}
+
+GUID DirectInputFFB::StringToGuid(const std::string& str) {
+    GUID guid = { 0 };
+    if (str.empty()) return guid;
+    unsigned long p0;
+    unsigned short p1, p2;
+    unsigned int p3, p4, p5, p6, p7, p8, p9, p10;
+#ifdef _WIN32
+    int n = sscanf_s(str.c_str(), "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        &p0, &p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9, &p10);
+#else
+    int n = sscanf(str.c_str(), "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        &p0, &p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9, &p10);
+#endif
+    if (n == 11) {
+        guid.Data1 = p0;
+        guid.Data2 = (unsigned short)p1;
+        guid.Data3 = (unsigned short)p2;
+        guid.Data4[0] = (unsigned char)p3; guid.Data4[1] = (unsigned char)p4;
+        guid.Data4[2] = (unsigned char)p5; guid.Data4[3] = (unsigned char)p6;
+        guid.Data4[4] = (unsigned char)p7; guid.Data4[5] = (unsigned char)p8;
+        guid.Data4[6] = (unsigned char)p9; guid.Data4[7] = (unsigned char)p10;
+    }
+    return guid;
+}
+
+
+
+#ifdef _WIN32
+/**
+ * @brief Returns the description for a DirectInput return code.
+ * 
+ * Parsed from: unlinked: learn_microsoft_com/en-us/previous-versions/windows/desktop/ee416869(v=vs.85)#constants
+ * 
+ * @param hr The HRESULT returned by a DirectInput method.
+ * @return const char* The description of the error or status code.
+ */
+const char* GetDirectInputErrorString(HRESULT hr) {
+    switch (hr) {
+        // Success Codes
+        case S_OK: // Also DI_OK
+            return "The operation completed successfully (S_OK).";
+        case S_FALSE: // Also DI_BUFFEROVERFLOW, DI_NOEFFECT, DI_NOTATTACHED, DI_PROPNOEFFECT
+            return "Operation technically succeeded but had no effect or hit a warning (S_FALSE). The device buffer overflowed and some input was lost. This value is equal to DI_BUFFEROVERFLOW, DI_NOEFFECT, DI_NOTATTACHED, DI_PROPNOEFFECT.";
+        case DI_DOWNLOADSKIPPED:
+            return "The parameters of the effect were successfully updated, but the effect could not be downloaded because the associated device was not acquired in exclusive mode.";
+        case DI_EFFECTRESTARTED:
+            return "The effect was stopped, the parameters were updated, and the effect was restarted.";
+        case DI_POLLEDDEVICE:
+            return "The device is a polled device.. As a result, device buffering does not collect any data and event notifications is not signaled until the IDirectInputDevice8 Interface method is called.";
+        case DI_SETTINGSNOTSAVED:
+            return "The action map was applied to the device, but the settings could not be saved.";
+        case DI_TRUNCATED:
+            return "The parameters of the effect were successfully updated, but some of them were beyond the capabilities of the device and were truncated to the nearest supported value.";
+        case DI_TRUNCATEDANDRESTARTED:
+            return "Equal to DI_EFFECTRESTARTED | DI_TRUNCATED.";
+        case DI_WRITEPROTECT:
+            return "A SUCCESS code indicating that settings cannot be modified.";
+
+        // Error Codes
+        case DIERR_ACQUIRED:
+            return "The operation cannot be performed while the device is acquired.";
+        case DIERR_ALREADYINITIALIZED:
+            return "This object is already initialized.";
+        case DIERR_BADDRIVERVER:
+            return "The object could not be created due to an incompatible driver version or mismatched or incomplete driver components.";
+        case DIERR_BETADIRECTINPUTVERSION:
+            return "The application was written for an unsupported prerelease version of DirectInput.";
+        case DIERR_DEVICEFULL:
+            return "The device is full.";
+        case DIERR_DEVICENOTREG: // Equal to REGDB_E_CLASSNOTREG
+            return "The device or device instance is not registered with DirectInput.";
+        case DIERR_EFFECTPLAYING:
+            return "The parameters were updated in memory but were not downloaded to the device because the device does not support updating an effect while it is still playing.";
+        case DIERR_GENERIC: // Equal to E_FAIL
+            return "An undetermined error occurred inside the DirectInput subsystem.";
+        case DIERR_HANDLEEXISTS: // Equal to E_ACCESSDENIED
+            return "Access denied or handle already exists. Another application may have exclusive access.";
+        case DIERR_HASEFFECTS:
+            return "The device cannot be reinitialized because effects are attached to it.";
+        case DIERR_INCOMPLETEEFFECT:
+            return "The effect could not be downloaded because essential information is missing. For example, no axes have been associated with the effect, or no type-specific information has been supplied.";
+        case DIERR_INPUTLOST:
+            return "Access to the input device has been lost. It must be reacquired.";
+        case DIERR_INVALIDPARAM: // Equal to E_INVALIDARG
+            return "An invalid parameter was passed to the returning function, or the object was not in a state that permitted the function to be called.";
+        case DIERR_MAPFILEFAIL:
+            return "An error has occurred either reading the vendor-supplied action-mapping file for the device or reading or writing the user configuration mapping file for the device.";
+        case DIERR_MOREDATA:
+            return "Not all the requested information fit into the buffer.";
+        case DIERR_NOAGGREGATION:
+            return "This object does not support aggregation.";
+        case DIERR_NOINTERFACE: // Equal to E_NOINTERFACE
+            return "The object does not support the specified interface.";
+        case DIERR_NOTACQUIRED:
+            return "The operation cannot be performed unless the device is acquired.";
+        case DIERR_NOTBUFFERED:
+            return "The device is not buffered. Set the DIPROP_BUFFERSIZE property to enable buffering.";
+        case DIERR_NOTDOWNLOADED:
+            return "The effect is not downloaded.";
+        case DIERR_NOTEXCLUSIVEACQUIRED:
+            return "The operation cannot be performed unless the device is acquired in DISCL_EXCLUSIVE mode.";
+        case DIERR_NOTFOUND:
+            return "The requested object does not exist (DIERR_NOTFOUND).";
+        // case DIERR_OBJECTNOTFOUND: // Duplicate of DIERR_NOTFOUND
+        //    return "The requested object does not exist.";
+        case DIERR_OLDDIRECTINPUTVERSION:
+            return "The application requires a newer version of DirectInput.";
+        // case DIERR_OTHERAPPHASPRIO: // Duplicate of DIERR_HANDLEEXISTS (E_ACCESSDENIED)
+        //    return "Another application has a higher priority level, preventing this call from succeeding.";
+        case DIERR_OUTOFMEMORY: // Equal to E_OUTOFMEMORY
+            return "The DirectInput subsystem could not allocate sufficient memory to complete the call.";
+        // case DIERR_READONLY: // Duplicate of DIERR_HANDLEEXISTS (E_ACCESSDENIED)
+        //    return "The specified property cannot be changed.";
+        case DIERR_REPORTFULL:
+            return "More information was requested to be sent than can be sent to the device.";
+        case DIERR_UNPLUGGED:
+            return "The operation could not be completed because the device is not plugged in.";
+        case DIERR_UNSUPPORTED: // Equal to E_NOTIMPL
+            return "The function called is not supported at this time.";
+        case E_HANDLE:
+            return "The HWND parameter is not a valid top-level window that belongs to the process.";
+        case E_PENDING:
+            return "Data is not yet available.";
+        case E_POINTER:
+            return "An invalid pointer, usually NULL, was passed as a parameter.";
+        
+        default:
+            return "Unknown DirectInput Error";
+    }
+}
+#endif
+
+DirectInputFFB::~DirectInputFFB() {
+    Shutdown();
+}
+
+bool DirectInputFFB::Initialize(HWND hwnd) {
+    m_hwnd = hwnd;
+#ifdef _WIN32
+    if (FAILED(DirectInput8Create(GetModuleHandle(NULL), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&m_pDI, NULL))) {
+        std::cerr << "[DI] Failed to create DirectInput8 interface." << std::endl;
+        return false;
+    }
+    std::cout << "[DI] Initialized." << std::endl;
+    return true;
+#else
+    std::cout << "[DI] Mock Initialized (Non-Windows)." << std::endl;
+    return true;
+#endif
+}
+
+void DirectInputFFB::Shutdown() {
+    ReleaseDevice(); // Reuse logic
+#ifdef _WIN32
+    if (m_pDI) {
+        ((IDirectInput8*)m_pDI)->Release();
+        m_pDI = nullptr;
+    }
+#endif
+}
+
+#ifdef _WIN32
+BOOL CALLBACK EnumJoysticksCallback(const DIDEVICEINSTANCE* pdidInstance, VOID* pContext) {
+    auto* devices = (std::vector<DeviceInfo>*)pContext;
+    DeviceInfo info;
+    info.guid = pdidInstance->guidInstance;
+    char name[260];
+    WideCharToMultiByte(CP_ACP, 0, pdidInstance->tszProductName, -1, name, 260, NULL, NULL);
+    info.name = std::string(name);
+    devices->push_back(info);
+    return DIENUM_CONTINUE;
+}
+#endif
+
+std::vector<DeviceInfo> DirectInputFFB::EnumerateDevices() {
+    std::vector<DeviceInfo> devices;
+#ifdef _WIN32
+    if (!m_pDI) return devices;
+    ((IDirectInput8*)m_pDI)->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumJoysticksCallback, &devices, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK);
+#else
+    DeviceInfo d1; d1.name = "Simucube 2 Pro (Mock)";
+    DeviceInfo d2; d2.name = "Logitech G29 (Mock)";
+    devices.push_back(d1);
+    devices.push_back(d2);
+#endif
+    return devices;
+}
+
+void DirectInputFFB::ReleaseDevice() {
+#ifdef _WIN32
+    if (m_pEffect) {
+        ((IDirectInputEffect*)m_pEffect)->Stop();
+        ((IDirectInputEffect*)m_pEffect)->Unload();
+        ((IDirectInputEffect*)m_pEffect)->Release();
+        m_pEffect = nullptr;
+    }
+    if (m_pDevice) {
+        ((IDirectInputDevice8*)m_pDevice)->Unacquire();
+        ((IDirectInputDevice8*)m_pDevice)->Release();
+        m_pDevice = nullptr;
+    }
+#endif
+    m_active = false;
+    m_isExclusive = false;
+    m_deviceName = "None";
+#ifdef _WIN32
+    std::cout << "[DI] Device released by user." << std::endl;
+#endif
+}
+
+bool DirectInputFFB::SelectDevice(const GUID& guid) {
+#ifdef _WIN32
+    if (!m_pDI) return false;
+
+    // Cleanup old using new method
+    ReleaseDevice();
+
+    std::cout << "[DI] Attempting to create device..." << std::endl;
+    if (FAILED(((IDirectInput8*)m_pDI)->CreateDevice(guid, (IDirectInputDevice8**)&m_pDevice, NULL))) {
+        std::cerr << "[DI] Failed to create device." << std::endl;
+        return false;
+    }
+
+    std::cout << "[DI] Setting Data Format..." << std::endl;
+    if (FAILED(((IDirectInputDevice8*)m_pDevice)->SetDataFormat(&c_dfDIJoystick))) {
+        std::cerr << "[DI] Failed to set data format." << std::endl;
+        return false;
+    }
+
+    // Reset state
+    m_isExclusive = false;
+
+    // Attempt 1: Exclusive/Background (Best for FFB)
+    std::cout << "[DI] Attempting to set Cooperative Level (Exclusive | Background)..." << std::endl;
+    HRESULT hr = ((IDirectInputDevice8*)m_pDevice)->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    
+    if (SUCCEEDED(hr)) {
+        m_isExclusive = true;
+        std::cout << "[DI] Cooperative Level set to EXCLUSIVE." << std::endl;
+    } else {
+        // Fallback: Non-Exclusive
+        std::cerr << "[DI] Exclusive mode failed (Error: " << std::hex << hr << std::dec << "). Retrying in Non-Exclusive mode..." << std::endl;
+        hr = ((IDirectInputDevice8*)m_pDevice)->SetCooperativeLevel(m_hwnd, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
+        
+        if (SUCCEEDED(hr)) {
+            m_isExclusive = false;
+            std::cout << "[DI] Cooperative Level set to NON-EXCLUSIVE." << std::endl;
+        }
+    }
+    
+    if (FAILED(hr)) {
+        std::cerr << "[DI] Failed to set cooperative level (Non-Exclusive failed too)." << std::endl;
+        return false;
+    }
+
+    std::cout << "[DI] Acquiring device..." << std::endl;
+    if (FAILED(((IDirectInputDevice8*)m_pDevice)->Acquire())) {
+        std::cerr << "[DI] Failed to acquire device." << std::endl;
+        // Don't return false yet, might just need focus/retry
+    } else {
+        std::cout << "[DI] Device Acquired in " << (m_isExclusive ? "EXCLUSIVE" : "NON-EXCLUSIVE") << " mode." << std::endl;
+    }
+
+    // Create Effect
+    if (CreateEffect()) {
+       m_active = true;
+        std::cout << "[DI] SUCCESS: Physical Device fully initialized and FFB Effect created." << std::endl;
+ 
+        return true;
+    }
+    return false;
+#else
+    m_active = true;
+    m_isExclusive = true; // Default to true in mock to verify UI logic
+    m_deviceName = "Mock Device Selected";
+    return true;
+#endif
+}
+
+bool DirectInputFFB::CreateEffect() {
+#ifdef _WIN32
+    if (!m_pDevice) return false;
+
+    DWORD rgdwAxes[1] = { DIJOFS_X };
+    LONG rglDirection[1] = { 0 };
+    DICONSTANTFORCE cf;
+    cf.lMagnitude = 0;
+
+    DIEFFECT eff;
+    ZeroMemory(&eff, sizeof(eff));
+    eff.dwSize = sizeof(DIEFFECT);
+    eff.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
+    eff.dwDuration = INFINITE;
+    eff.dwSamplePeriod = 0;
+    eff.dwGain = DI_FFNOMINALMAX;
+    eff.dwTriggerButton = DIEB_NOTRIGGER;
+    eff.dwTriggerRepeatInterval = 0;
+    eff.cAxes = 1;
+    eff.rgdwAxes = rgdwAxes;
+    eff.rglDirection = rglDirection;
+    eff.lpEnvelope = NULL;
+    eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
+    eff.lpvTypeSpecificParams = &cf;
+    eff.dwStartDelay = 0;
+
+    if (FAILED(((IDirectInputDevice8*)m_pDevice)->CreateEffect(GUID_ConstantForce, &eff, (IDirectInputEffect**)&m_pEffect, NULL))) {
+        std::cerr << "[DI] Failed to create Constant Force effect." << std::endl;
+        return false;
+    }
+    
+    // Start immediately
+    ((IDirectInputEffect*)m_pEffect)->Start(1, 0);
+    return true;
+#else
+    return true;
+#endif
+}
+
+void DirectInputFFB::UpdateForce(double normalizedForce) {
+    if (!m_active) return;
+
+    // Sanity Check: If 0.0, stop effect to prevent residual hum
+    if (std::abs(normalizedForce) < 0.00001) normalizedForce = 0.0;
+
+    // Clamp
+    normalizedForce = (std::max)(-1.0, (std::min)(1.0, normalizedForce));
+
+    // Scale to -10000..10000
+    long magnitude = static_cast<long>(normalizedForce * 10000.0);
+
+    // Optimization: Don't call driver if value hasn't changed
+    if (magnitude == m_last_force) return;
+    m_last_force = magnitude;
+
+#ifdef _WIN32
+    if (m_pEffect) {
+        DICONSTANTFORCE cf;
+        cf.lMagnitude = magnitude;
+        
+        DIEFFECT eff;
+        ZeroMemory(&eff, sizeof(eff));
+        eff.dwSize = sizeof(DIEFFECT);
+        eff.cbTypeSpecificParams = sizeof(DICONSTANTFORCE);
+        eff.lpvTypeSpecificParams = &cf;
+        
+        // Try to update parameters
+        HRESULT hr = ((IDirectInputEffect*)m_pEffect)->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+        
+        // --- DIAGNOSTIC & RECOVERY LOGIC ---
+        if (FAILED(hr)) {
+            // 1. Identify the Error
+            std::string errorType = GetDirectInputErrorString(hr);
+
+            // Append Custom Advice for Priority/Exclusive Errors
+            if (hr == DIERR_OTHERAPPHASPRIO || hr == DIERR_NOTEXCLUSIVEACQUIRED ) {
+                errorType += " [CRITICAL: Game has stolen priority! DISABLE IN-GAME FFB]";
+                
+                // Update exclusivity state to reflect reality
+                m_isExclusive = false;
+            }
+
+            // FIX: Default to TRUE. If update failed, we must try to reconnect.
+            bool recoverable = true; 
+
+            // 2. Log the Context (Rate limited)
+            static uint32_t lastLogTime = 0;
+            if (GetTickCount() - lastLogTime > DIAGNOSTIC_LOG_INTERVAL_MS) {
+                std::cerr << "[DI ERROR] Failed to update force. Error: " << errorType 
+                          << " (0x" << std::hex << hr << std::dec << ")" << std::endl;
+                std::cerr << "           Active Window: [" << GetActiveWindowTitle() << "]" << std::endl;
+                lastLogTime = GetTickCount();
+            }
+
+            // 3. Attempt Recovery (with Smart Cool-down)
+            if (recoverable) {
+                // Throttle recovery attempts to prevent CPU spam when device is locked
+                static uint32_t lastRecoveryAttempt = 0;
+                uint32_t now = GetTickCount();
+                
+                // Only attempt recovery if cooldown period has elapsed
+                if (now - lastRecoveryAttempt > RECOVERY_COOLDOWN_MS) {
+                    lastRecoveryAttempt = now; // Mark this attempt
+                    
+                    // --- DYNAMIC PROMOTION FIX ---
+                    // If we are stuck in "Shared Mode" (0x80040205), standard Acquire() 
+                    // just re-confirms Shared Mode. We must force a mode switch.
+                    if (hr == DIERR_NOTEXCLUSIVEACQUIRED) {
+                        std::cout << "[DI] Attempting to promote to Exclusive Mode..." << std::endl;
+                        ((IDirectInputDevice8*)m_pDevice)->Unacquire();
+                        ((IDirectInputDevice8*)m_pDevice)->SetCooperativeLevel(m_hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+                    }
+                    // -----------------------------
+
+                    HRESULT hrAcq = ((IDirectInputDevice8*)m_pDevice)->Acquire();
+                    
+                    if (SUCCEEDED(hrAcq)) {
+                        // Log recovery success (rate-limited for diagnostics)
+                        static uint32_t lastSuccessLog = 0;
+                        if (GetTickCount() - lastSuccessLog > 5000) { // 5 second cooldown
+                            std::cout << "[DI RECOVERY] Device re-acquired successfully. FFB motor restarted." << std::endl;
+                            lastSuccessLog = GetTickCount();
+                        }
+                        
+                        // Update our internal state if we fixed the exclusivity
+                        if (hr == DIERR_NOTEXCLUSIVEACQUIRED) {
+                            m_isExclusive = true; 
+                            
+                            // One-time notification when Dynamic Promotion first succeeds
+                            static bool firstPromotionSuccess = false;
+                            if (!firstPromotionSuccess) {
+                                std::cout << "\n"
+                                          << "========================================\n"
+                                          << "[SUCCESS] Dynamic Promotion Active!\n"
+                                          << "lmuFFB has successfully recovered exclusive\n"
+                                          << "control after detecting a conflict.\n"
+                                          << "This feature will continue to protect your\n"
+                                          << "FFB experience automatically.\n"
+                                          << "========================================\n" << std::endl;
+                                firstPromotionSuccess = true;
+                            }
+                        }
+
+                        // Restart the effect to ensure motor is active
+                        ((IDirectInputEffect*)m_pEffect)->Start(1, 0);
+                        
+                        // Retry the update immediately
+                        ((IDirectInputEffect*)m_pEffect)->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS);
+                    }
+                }
+            }
+        }
+    }
+#endif
+}
+
+```
+
+# File: src\DirectInputFFB.h
+```cpp
+#ifndef DIRECTINPUTFFB_H
+#define DIRECTINPUTFFB_H
+
+#include <vector>
+#include <string>
+#include <atomic>
+
+#ifdef _WIN32
+#ifndef DIRECTINPUT_VERSION
+#define DIRECTINPUT_VERSION 0x0800
+#endif
+#include <dinput.h>
+#pragma comment(lib, "dinput8.lib")
+#pragma comment(lib, "dxguid.lib")
+#else
+#include "lmu_sm_interface/LinuxMock.h"
+// Mock types for non-Windows build/test
+typedef void* LPDIRECTINPUT8;
+typedef void* LPDIRECTINPUTDEVICE8;
+typedef void* LPDIRECTINPUTEFFECT;
+#endif
+
+struct DeviceInfo {
+    GUID guid;
+    std::string name;
+};
+
+class DirectInputFFB {
+public:
+    static DirectInputFFB& Get();
+
+    bool Initialize(HWND hwnd);
+    void Shutdown();
+
+    // Returns a list of FFB-capable devices
+    std::vector<DeviceInfo> EnumerateDevices();
+
+    // Select and Acquire a device
+    bool SelectDevice(const GUID& guid);
+    
+    // Release the currently acquired device (User unbind)
+    void ReleaseDevice();
+
+    // Update the Constant Force effect (-1.0 to 1.0)
+    void UpdateForce(double normalizedForce);
+
+    // NEW: Helpers for Config persistence
+    static std::string GuidToString(const GUID& guid);
+    static GUID StringToGuid(const std::string& str);
+    static std::string GetActiveWindowTitle();
+
+    bool IsActive() const { return m_active; }
+    std::string GetCurrentDeviceName() const { return m_deviceName; }
+    
+    // Check if device was acquired in exclusive mode
+    bool IsExclusive() const { return m_isExclusive; }
+
+private:
+    DirectInputFFB();
+    ~DirectInputFFB();
+
+    LPDIRECTINPUT8 m_pDI = nullptr;
+    LPDIRECTINPUTDEVICE8 m_pDevice = nullptr;
+    LPDIRECTINPUTEFFECT m_pEffect = nullptr;
+    HWND m_hwnd = nullptr;
+    
+    bool m_active = false;
+    bool m_isExclusive = false; // Track acquisition mode
+    std::string m_deviceName = "None";
+    
+    // Internal helper to create the Constant Force effect
+    bool CreateEffect();
+
+    long m_last_force = -999999; 
+};
+
+#endif // DIRECTINPUTFFB_H
+
+```
+
+# File: src\FFBEngine.h
+```cpp
+#ifndef FFBENGINE_H
+#define FFBENGINE_H
+
+#include <cmath>
+#include <algorithm>
+#include <vector>
+#include <mutex>
+#include <iostream>
+#include <chrono>
+#include <array>
+#include <cstring>
+#include "lmu_sm_interface/InternalsPluginWrapper.h"
+#include "AsyncLogger.h"
+
+// Mathematical Constants
+static constexpr double PI = 3.14159265358979323846;
+static constexpr double TWO_PI = 2.0 * PI;
+
+// Stats helper
+struct ChannelStats {
+    // Session-wide stats (Persistent)
+    double session_min = 1e9;
+    double session_max = -1e9;
+    
+    // Interval stats (Reset every second)
+    double interval_sum = 0.0;
+    long interval_count = 0;
+    
+    // Latched values for display/consumption by other threads (Interval)
+    double l_avg = 0.0;
+    // Latched values for display/consumption by other threads (Session)
+    double l_min = 0.0;
+    double l_max = 0.0;
+    
+    void Update(double val) {
+        // Update Session Min/Max
+        if (val < session_min) session_min = val;
+        if (val > session_max) session_max = val;
+        
+        // Update Interval Accumulator
+        interval_sum += val;
+        interval_count++;
+    }
+    
+    // Called every interval (e.g. 1s) to latch data and reset interval counters
+    void ResetInterval() {
+        if (interval_count > 0) {
+            l_avg = interval_sum / interval_count;
+        } else {
+            l_avg = 0.0;
+        }
+        // Latch current session min/max for display
+        l_min = session_min;
+        l_max = session_max;
+        
+        // Reset interval data
+        interval_sum = 0.0; 
+        interval_count = 0;
+    }
+    
+    // Compatibility helper
+    double Avg() { return interval_count > 0 ? interval_sum / interval_count : 0.0; }
+    void Reset() { ResetInterval(); }
+};
+
+// 1. Define the Snapshot Struct (Unified FFB + Telemetry)
+struct FFBSnapshot {
+    // --- Header A: FFB Components (Outputs) ---
+    float total_output;
+    float base_force;
+    float sop_force;
+    float understeer_drop;
+    float oversteer_boost;
+    float ffb_rear_torque;  // New v0.4.7
+    float ffb_scrub_drag;   // New v0.4.7
+    float ffb_yaw_kick;     // New v0.4.16
+    float ffb_gyro_damping; // New v0.4.17
+    float texture_road;
+    float texture_slide;
+    float texture_lockup;
+    float texture_spin;
+    float texture_bottoming;
+    float clipping;
+
+    // --- Header B: Internal Physics (Calculated) ---
+    float calc_front_load;       // New v0.4.7
+    float calc_rear_load;        // New v0.4.10
+    float calc_rear_lat_force;   // New v0.4.10
+    float calc_front_grip;       // New v0.4.7
+    float calc_rear_grip;        // New v0.4.7 (Refined)
+    float calc_front_slip_ratio; // New v0.4.7 (Manual Calc)
+    float calc_front_slip_angle_smoothed; // Renamed from slip_angle
+    float raw_front_slip_angle;  // New v0.4.7 (Raw atan2)
+    float calc_rear_slip_angle_smoothed; // New v0.4.9
+    float raw_rear_slip_angle;   // New v0.4.9 (Raw atan2)
+
+    // --- Header C: Raw Game Telemetry (Inputs) ---
+    float steer_force;
+    float raw_input_steering;    // New v0.4.7 (Unfiltered -1 to 1)
+    float raw_front_tire_load;   // New v0.4.7
+    float raw_front_grip_fract;  // New v0.4.7
+    float raw_rear_grip;         // New v0.4.7
+    float raw_front_susp_force;  // New v0.4.7
+    float raw_front_ride_height; // New v0.4.7
+    float raw_rear_lat_force;    // New v0.4.7
+    float raw_car_speed;         // New v0.4.7
+    float raw_front_slip_ratio;  // New v0.4.7 (Game API)
+    float raw_input_throttle;    // New v0.4.7
+    float raw_input_brake;       // New v0.4.7
+    float accel_x;
+    float raw_front_lat_patch_vel; // Renamed from patch_vel
+    float raw_front_deflection;    // Renamed from deflection
+    float raw_front_long_patch_vel; // New v0.4.9
+    float raw_rear_lat_patch_vel;   // New v0.4.9
+    float raw_rear_long_patch_vel;  // New v0.4.9
+
+    // Telemetry Health Flags
+    bool warn_load;
+    bool warn_grip;
+    bool warn_dt;
+
+    float debug_freq; // New v0.4.41: Frequency for diagnostics
+    float tire_radius; // New v0.4.41: Tire radius in meters for theoretical freq calculation
+    float slope_current; // New v0.7.1: Slope detection derivative value
+};
+
+struct BiquadNotch {
+    // Coefficients
+    double b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
+    // State history (Inputs x, Outputs y)
+    double x1 = 0.0, x2 = 0.0;
+    double y1 = 0.0, y2 = 0.0;
+
+    // Update coefficients based on dynamic frequency
+    void Update(double center_freq, double sample_rate, double Q) {
+        // Safety: Clamp frequency to Nyquist (sample_rate / 2) and min 1Hz
+        center_freq = (std::max)(1.0, (std::min)(center_freq, sample_rate * 0.49));
+        
+        double omega = 2.0 * PI * center_freq / sample_rate;
+        double sn = std::sin(omega);
+        double cs = std::cos(omega);
+        double alpha = sn / (2.0 * Q);
+
+        double a0 = 1.0 + alpha;
+        
+        // Calculate and Normalize
+        b0 = 1.0 / a0;
+        b1 = (-2.0 * cs) / a0;
+        b2 = 1.0 / a0;
+        a1 = (-2.0 * cs) / a0;
+        a2 = (1.0 - alpha) / a0;
+    }
+
+    // Apply filter to single sample
+    double Process(double in) {
+        double out = b0 * in + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        
+        // Shift history
+        x2 = x1; x1 = in;
+        y2 = y1; y1 = out;
+        
+        return out;
+    }
+    
+    void Reset() {
+        x1 = x2 = y1 = y2 = 0.0;
+    }
+};
+
+// Helper Result Struct for calculate_grip
+struct GripResult {
+    double value;           // Final grip value
+    bool approximated;      // Was approximation used?
+    double original;        // Original telemetry value
+    double slip_angle;      // Calculated slip angle (if approximated)
+};
+
+namespace FFBEngineTests { class FFBEngineTestAccess; }
+
+// Calculation Context Struct
+// Holds common derived values used across multiple effect calculations
+struct FFBCalculationContext {
+    double dt = 0.0025;
+    double car_speed = 0.0;       // Absolute m/s
+    double car_speed_long = 0.0;  // Longitudinal m/s (Raw)
+    double decoupling_scale = 1.0;
+    double speed_gate = 1.0;
+    double texture_load_factor = 1.0;
+    double brake_load_factor = 1.0;
+    double avg_load = 0.0;
+    double avg_grip = 0.0;
+
+    // Diagnostics
+    bool frame_warn_load = false;
+    bool frame_warn_grip = false;
+    bool frame_warn_rear_grip = false;
+    bool frame_warn_dt = false;
+
+    // Intermediate results
+    double grip_factor = 1.0;     // 1.0 = full grip, 0.0 = no grip
+    double sop_base_force = 0.0;
+    double sop_unboosted_force = 0.0; // For snapshot compatibility
+    double rear_torque = 0.0;
+    double yaw_force = 0.0;
+    double scrub_drag_force = 0.0;
+    double gyro_force = 0.0;
+    double avg_rear_grip = 0.0;
+    double calc_rear_lat_force = 0.0;
+    double avg_rear_load = 0.0;
+
+    // Effect outputs
+    double road_noise = 0.0;
+    double slide_noise = 0.0;
+    double lockup_rumble = 0.0;
+    double spin_rumble = 0.0;
+    double bottoming_crunch = 0.0;
+    double abs_pulse_force = 0.0;
+    double gain_reduction_factor = 1.0;
+};
+    
+// FFB Engine Class
+class FFBEngine {
+    // ⚠ IMPORTANT MAINTENANCE WARNING:
+    // When adding new FFB parameters to this class, you MUST also update:
+    // 1. Preset struct in Config.h
+    // 2. Preset::Apply(), UpdateFromEngine(), and Equals() in Config.h
+    // 3. Config::Save() and Config::Load() in Config.cpp
+
+public:
+    // Settings (GUI Sliders)
+    // NOTE: These are initialized by Preset::ApplyDefaultsToEngine() in the constructor
+    // to maintain a single source of truth in Config.h (Preset struct defaults)
+    float m_gain;
+    float m_understeer_effect;
+    float m_sop_effect;
+    float m_min_force;
+    
+    // Configurable Smoothing & Caps (v0.3.9)
+    float m_sop_smoothing_factor;
+    float m_texture_load_cap = 1.5f; // Renamed from m_max_load_factor (v0.5.11)
+    float m_brake_load_cap = 1.5f;   // New v0.5.11
+    float m_sop_scale;
+    
+    // v0.4.4 Features
+    float m_max_torque_ref;
+    bool m_invert_force;
+    
+    // Base Force Debugging (v0.4.13)
+    float m_steering_shaft_gain;
+    int m_base_force_mode;
+
+    // New Effects (v0.2)
+    float m_oversteer_boost;
+    float m_rear_align_effect;
+    float m_sop_yaw_gain;
+    float m_gyro_gain;
+    float m_gyro_smoothing;
+    float m_yaw_accel_smoothing;
+    float m_chassis_inertia_smoothing;
+    
+    bool m_lockup_enabled;
+    float m_lockup_gain;
+    // NEW Lockup Tuning (v0.5.11)
+    float m_lockup_start_pct = 5.0f;
+    float m_lockup_full_pct = 15.0f;
+    float m_lockup_rear_boost = 1.5f;
+    float m_lockup_gamma = 2.0f;           // New v0.6.0
+    float m_lockup_prediction_sens = 50.0f; // New v0.6.0
+    float m_lockup_bump_reject = 1.0f;     // New v0.6.0
+    
+    bool m_abs_pulse_enabled = true;      // New v0.6.0
+    float m_abs_gain = 1.0f;               // New v0.6.0
+    
+    bool m_spin_enabled;
+    float m_spin_gain;
+
+    // Texture toggles
+    bool m_slide_texture_enabled;
+    float m_slide_texture_gain;
+    float m_slide_freq_scale;
+    
+    bool m_road_texture_enabled;
+    float m_road_texture_gain;
+    
+    // Bottoming Effect (v0.3.2)
+    bool m_bottoming_enabled = true;  // Keep this as it's not in presets
+    float m_bottoming_gain = 1.0f;    // Keep this as it's not in presets
+
+    float m_slip_angle_smoothing;
+    
+    // NEW: Grip Estimation Settings (v0.5.7)
+    float m_optimal_slip_angle;
+    float m_optimal_slip_ratio;
+    
+    // NEW: Steering Shaft Smoothing (v0.5.7)
+    float m_steering_shaft_smoothing;
+    
+    // v0.4.41: Signal Filtering Settings
+    bool m_flatspot_suppression = false;
+    float m_notch_q = 2.0f; // Default Q-Factor
+    float m_flatspot_strength = 1.0f; // Default 1.0 (100% suppression)
+    
+    // Static Notch Filter (v0.4.43)
+    bool m_static_notch_enabled = false;
+    float m_static_notch_freq = 11.0f;
+    float m_static_notch_width = 2.0f; // New v0.6.10: Width in Hz
+    float m_yaw_kick_threshold = 0.2f; // New v0.6.10: Threshold in rad/s^2 (Default 0.2 matching legacy gate)
+
+    // v0.6.23: User-Adjustable Speed Gate
+    // CHANGED DEFAULTS:
+    // Lower: 1.0 m/s (3.6 km/h) - Start fading in
+    // Upper: 5.0 m/s (18.0 km/h) - Full strength / End smoothing
+    // This ensures the "Violent Shaking" (< 15km/h) is covered by default.
+    float m_speed_gate_lower = 1.0f; 
+    float m_speed_gate_upper = 5.0f; 
+
+    // v0.6.23: Additional Advanced Physics (Reserved for future use)
+    // These settings are declared and persist in config/presets but are not yet
+    // implemented in the calculate_force() logic. They will be activated in a future release.
+    float m_road_fallback_scale = 0.05f;
+    bool m_understeer_affects_sop = false;
+    
+    // ===== SLOPE DETECTION (v0.7.0 → v0.7.3 stability fixes) =====
+    bool m_slope_detection_enabled = false;
+    int m_slope_sg_window = 15;
+    float m_slope_sensitivity = 0.5f;            // v0.7.1: Reduced from 1.0 (less aggressive)
+
+    float m_slope_smoothing_tau = 0.04f;         // v0.7.1: Changed from 0.02 (smoother transitions)
+
+    // NEW v0.7.3: Stability fixes
+    float m_slope_alpha_threshold = 0.02f;    // NEW: Minimum dAlpha/dt to calculate slope
+    float m_slope_decay_rate = 5.0f;          // NEW: Decay rate toward 0 when not cornering
+    bool m_slope_confidence_enabled = true;   // NEW: Enable confidence-based grip scaling
+
+    // NEW v0.7.11: Min/Max Threshold System
+    float m_slope_min_threshold = -0.3f;   // Effect starts here (dead zone edge)
+    float m_slope_max_threshold = -2.0f;   // Effect saturates here (100%)
+
+    // Signal Diagnostics
+    double m_debug_freq = 0.0; // Estimated frequency for GUI
+    double m_theoretical_freq = 0.0; // Theoretical wheel frequency for GUI
+
+    // Warning States (Console logging)
+    bool m_warned_load = false;
+    bool m_warned_grip = false;
+    bool m_warned_rear_grip = false; // v0.4.5 Fix
+    bool m_warned_dt = false;
+    bool m_warned_lat_force_front = false;
+    bool m_warned_lat_force_rear = false;
+    bool m_warned_susp_force = false;
+    bool m_warned_susp_deflection = false;
+    bool m_warned_vert_deflection = false; // v0.6.21
+    
+    // Diagnostics (v0.4.5 Fix)
+    struct GripDiagnostics {
+        bool front_approximated = false;
+        bool rear_approximated = false;
+        double front_original = 0.0;
+        double rear_original = 0.0;
+        double front_slip_angle = 0.0;
+        double rear_slip_angle = 0.0;
+    } m_grip_diag;
+    
+    // Hysteresis for missing load
+    int m_missing_load_frames = 0;
+    int m_missing_lat_force_front_frames = 0;
+    int m_missing_lat_force_rear_frames = 0;
+    int m_missing_susp_force_frames = 0;
+    int m_missing_susp_deflection_frames = 0;
+    int m_missing_vert_deflection_frames = 0; // v0.6.21
+
+    // Internal state
+    double m_prev_vert_deflection[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR
+    double m_prev_vert_accel = 0.0; // New v0.6.21: For Road Texture Fallback
+    double m_prev_slip_angle[4] = {0.0, 0.0, 0.0, 0.0}; // FL, FR, RL, RR (LPF State)
+    double m_prev_rotation[4] = {0.0, 0.0, 0.0, 0.0};    // New v0.6.0
+    double m_prev_brake_pressure[4] = {0.0, 0.0, 0.0, 0.0}; // New v0.6.0
+    
+    // Gyro State (v0.4.17)
+    double m_prev_steering_angle = 0.0;
+    double m_steering_velocity_smoothed = 0.0;
+    
+    // Yaw Acceleration Smoothing State (v0.4.18)
+    double m_yaw_accel_smoothed = 0.0;
+
+    // Internal state for Steering Shaft Smoothing (v0.5.7)
+    double m_steering_shaft_torque_smoothed = 0.0;
+
+    // Kinematic Smoothing State (v0.4.38)
+    double m_accel_x_smoothed = 0.0;
+    double m_accel_z_smoothed = 0.0; // Longitudinal
+    
+    // Kinematic Physics Parameters (v0.4.39)
+    // These parameters are used when telemetry (mTireLoad, mSuspForce) is blocked on encrypted content.
+    // Values are empirical approximations tuned for typical GT3/LMP2 cars.
+    // 
+    // Mass: 1100kg represents average weight for GT3 (~1200kg) and LMP2 (~930kg)
+    // Aero Coefficient: 2.0 is a simplified scalar for v² downforce (real values vary 1.5-3.5)
+    // Weight Bias: 0.55 (55% rear) is typical for mid-engine race cars
+    // Roll Stiffness: 0.6 scales lateral weight transfer (0.5=soft, 0.8=stiff)
+    float m_approx_mass_kg = 1100.0f;
+    float m_approx_aero_coeff = 2.0f;
+    float m_approx_weight_bias = 0.55f;
+    float m_approx_roll_stiffness = 0.6f;
+
+    // Phase Accumulators for Dynamic Oscillators
+    double m_lockup_phase = 0.0;
+    double m_spin_phase = 0.0;
+    double m_slide_phase = 0.0;
+    double m_abs_phase = 0.0; // New v0.6.0
+    double m_bottoming_phase = 0.0;
+    
+    // Phase Accumulators for Dynamic Oscillators (v0.6.20)
+    float m_abs_freq_hz = 20.0f;
+    float m_lockup_freq_scale = 1.0f;
+    float m_spin_freq_scale = 1.0f;
+    
+    // Internal state for Bottoming (Method B)
+    double m_prev_susp_force[2] = {0.0, 0.0}; // FL, FR
+
+    // New Settings (v0.4.5)
+    int m_bottoming_method = 0; // 0=Scraping (Default), 1=Suspension Spike
+    float m_scrub_drag_gain; // Initialized by Preset::ApplyDefaultsToEngine()
+
+    // Smoothing State
+    double m_sop_lat_g_smoothed = 0.0;
+    
+    // Filter Instances (v0.4.41)
+    // Filter Instances (v0.4.41)
+    BiquadNotch m_notch_filter;
+    BiquadNotch m_static_notch_filter;
+
+    // Slope Detection Buffers (Circular) - v0.7.0
+    static constexpr int SLOPE_BUFFER_MAX = 41;  // Max window size supported
+    std::array<double, SLOPE_BUFFER_MAX> m_slope_lat_g_buffer = {};
+    std::array<double, SLOPE_BUFFER_MAX> m_slope_slip_buffer = {};
+    int m_slope_buffer_index = 0;
+    int m_slope_buffer_count = 0;
+
+    // Slope Detection State (Public for diagnostics) - v0.7.0
+    double m_slope_current = 0.0;
+    double m_slope_grip_factor = 1.0;
+    double m_slope_smoothed_output = 1.0;
+    
+    // Context for Logging (v0.7.x)
+    char m_vehicle_name[64] = "Unknown";
+    char m_track_name[64] = "Unknown";
+
+    // Logging intermediate values (exposed for AsyncLogger)
+    double m_slope_dG_dt = 0.0;       // Last calculated dG/dt
+    double m_slope_dAlpha_dt = 0.0;   // Last calculated dAlpha/dt
+
+    // Frequency Estimator State (v0.4.41)
+    double m_last_crossing_time = 0.0;
+    double m_torque_ac_smoothed = 0.0; // For High-Pass
+    double m_prev_ac_torque = 0.0;
+
+    // Telemetry Stats
+    ChannelStats s_torque;
+    ChannelStats s_load;
+    ChannelStats s_grip;
+    ChannelStats s_lat_g;
+    std::chrono::steady_clock::time_point last_log_time;
+
+    // Thread-Safe Buffer (Producer-Consumer)
+    std::vector<FFBSnapshot> m_debug_buffer;
+    std::mutex m_debug_mutex;
+    
+    // Friend class for unit testing private helper methods
+    friend class FFBEngineTests::FFBEngineTestAccess;
+
+    FFBEngine();
+
+    // v0.7.34: Safety Check for Issue #79
+    // Determines if FFB should be active based on vehicle scoring state.
+    // Mutes FFB if car is under AI control or session has finished.
+    bool IsFFBAllowed(const VehicleScoringInfoV01& scoring) const {
+        // mControl: 0 = local player, 1 = AI, 2 = Remote, -1 = None
+        // mFinishStatus: 0 = none, 1 = finished, 2 = DNF, 3 = DQ
+        return (scoring.mIsPlayer && scoring.mControl == 0 && scoring.mFinishStatus == 0);
+    }
+    
+    // Helper to retrieve data (Consumer)
+    std::vector<FFBSnapshot> GetDebugBatch() {
+        std::vector<FFBSnapshot> batch;
+        {
+            std::lock_guard<std::mutex> lock(m_debug_mutex);
+            if (!m_debug_buffer.empty()) {
+                batch.swap(m_debug_buffer); // Fast swap
+            }
+        }
+        return batch;
+    }
+
+    // ========================================
+    // UI Reference & Physics Multipliers (v0.4.50)
+    // ========================================
+    // These constants represent the physical force (in Newton-meters) that each effect 
+    // produces at a Gain setting of 1.0 (100%) and a MaxTorqueRef of 20.0 Nm.
+    static constexpr float BASE_NM_SOP_LATERAL      = 1.0f;
+    static constexpr float BASE_NM_REAR_ALIGN       = 3.0f;
+    static constexpr float BASE_NM_YAW_KICK         = 5.0f;
+    static constexpr float BASE_NM_GYRO_DAMPING     = 1.0f;
+    static constexpr float BASE_NM_SLIDE_TEXTURE    = 1.5f;
+    static constexpr float BASE_NM_ROAD_TEXTURE     = 2.5f;
+    static constexpr float BASE_NM_LOCKUP_VIBRATION = 4.0f;
+    static constexpr float BASE_NM_SPIN_VIBRATION   = 2.5f;
+    static constexpr float BASE_NM_SCRUB_DRAG       = 5.0f;
+    static constexpr float BASE_NM_BOTTOMING        = 1.0f;
+
+private:
+    // ========================================
+    // Physics Constants (v0.4.9+)
+    // ========================================
+    // These constants are extracted from the calculation logic to improve maintainability
+    // and provide a single source of truth for tuning. See docs/dev_docs/FFB_formulas.md
+    // for detailed mathematical derivations.
+    
+    // Slip Angle Singularity Protection (v0.4.9)
+    // Prevents division by zero when calculating slip angle at very low speeds.
+    // Value: 0.5 m/s (~1.8 km/h) - Below this speed, slip angle is clamped.
+    static constexpr double MIN_SLIP_ANGLE_VELOCITY = 0.5; // m/s
+    
+    // Rear Tire Stiffness Coefficient (v0.4.10)
+    // Used in the LMU 1.2 rear lateral force workaround calculation.
+    // Formula: F_lat = SlipAngle * Load * STIFFNESS
+    // Value: 15.0 N/(rad·N) - Empirical approximation based on typical race tire cornering stiffness.
+    // Real-world values range from 10-20 depending on tire compound, temperature, and pressure.
+    // This value was tuned to produce realistic rear-end behavior when the game API fails to
+    // report rear mLateralForce (known bug in LMU 1.2).
+    // See: docs/dev_docs/FFB_formulas.md "Rear Aligning Torque (v0.4.10 Workaround)"
+    static constexpr double REAR_TIRE_STIFFNESS_COEFFICIENT = 15.0; // N per (rad * N_load)
+    
+    // Maximum Rear Lateral Force Clamp (v0.4.10)
+    // Safety limit to prevent physics explosions if slip angle spikes unexpectedly.
+    // Value: ±6000 N - Represents maximum lateral force a race tire can generate.
+    // This clamp is applied AFTER the workaround calculation to ensure stability.
+    // Without this clamp, extreme slip angles (e.g., during spins) could generate
+    // unrealistic forces that would saturate the FFB output or cause oscillations.
+    static constexpr double MAX_REAR_LATERAL_FORCE = 6000.0; // N
+    
+    // Rear Align Torque Coefficient (v0.4.11)
+    // Converts rear lateral force (Newtons) to steering torque (Newton-meters).
+    // Formula: T_rear = F_lat * COEFFICIENT * m_rear_align_effect
+    // Value: 0.001 Nm/N - Tuned to produce ~3.0 Nm at 3000N lateral force with effect=1.0.
+    // This provides a distinct counter-steering cue during oversteer without overwhelming
+    // the base steering feel. Increased from 0.00025 in v0.4.10 (4x) to boost rear-end feedback.
+    // See: docs/dev_docs/FFB_formulas.md "Rear Aligning Torque"
+    static constexpr double REAR_ALIGN_TORQUE_COEFFICIENT = 0.001; // Nm per N
+    
+    // Synthetic Mode Deadzone Threshold (v0.4.13)
+    // Prevents sign flickering at steering center when using Synthetic (Constant) base force mode.
+    // Value: 0.5 Nm - If abs(game_force) < threshold, base input is set to 0.0.
+    // This creates a small deadzone around center to avoid rapid direction changes
+    // when the steering shaft torque oscillates near zero.
+    static constexpr double SYNTHETIC_MODE_DEADZONE_NM = 0.5; // Nm
+ 
+
+    // Gyroscopic Damping Constants (v0.4.17)
+    // Default steering range (540 degrees) if physics range is missing
+    static constexpr double DEFAULT_STEERING_RANGE_RAD = 9.4247; 
+    // Normalizes car speed (m/s) to 0-1 range for typical speeds (10m/s baseline)
+    static constexpr double GYRO_SPEED_SCALE = 10.0;
+    
+    // Kinematic Load Model Constants (v0.4.39)
+    // Weight Transfer Scaling: Approximates (Mass * Accel * CG_Height / Wheelbase)
+    // Value of 2000.0 is empirically tuned for typical race car geometry
+    // Real calculation would be: ~1100kg * 1.0G * 0.5m / 2.8m ≈ 1960N
+    static constexpr double WEIGHT_TRANSFER_SCALE = 2000.0; // N per G
+    
+    // Suspension Force Validity Threshold (v0.4.39)
+    // If mSuspForce < this value, assume telemetry is blocked (encrypted content)
+    // 10.0N is well below any realistic suspension force for a moving car
+    static constexpr double MIN_VALID_SUSP_FORCE = 10.0; // N 
+
+    // Lockup Frequency Differentiation Constants (v0.5.11)
+    // These constants control the tactile differentiation between front and rear wheel lockups.
+    // Front lockup uses 1.0x frequency (high pitch "Screech") for standard understeer feedback.
+    // Rear lockup uses 0.5x frequency (low pitch "Heavy Judder") to warn of rear axle instability.
+    // The amplitude boost emphasizes the danger of potential spin during rear lockups.
+    static constexpr double LOCKUP_FREQ_MULTIPLIER_REAR = 0.3;  // Rear lockup frequency (0.5: 50% of base) // 0.3;  // Even lower pitch
+    static constexpr double LOCKUP_AMPLITUDE_BOOST_REAR = 1.5;  // Rear lockup amplitude boost (1.2: 20% increase) //  1.5;  // 50% boost
+    
+    // Axle Differentiation Hysteresis (v0.5.13)
+    // Prevents rapid switching between front/rear lockup modes due to sensor noise.
+    // Rear lockup is only triggered when rear slip exceeds front slip by this margin (1% slip).
+    static constexpr double AXLE_DIFF_HYSTERESIS = 0.01;  // 1% slip buffer to prevent mode chattering
+    
+    // ABS Detection Thresholds (v0.6.0)
+    // These constants control when the ABS pulse effect is triggered.
+    static constexpr double ABS_PEDAL_THRESHOLD = 0.5;  // 50% pedal input required to detect ABS
+    static constexpr double ABS_PRESSURE_RATE_THRESHOLD = 2.0;  // bar/s pressure modulation rate
+    
+    // Predictive Lockup Gating Thresholds (v0.6.0)
+    // These constants define the conditions under which predictive logic is enabled.
+    static constexpr double PREDICTION_BRAKE_THRESHOLD = 0.02;  // 2% brake deadzone
+    static constexpr double PREDICTION_LOAD_THRESHOLD = 50.0;   // 50N minimum tire load (not airborne)
+
+
+public:
+    // Helper: Calculate Raw Slip Angle for a pair of wheels (v0.4.9 Refactor)
+    // Returns the average slip angle of two wheels using atan2(lateral_vel, longitudinal_vel)
+    // v0.4.19: Removed abs() from lateral velocity to preserve sign for debug visualization
+    double calculate_raw_slip_angle_pair(const TelemWheelV01& w1, const TelemWheelV01& w2) {
+        double v_long_1 = std::abs(w1.mLongitudinalGroundVel);
+        double v_long_2 = std::abs(w2.mLongitudinalGroundVel);
+        if (v_long_1 < MIN_SLIP_ANGLE_VELOCITY) v_long_1 = MIN_SLIP_ANGLE_VELOCITY;
+        if (v_long_2 < MIN_SLIP_ANGLE_VELOCITY) v_long_2 = MIN_SLIP_ANGLE_VELOCITY;
+        // v0.4.19: PRESERVE SIGN for debug graphs - do NOT use abs()
+        double raw_angle_1 = std::atan2(w1.mLateralPatchVel, v_long_1);
+        double raw_angle_2 = std::atan2(w2.mLateralPatchVel, v_long_2);
+        return (raw_angle_1 + raw_angle_2) / 2.0;
+    }
+
+    // Helper: Calculate Slip Angle (v0.4.6 LPF + Logic)
+    // v0.4.37: Added Time-Corrected Smoothing (Report v0.4.37)
+    // v0.4.19 CRITICAL FIX: Removed abs() from mLateralPatchVel to preserve sign
+    // This allows rear aligning torque to provide correct counter-steering in BOTH directions
+    double calculate_slip_angle(const TelemWheelV01& w, double& prev_state, double dt) {
+        double v_long = std::abs(w.mLongitudinalGroundVel);
+        if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
+        
+        // v0.4.19: PRESERVE SIGN - Do NOT use abs() on lateral velocity
+        // Positive lateral vel (+X = left) → Positive slip angle
+        // Negative lateral vel (-X = right) → Negative slip angle
+        // This sign is critical for directional counter-steering
+        double raw_angle = std::atan2(w.mLateralPatchVel, v_long);  // SIGN PRESERVED
+        
+        // LPF: Time Corrected Alpha (v0.4.37)
+        // Target: Alpha 0.1 at 400Hz (dt = 0.0025)
+        // Formula: alpha = dt / (tau + dt) -> 0.1 = 0.0025 / (tau + 0.0025) -> tau approx 0.0225s
+        // v0.4.40: Using configurable m_slip_angle_smoothing
+        double tau = (double)m_slip_angle_smoothing;
+        if (tau < 0.0001) tau = 0.0001; // Safety clamp 
+        
+        double alpha = dt / (tau + dt);
+        
+        // Safety clamp
+        alpha = (std::min)(1.0, (std::max)(0.001, alpha));
+
+        prev_state = prev_state + alpha * (raw_angle - prev_state);
+        return prev_state;
+    }
+
+    // Helper: Calculate Grip with Fallback (v0.4.6 Hardening)
+    GripResult calculate_grip(const TelemWheelV01& w1, 
+                              const TelemWheelV01& w2,
+                              double avg_load,
+                              bool& warned_flag,
+                              double& prev_slip1,
+                              double& prev_slip2,
+                              double car_speed,
+                              double dt,
+                              const char* vehicleName,
+                              const TelemInfoV01* data,
+                              bool is_front = true) {
+        GripResult result;
+        result.original = (w1.mGripFract + w2.mGripFract) / 2.0;
+        result.value = result.original;
+        result.approximated = false;
+        result.slip_angle = 0.0;
+        
+        // ==================================================================================
+        // CRITICAL LOGIC FIX (v0.4.14) - DO NOT MOVE INSIDE CONDITIONAL BLOCK
+        // ==================================================================================
+        // We MUST calculate slip angle every single frame, regardless of whether the 
+        // grip fallback is triggered or not.
+        //
+        // Reason 1 (Physics State): The Low Pass Filter (LPF) inside calculate_slip_angle 
+        //           relies on continuous execution. If we skip frames (because telemetry 
+        //           is good), the 'prev_slip' state becomes stale. When telemetry eventually 
+        //           fails, the LPF will smooth against ancient history, causing a math spike.
+        //
+        // Reason 2 (Dependency): The 'Rear Aligning Torque' effect (calculated later) 
+        //           reads 'result.slip_angle'. If we only calculate this when grip is 
+        //           missing, the Rear Torque effect will toggle ON/OFF randomly based on 
+        //           telemetry health, causing violent kicks and "reverse FFB" sensations.
+        // ==================================================================================
+        
+        double slip1 = calculate_slip_angle(w1, prev_slip1, dt);
+        double slip2 = calculate_slip_angle(w2, prev_slip2, dt);
+        result.slip_angle = (slip1 + slip2) / 2.0;
+
+        // Fallback condition: Grip is essentially zero BUT car has significant load
+        if (result.value < 0.0001 && avg_load > 100.0) {
+            result.approximated = true;
+            
+            // Low Speed Cutoff (v0.4.6)
+            if (car_speed < 5.0) {
+                // Note: We still keep the calculated slip_angle in result.slip_angle
+                // for visualization/rear torque, even if we force grip to 1.0 here.
+                result.value = 1.0; 
+            } else {
+                if (m_slope_detection_enabled && is_front && data) {
+                    // Dynamic grip estimation via derivative monitoring
+                    result.value = calculate_slope_grip(
+                        data->mLocalAccel.x / 9.81,  // Lateral G
+                        result.slip_angle,            // Slip angle (radians)
+                        dt
+                    );
+                } else {
+                    // v0.4.38: Combined Friction Circle (Advanced Reconstruction)
+                    
+                    // 1. Lateral Component (Alpha)
+                    // USE CONFIGURABLE THRESHOLD (v0.5.7)
+                    double lat_metric = std::abs(result.slip_angle) / (double)m_optimal_slip_angle;
+
+                    // 2. Longitudinal Component (Kappa)
+                    // Calculate manual slip for both wheels and average the magnitude
+                    double ratio1 = calculate_manual_slip_ratio(w1, car_speed);
+                    double ratio2 = calculate_manual_slip_ratio(w2, car_speed);
+                    double avg_ratio = (std::abs(ratio1) + std::abs(ratio2)) / 2.0;
+
+                    // USE CONFIGURABLE THRESHOLD (v0.5.7)
+                    double long_metric = avg_ratio / (double)m_optimal_slip_ratio;
+
+                    // 3. Combined Vector (Friction Circle)
+                    double combined_slip = std::sqrt((lat_metric * lat_metric) + (long_metric * long_metric));
+
+                    // 4. Map to Grip Fraction
+                    if (combined_slip > 1.0) {
+                        double excess = combined_slip - 1.0;
+                        // Sigmoid-like drop-off: 1 / (1 + 2x)
+                        result.value = 1.0 / (1.0 + excess * 2.0);
+                    } else {
+                        result.value = 1.0;
+                    }
+                }
+            }
+            
+            // Safety Clamp (v0.4.6): Never drop below 0.2 in approximation
+            result.value = (std::max)(0.2, result.value);
+            
+            if (!warned_flag) {
+                std::cout << "Warning: Data for mGripFract from the game seems to be missing for this car (" << vehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
+                warned_flag = true;
+            }
+        }
+        
+        result.value = (std::max)(0.0, (std::min)(1.0, result.value));
+        return result;
+    }
+
+    // Helper: Approximate Load (v0.4.5)
+    double approximate_load(const TelemWheelV01& w) {
+        // Base: Suspension Force + Est. Unsprung Mass (300N)
+        // Note: mSuspForce captures weight transfer and aero
+        return w.mSuspForce + 300.0;
+    }
+
+    // Helper: Approximate Rear Load (v0.4.10)
+    double approximate_rear_load(const TelemWheelV01& w) {
+        // Base: Suspension Force + Est. Unsprung Mass (300N)
+        // This captures weight transfer (braking/accel) and aero downforce implicitly via suspension compression
+        return w.mSuspForce + 300.0;
+    }
+
+    // Helper: Calculate Kinematic Load (v0.4.39)
+    // Estimates tire load from chassis physics when telemetry (mSuspForce) is missing.
+    // This is critical for encrypted DLC content where suspension sensors are blocked.
+    double calculate_kinematic_load(const TelemInfoV01* data, int wheel_index) {
+        // 1. Static Weight Distribution
+        bool is_rear = (wheel_index >= 2);
+        double bias = is_rear ? m_approx_weight_bias : (1.0 - m_approx_weight_bias);
+        double static_weight = (m_approx_mass_kg * 9.81 * bias) / 2.0;
+
+        // 2. Aerodynamic Load (Velocity Squared)
+        double speed = std::abs(data->mLocalVel.z);
+        double aero_load = m_approx_aero_coeff * (speed * speed);
+        double wheel_aero = aero_load / 4.0; 
+
+        // 3. Longitudinal Weight Transfer (Braking/Acceleration)
+        // COORDINATE SYSTEM VERIFIED (v0.4.39):
+        // - LMU: +Z axis points REARWARD (out the back of the car)
+        // - Braking: Chassis decelerates → Inertial force pushes rearward → +Z acceleration
+        // - Result: Front wheels GAIN load, Rear wheels LOSE load
+        // - Source: docs/dev_docs/references/Reference - coordinate_system_reference.md
+        // 
+        // Formula: (Accel / g) * WEIGHT_TRANSFER_SCALE
+        // We use SMOOTHED acceleration to simulate chassis pitch inertia (~35ms lag)
+        double long_transfer = (m_accel_z_smoothed / 9.81) * WEIGHT_TRANSFER_SCALE; 
+        if (is_rear) long_transfer *= -1.0; // Subtract from Rear during Braking
+
+        // 4. Lateral Weight Transfer (Cornering)
+        // COORDINATE SYSTEM VERIFIED (v0.4.39):
+        // - LMU: +X axis points LEFT (out the left side of the car)
+        // - Right Turn: Centrifugal force pushes LEFT → +X acceleration
+        // - Result: LEFT wheels (outside) GAIN load, RIGHT wheels (inside) LOSE load
+        // - Source: docs/dev_docs/references/Reference - coordinate_system_reference.md
+        // 
+        // Formula: (Accel / g) * WEIGHT_TRANSFER_SCALE * Roll_Stiffness
+        // We use SMOOTHED acceleration to simulate chassis roll inertia (~35ms lag)
+        double lat_transfer = (m_accel_x_smoothed / 9.81) * WEIGHT_TRANSFER_SCALE * m_approx_roll_stiffness;
+        bool is_left = (wheel_index == 0 || wheel_index == 2);
+        if (!is_left) lat_transfer *= -1.0; // Subtract from Right wheels
+
+        // Sum and Clamp
+        double total_load = static_weight + wheel_aero + long_transfer + lat_transfer;
+        return (std::max)(0.0, total_load);
+    }
+
+    // Helper: Calculate Manual Slip Ratio (v0.4.6)
+    double calculate_manual_slip_ratio(const TelemWheelV01& w, double car_speed_ms) {
+        // Safety Trap: Force 0 slip at very low speeds (v0.4.6)
+        if (std::abs(car_speed_ms) < 2.0) return 0.0;
+
+        // Radius in meters (stored as cm unsigned char)
+        // Explicit cast to double before division (v0.4.6)
+        double radius_m = (double)w.mStaticUndeflectedRadius / 100.0;
+        if (radius_m < 0.1) radius_m = 0.33; // Fallback if 0 or invalid
+        
+        double wheel_vel = w.mRotation * radius_m;
+        
+        // Avoid div-by-zero at standstill
+        double denom = std::abs(car_speed_ms);
+        if (denom < 1.0) denom = 1.0;
+        
+        // Ratio = (V_wheel - V_car) / V_car
+        // Lockup: V_wheel < V_car -> Ratio < 0
+        // Spin: V_wheel > V_car -> Ratio > 0
+        return (wheel_vel - car_speed_ms) / denom;
+    }
+
+    // Helper: Calculate Savitzky-Golay First Derivative - v0.7.0
+    // Uses closed-form coefficient generation for quadratic polynomial fit.
+    // Reference: docs/dev_docs/plans/savitzky-golay coefficients deep research report.md
+    double calculate_sg_derivative(const std::array<double, SLOPE_BUFFER_MAX>& buffer, 
+                                   int count, int window, double dt) {
+        // Ensure we have enough samples
+        if (count < window) return 0.0;
+        
+        int M = window / 2;  // Half-width (e.g., window=15 -> M=7)
+        
+        // Calculate S_2 = M(M+1)(2M+1)/3
+        double S2 = (double)M * (M + 1.0) * (2.0 * M + 1.0) / 3.0;
+        
+        // Correct Indexing (v0.7.0 Fix)
+        // m_slope_buffer_index points to the next slot to write.
+        // Latest sample is at (index - 1). Center is at (index - 1 - M).
+        int latest_idx = (m_slope_buffer_index - 1 + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+        int center_idx = (latest_idx - M + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+        
+        double sum = 0.0;
+        for (int k = 1; k <= M; ++k) {
+            int idx_pos = (center_idx + k + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+            int idx_neg = (center_idx - k + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
+            
+            // Weights for d=1 are simply k
+            sum += (double)k * (buffer[idx_pos] - buffer[idx_neg]);
+        }
+        
+        // Divide by dt to get derivative in units/second
+        return sum / (S2 * dt);
+    }
+
+    // Helper: Calculate Grip Factor from Slope - v0.7.0
+    // Main slope detection algorithm entry point
+    double calculate_slope_grip(double lateral_g, double slip_angle, double dt) {
+        // 1. Update Buffers
+        m_slope_lat_g_buffer[m_slope_buffer_index] = lateral_g;
+        m_slope_slip_buffer[m_slope_buffer_index] = std::abs(slip_angle);
+        m_slope_buffer_index = (m_slope_buffer_index + 1) % SLOPE_BUFFER_MAX;
+        if (m_slope_buffer_count < SLOPE_BUFFER_MAX) m_slope_buffer_count++;
+
+        // 2. Calculate Derivatives
+        // We need d(Lateral_G) / d(Slip_Angle)
+        // By chain rule: dG/dAlpha = (dG/dt) / (dAlpha/dt)
+        double dG_dt = calculate_sg_derivative(m_slope_lat_g_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
+        double dAlpha_dt = calculate_sg_derivative(m_slope_slip_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
+
+        // Store for logging
+        m_slope_dG_dt = dG_dt;
+        m_slope_dAlpha_dt = dAlpha_dt;
+
+        // 3. Estimate Slope (dG/dAlpha)
+        // v0.7.21 FIX: Denominator protection and gated calculation.
+        // We calculate the physical slope when steering movement is sufficient,
+        // and decay it toward zero otherwise to prevent "sticky" understeer.
+        if (std::abs(dAlpha_dt) > (double)m_slope_alpha_threshold) {
+            double abs_dAlpha = std::abs(dAlpha_dt);
+            double sign_dAlpha = (dAlpha_dt >= 0) ? 1.0 : -1.0;
+            double protected_denom = (std::max)(0.005, abs_dAlpha) * sign_dAlpha;
+            m_slope_current = dG_dt / protected_denom;
+
+            // v0.7.17 FIX: Hard clamp to physically possible range [-20.0, 20.0]
+            m_slope_current = std::clamp(m_slope_current, -20.0, 20.0);
+        } else {
+            // Decay slope toward 0 when not actively cornering
+            m_slope_current += (double)m_slope_decay_rate * dt * (0.0 - m_slope_current);
+        }
+
+        double current_grip_factor = 1.0;
+        double confidence = calculate_slope_confidence(dAlpha_dt);
+
+        // v0.7.11: InverseLerp based threshold mapping
+        // m_slope_min_threshold: Effect starts (e.g., -0.3)
+        // m_slope_max_threshold: Effect saturates (e.g., -2.0)
+        double loss_percent = inverse_lerp((double)m_slope_min_threshold, (double)m_slope_max_threshold, m_slope_current);
+        
+        // Scale loss by confidence and apply floor (0.2)
+        // 0% loss (loss_percent=0) -> 1.0 factor
+        // 100% loss (loss_percent=1) -> 0.2 factor
+        current_grip_factor = 1.0 - (loss_percent * 0.8 * confidence);
+
+        // Apply Floor (Safety)
+        current_grip_factor = (std::max)(0.2, (std::min)(1.0, current_grip_factor));
+
+        // 5. Smoothing (v0.7.0)
+        double alpha = dt / ((double)m_slope_smoothing_tau + dt);
+        alpha = (std::max)(0.001, (std::min)(1.0, alpha));
+        m_slope_smoothed_output += alpha * (current_grip_factor - m_slope_smoothed_output);
+
+        return m_slope_smoothed_output;
+    }
+
+    // Helper: Calculate confidence factor for slope detection
+    // Extracted to avoid code duplication between slope detection and logging
+    inline double calculate_slope_confidence(double dAlpha_dt) {
+        if (!m_slope_confidence_enabled) return 1.0;
+
+        // v0.7.21 FIX: Use smoothstep confidence ramp [m_slope_alpha_threshold, 0.10] rad/s
+        // to reject singularity artifacts near zero.
+        return smoothstep((double)m_slope_alpha_threshold, 0.10, std::abs(dAlpha_dt));
+    }
+
+    // Helper: Inverse linear interpolation - v0.7.11
+    // Returns normalized position of value between min and max
+    // Returns 0 if value >= min, 1 if value <= max (for negative threshold use)
+    // Clamped to [0, 1] range
+    inline double inverse_lerp(double min_val, double max_val, double value) {
+        double range = max_val - min_val;
+        if (std::abs(range) >= 0.0001) {
+            double t = (value - min_val) / (std::abs(range) >= 0.0001 ? range : 1.0);
+            return (std::max)(0.0, (std::min)(1.0, t));
+        }
+        
+        // Degenerate case when range is zero or near-zero
+        if (max_val >= min_val) return (value >= min_val) ? 1.0 : 0.0;
+        return (value <= min_val) ? 1.0 : 0.0;
+    }
+
+    // Helper: Smoothstep interpolation - v0.7.2
+    // Returns smooth S-curve interpolation from 0 to 1
+    // Uses Hermite polynomial: t² × (3 - 2t)
+    // Zero derivative at both endpoints for seamless transitions
+    inline double smoothstep(double edge0, double edge1, double x) {
+        double range = edge1 - edge0;
+        if (std::abs(range) >= 0.0001) {
+            double t = (x - edge0) / (std::abs(range) >= 0.0001 ? range : 1.0);
+            t = (std::max)(0.0, (std::min)(1.0, t));
+            return t * t * (3.0 - 2.0 * t);
+        }
+        return (x < edge0) ? 0.0 : 1.0;
+    }
+
+    // Helper: Calculate Slip Ratio from wheel (v0.6.36 - Extracted from lambdas)
+    // Unified slip ratio calculation for lockup and spin detection.
+    // Returns the ratio of longitudinal slip: (PatchVel - GroundVel) / GroundVel
+    double calculate_wheel_slip_ratio(const TelemWheelV01& w) {
+        double v_long = std::abs(w.mLongitudinalGroundVel);
+        if (v_long < MIN_SLIP_ANGLE_VELOCITY) v_long = MIN_SLIP_ANGLE_VELOCITY;
+        return w.mLongitudinalPatchVel / v_long;
+    }
+
+    // Refactored calculate_force
+    double calculate_force(const TelemInfoV01* data) {
+        if (!data) return 0.0;
+        
+        // --- 1. INITIALIZE CONTEXT ---
+        FFBCalculationContext ctx;
+        ctx.dt = data->mDeltaTime;
+
+        // Sanity Check: Delta Time
+        if (ctx.dt <= 0.000001) {
+            ctx.dt = 0.0025; // Default to 400Hz
+            if (!m_warned_dt) {
+                std::cout << "[WARNING] Invalid DeltaTime (<=0). Using default 0.0025s." << std::endl;
+                m_warned_dt = true;
+            }
+            ctx.frame_warn_dt = true;
+        }
+        
+        ctx.car_speed_long = data->mLocalVel.z;
+        ctx.car_speed = std::abs(ctx.car_speed_long);
+        
+        // Update Context strings (for UI/Logging)
+        // Only update if first char differs to avoid redundant copies
+        if (m_vehicle_name[0] != data->mVehicleName[0] || m_vehicle_name[10] != data->mVehicleName[10]) {
+#ifdef _WIN32
+             strncpy_s(m_vehicle_name, data->mVehicleName, 63);
+             m_vehicle_name[63] = '\0';
+             strncpy_s(m_track_name, data->mTrackName, 63);
+             m_track_name[63] = '\0';
+#else
+             strncpy(m_vehicle_name, data->mVehicleName, 63);
+             m_vehicle_name[63] = '\0';
+             strncpy(m_track_name, data->mTrackName, 63);
+             m_track_name[63] = '\0';
+#endif
+        }
+
+        // --- 2. SIGNAL CONDITIONING (STATE UPDATES) ---
+        
+        // Chassis Inertia Simulation
+        double chassis_tau = (double)m_chassis_inertia_smoothing;
+        if (chassis_tau < 0.0001) chassis_tau = 0.0001;
+        double alpha_chassis = ctx.dt / (chassis_tau + ctx.dt);
+        m_accel_x_smoothed += alpha_chassis * (data->mLocalAccel.x - m_accel_x_smoothed);
+        m_accel_z_smoothed += alpha_chassis * (data->mLocalAccel.z - m_accel_z_smoothed);
+
+        // --- 3. TELEMETRY PROCESSING ---
+        // Front Wheels
+        const TelemWheelV01& fl = data->mWheel[0];
+        const TelemWheelV01& fr = data->mWheel[1];
+
+        // Raw Inputs
+        double raw_torque = data->mSteeringShaftTorque;
+        double raw_load = (fl.mTireLoad + fr.mTireLoad) / 2.0;
+        double raw_grip = (fl.mGripFract + fr.mGripFract) / 2.0;
+
+        // Update Stats
+        s_torque.Update(raw_torque);
+        s_load.Update(raw_load);
+        s_grip.Update(raw_grip);
+        s_lat_g.Update(data->mLocalAccel.x);
+        
+        // Stats Latching
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count() >= 1) {
+            s_torque.ResetInterval(); 
+            s_load.ResetInterval(); 
+            s_grip.ResetInterval(); 
+            s_lat_g.ResetInterval();
+            last_log_time = now;
+        }
+
+        // --- 4. PRE-CALCULATIONS ---
+
+        // Average Load & Fallback Logic
+        ctx.avg_load = raw_load;
+
+        // Hysteresis for missing load
+        if (ctx.avg_load < 1.0 && ctx.car_speed > 1.0) {
+            m_missing_load_frames++;
+        } else {
+            m_missing_load_frames = (std::max)(0, m_missing_load_frames - 1);
+        }
+
+        if (m_missing_load_frames > 20) {
+            // Fallback Logic
+            if (fl.mSuspForce > MIN_VALID_SUSP_FORCE) {
+                double calc_load_fl = approximate_load(fl);
+                double calc_load_fr = approximate_load(fr);
+                ctx.avg_load = (calc_load_fl + calc_load_fr) / 2.0;
+            } else {
+                double kin_load_fl = calculate_kinematic_load(data, 0);
+                double kin_load_fr = calculate_kinematic_load(data, 1);
+                ctx.avg_load = (kin_load_fl + kin_load_fr) / 2.0;
+            }
+            if (!m_warned_load) {
+                std::cout << "Warning: Data for mTireLoad from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). Using Kinematic Fallback." << std::endl;
+                m_warned_load = true;
+            }
+            ctx.frame_warn_load = true;
+        }
+
+        // Sanity Checks (Missing Data)
+        
+        // 1. Suspension Force (mSuspForce)
+        double avg_susp_f = (fl.mSuspForce + fr.mSuspForce) / 2.0;
+        if (avg_susp_f < MIN_VALID_SUSP_FORCE && std::abs(data->mLocalVel.z) > 1.0) {
+            m_missing_susp_force_frames++;
+        } else {
+             m_missing_susp_force_frames = (std::max)(0, m_missing_susp_force_frames - 1);
+        }
+        if (m_missing_susp_force_frames > 50 && !m_warned_susp_force) {
+             std::cout << "Warning: Data for mSuspForce from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
+             m_warned_susp_force = true;
+        }
+
+        // 2. Suspension Deflection (mSuspensionDeflection)
+        double avg_susp_def = (std::abs(fl.mSuspensionDeflection) + std::abs(fr.mSuspensionDeflection)) / 2.0;
+        if (avg_susp_def < 0.000001 && std::abs(data->mLocalVel.z) > 10.0) {
+            m_missing_susp_deflection_frames++;
+        } else {
+            m_missing_susp_deflection_frames = (std::max)(0, m_missing_susp_deflection_frames - 1);
+        }
+        if (m_missing_susp_deflection_frames > 50 && !m_warned_susp_deflection) {
+            std::cout << "Warning: Data for mSuspensionDeflection from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
+            m_warned_susp_deflection = true;
+        }
+
+        // 3. Front Lateral Force (mLateralForce)
+        double avg_lat_force_front = (std::abs(fl.mLateralForce) + std::abs(fr.mLateralForce)) / 2.0;
+        if (avg_lat_force_front < 1.0 && std::abs(data->mLocalAccel.x) > 3.0) {
+            m_missing_lat_force_front_frames++;
+        } else {
+            m_missing_lat_force_front_frames = (std::max)(0, m_missing_lat_force_front_frames - 1);
+        }
+        if (m_missing_lat_force_front_frames > 50 && !m_warned_lat_force_front) {
+             std::cout << "Warning: Data for mLateralForce (Front) from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
+             m_warned_lat_force_front = true;
+        }
+
+        // 4. Rear Lateral Force (mLateralForce)
+        double avg_lat_force_rear = (std::abs(data->mWheel[2].mLateralForce) + std::abs(data->mWheel[3].mLateralForce)) / 2.0;
+        if (avg_lat_force_rear < 1.0 && std::abs(data->mLocalAccel.x) > 3.0) {
+            m_missing_lat_force_rear_frames++;
+        } else {
+            m_missing_lat_force_rear_frames = (std::max)(0, m_missing_lat_force_rear_frames - 1);
+        }
+        if (m_missing_lat_force_rear_frames > 50 && !m_warned_lat_force_rear) {
+             std::cout << "Warning: Data for mLateralForce (Rear) from the game seems to be missing for this car (" << data->mVehicleName << "). (Likely Encrypted/DLC Content). A fallback estimation will be used." << std::endl;
+             m_warned_lat_force_rear = true;
+        }
+
+        // 5. Vertical Tire Deflection (mVerticalTireDeflection)
+        double avg_vert_def = (std::abs(fl.mVerticalTireDeflection) + std::abs(fr.mVerticalTireDeflection)) / 2.0;
+        if (avg_vert_def < 0.000001 && std::abs(data->mLocalVel.z) > 10.0) {
+            m_missing_vert_deflection_frames++;
+        } else {
+            m_missing_vert_deflection_frames = (std::max)(0, m_missing_vert_deflection_frames - 1);
+        }
+        if (m_missing_vert_deflection_frames > 50 && !m_warned_vert_deflection) {
+            std::cout << "[WARNING] mVerticalTireDeflection is missing for car: " << data->mVehicleName 
+                      << ". (Likely Encrypted/DLC Content). Road Texture fallback active." << std::endl;
+            m_warned_vert_deflection = true;
+        }
+        
+        // Load Factors
+        double raw_load_factor = ctx.avg_load / 4000.0;
+        double texture_safe_max = (std::min)(2.0, (double)m_texture_load_cap);
+        ctx.texture_load_factor = (std::min)(texture_safe_max, (std::max)(0.0, raw_load_factor));
+
+        double brake_safe_max = (std::min)(10.0, (double)m_brake_load_cap);
+        ctx.brake_load_factor = (std::min)(brake_safe_max, (std::max)(0.0, raw_load_factor));
+        
+        // Decoupling Scale
+        double max_torque_safe = (double)m_max_torque_ref;
+        if (max_torque_safe < 1.0) max_torque_safe = 1.0;
+        ctx.decoupling_scale = max_torque_safe / 20.0;
+        if (ctx.decoupling_scale < 0.1) ctx.decoupling_scale = 0.1;
+
+        // Speed Gate - v0.7.2 Smoothstep S-curve
+        ctx.speed_gate = smoothstep(
+            (double)m_speed_gate_lower, 
+            (double)m_speed_gate_upper, 
+            ctx.car_speed
+        );
+
+        // --- 5. EFFECT CALCULATIONS ---
+
+        // A. Understeer (Base Torque + Grip Loss)
+
+        // Grip Estimation (v0.4.5 FIX)
+        GripResult front_grip_res = calculate_grip(fl, fr, ctx.avg_load, m_warned_grip, 
+                                                   m_prev_slip_angle[0], m_prev_slip_angle[1],
+                                                   ctx.car_speed, ctx.dt, data->mVehicleName, data, true);
+        ctx.avg_grip = front_grip_res.value;
+        m_grip_diag.front_original = front_grip_res.original;
+        m_grip_diag.front_approximated = front_grip_res.approximated;
+        m_grip_diag.front_slip_angle = front_grip_res.slip_angle;
+        if (front_grip_res.approximated) ctx.frame_warn_grip = true;
+
+        // 2. Signal Conditioning (Smoothing, Notch Filters)
+        double game_force_proc = apply_signal_conditioning(data->mSteeringShaftTorque, data, ctx);
+
+        // Base Force Mode
+        double base_input = 0.0;
+        if (m_base_force_mode == 0) {
+            base_input = game_force_proc;
+        } else if (m_base_force_mode == 1) {
+            if (std::abs(game_force_proc) > SYNTHETIC_MODE_DEADZONE_NM) {
+                double sign = (game_force_proc > 0.0) ? 1.0 : -1.0;
+                base_input = sign * (double)m_max_torque_ref;
+            }
+        }
+        
+        // Apply Grip Modulation
+        double grip_loss = (1.0 - ctx.avg_grip) * m_understeer_effect;
+        ctx.grip_factor = (std::max)(0.0, 1.0 - grip_loss);
+        
+        double output_force = (base_input * (double)m_steering_shaft_gain) * ctx.grip_factor;
+        output_force *= ctx.speed_gate;
+        
+        // B. SoP Lateral (Oversteer)
+        calculate_sop_lateral(data, ctx);
+        
+        // C. Gyro Damping
+        calculate_gyro_damping(data, ctx);
+        
+        // D. Effects
+        calculate_abs_pulse(data, ctx);
+        calculate_lockup_vibration(data, ctx);
+        calculate_wheel_spin(data, ctx);
+        calculate_slide_texture(data, ctx);
+        calculate_road_texture(data, ctx);
+        calculate_suspension_bottoming(data, ctx);
+        
+        // --- 6. SUMMATION ---
+        // Split into Structural (Attenuated by Spin) and Texture (Raw) groups
+        double structural_sum = output_force + ctx.sop_base_force + ctx.rear_torque + ctx.yaw_force + ctx.gyro_force +
+                                ctx.abs_pulse_force + ctx.lockup_rumble + ctx.scrub_drag_force;
+
+        // Apply Torque Drop (from Spin/Traction Loss) only to structural physics
+        structural_sum *= ctx.gain_reduction_factor;
+        
+        double texture_sum = ctx.road_noise + ctx.slide_noise + ctx.spin_rumble + ctx.bottoming_crunch;
+
+        double total_sum = structural_sum + texture_sum;
+
+        // --- 7. OUTPUT SCALING ---
+        double norm_force = total_sum / max_torque_safe;
+        norm_force *= m_gain;
+
+        // Min Force
+        if (std::abs(norm_force) > 0.0001 && std::abs(norm_force) < m_min_force) {
+            double sign = (norm_force > 0.0) ? 1.0 : -1.0;
+            norm_force = sign * m_min_force;
+        }
+
+        if (m_invert_force) {
+            norm_force *= -1.0;
+        }
+
+        // --- 8. STATE UPDATES (POST-CALC) ---
+        // CRITICAL: These updates must run UNCONDITIONALLY every frame to prevent
+        // stale state issues when effects are toggled on/off.
+        for (int i = 0; i < 4; i++) {
+            m_prev_vert_deflection[i] = data->mWheel[i].mVerticalTireDeflection;
+            m_prev_rotation[i] = data->mWheel[i].mRotation;
+            m_prev_brake_pressure[i] = data->mWheel[i].mBrakePressure;
+        }
+        m_prev_susp_force[0] = fl.mSuspForce;
+        m_prev_susp_force[1] = fr.mSuspForce;
+        
+        // v0.6.36 FIX: Move m_prev_vert_accel to unconditional section
+        // Previously only updated inside calculate_road_texture when enabled.
+        // Now always updated to prevent stale data if other effects use it.
+        m_prev_vert_accel = data->mLocalAccel.y;
+
+        // --- 9. SNAPSHOT ---
+        {
+            std::lock_guard<std::mutex> lock(m_debug_mutex);
+            if (m_debug_buffer.size() < 100) {
+                FFBSnapshot snap;
+                snap.total_output = (float)norm_force;
+                snap.base_force = (float)base_input;
+                snap.sop_force = (float)ctx.sop_unboosted_force; // Use unboosted for snapshot
+                snap.understeer_drop = (float)((base_input * m_steering_shaft_gain) * (1.0 - ctx.grip_factor));
+                snap.oversteer_boost = (float)(ctx.sop_base_force - ctx.sop_unboosted_force); // Exact boost amount
+
+                snap.ffb_rear_torque = (float)ctx.rear_torque;
+                snap.ffb_scrub_drag = (float)ctx.scrub_drag_force;
+                snap.ffb_yaw_kick = (float)ctx.yaw_force;
+                snap.ffb_gyro_damping = (float)ctx.gyro_force;
+                snap.texture_road = (float)ctx.road_noise;
+                snap.texture_slide = (float)ctx.slide_noise;
+                snap.texture_lockup = (float)ctx.lockup_rumble;
+                snap.texture_spin = (float)ctx.spin_rumble;
+                snap.texture_bottoming = (float)ctx.bottoming_crunch;
+                snap.clipping = (std::abs(norm_force) > 0.99f) ? 1.0f : 0.0f;
+
+                // Physics
+                snap.calc_front_load = (float)ctx.avg_load;
+                snap.calc_rear_load = (float)ctx.avg_rear_load;
+                snap.calc_rear_lat_force = (float)ctx.calc_rear_lat_force;
+                snap.calc_front_grip = (float)ctx.avg_grip;
+                snap.calc_rear_grip = (float)ctx.avg_rear_grip;
+                snap.calc_front_slip_angle_smoothed = (float)m_grip_diag.front_slip_angle;
+                snap.calc_rear_slip_angle_smoothed = (float)m_grip_diag.rear_slip_angle;
+
+                snap.raw_front_slip_angle = (float)calculate_raw_slip_angle_pair(fl, fr);
+                snap.raw_rear_slip_angle = (float)calculate_raw_slip_angle_pair(data->mWheel[2], data->mWheel[3]);
+
+                // Telemetry
+                snap.steer_force = (float)raw_torque;
+                snap.raw_input_steering = (float)data->mUnfilteredSteering;
+                snap.raw_front_tire_load = (float)raw_load;
+                snap.raw_front_grip_fract = (float)raw_grip;
+                snap.raw_rear_grip = (float)((data->mWheel[2].mGripFract + data->mWheel[3].mGripFract) / 2.0);
+                snap.raw_front_susp_force = (float)((fl.mSuspForce + fr.mSuspForce) / 2.0);
+                snap.raw_front_ride_height = (float)((std::min)(fl.mRideHeight, fr.mRideHeight));
+                snap.raw_rear_lat_force = (float)((data->mWheel[2].mLateralForce + data->mWheel[3].mLateralForce) / 2.0);
+                snap.raw_car_speed = (float)ctx.car_speed_long;
+                snap.raw_input_throttle = (float)data->mUnfilteredThrottle;
+                snap.raw_input_brake = (float)data->mUnfilteredBrake;
+                snap.accel_x = (float)data->mLocalAccel.x;
+                snap.raw_front_lat_patch_vel = (float)((std::abs(fl.mLateralPatchVel) + std::abs(fr.mLateralPatchVel)) / 2.0);
+                snap.raw_front_deflection = (float)((fl.mVerticalTireDeflection + fr.mVerticalTireDeflection) / 2.0);
+                snap.raw_front_long_patch_vel = (float)((fl.mLongitudinalPatchVel + fr.mLongitudinalPatchVel) / 2.0);
+                snap.raw_rear_lat_patch_vel = (float)((std::abs(data->mWheel[2].mLateralPatchVel) + std::abs(data->mWheel[3].mLateralPatchVel)) / 2.0);
+                snap.raw_rear_long_patch_vel = (float)((data->mWheel[2].mLongitudinalPatchVel + data->mWheel[3].mLongitudinalPatchVel) / 2.0);
+
+                snap.warn_load = ctx.frame_warn_load;
+                snap.warn_grip = ctx.frame_warn_grip || ctx.frame_warn_rear_grip;
+                snap.warn_dt = ctx.frame_warn_dt;
+                snap.debug_freq = (float)m_debug_freq;
+                snap.tire_radius = (float)fl.mStaticUndeflectedRadius / 100.0f;
+                snap.slope_current = (float)m_slope_current; // v0.7.1: Slope detection diagnostic
+
+                m_debug_buffer.push_back(snap);
+            }
+        }
+        
+        // Telemetry Logging (v0.7.x)
+        if (AsyncLogger::Get().IsLogging()) {
+            LogFrame frame;
+            frame.timestamp = data->mElapsedTime;
+            frame.delta_time = data->mDeltaTime;
+            
+            // Inputs
+            frame.steering = (float)data->mUnfilteredSteering;
+            frame.throttle = (float)data->mUnfilteredThrottle;
+            frame.brake = (float)data->mUnfilteredBrake;
+            
+            // Vehicle state
+            frame.speed = (float)ctx.car_speed;
+            frame.lat_accel = (float)data->mLocalAccel.x;
+            frame.long_accel = (float)data->mLocalAccel.z;
+            frame.yaw_rate = (float)data->mLocalRot.y;
+            
+            // Front Axle raw
+            frame.slip_angle_fl = (float)fl.mLateralPatchVel / (float)(std::max)(1.0, ctx.car_speed);
+            frame.slip_angle_fr = (float)fr.mLateralPatchVel / (float)(std::max)(1.0, ctx.car_speed);
+            frame.slip_ratio_fl = (float)calculate_wheel_slip_ratio(fl);
+            frame.slip_ratio_fr = (float)calculate_wheel_slip_ratio(fr);
+            frame.grip_fl = (float)fl.mGripFract;
+            frame.grip_fr = (float)fr.mGripFract;
+            frame.load_fl = (float)fl.mTireLoad;
+            frame.load_fr = (float)fr.mTireLoad;
+            
+            // Calculated values
+            frame.calc_slip_angle_front = (float)m_grip_diag.front_slip_angle;
+            frame.calc_grip_front = (float)ctx.avg_grip;
+            
+            // Slope detection
+            frame.dG_dt = (float)m_slope_dG_dt;
+            frame.dAlpha_dt = (float)m_slope_dAlpha_dt;
+            frame.slope_current = (float)m_slope_current;
+            frame.slope_smoothed = (float)m_slope_smoothed_output;
+            
+            // Use extracted confidence calculation
+            frame.confidence = (float)calculate_slope_confidence(m_slope_dAlpha_dt);
+            
+            // Rear axle
+            frame.calc_grip_rear = (float)ctx.avg_rear_grip;
+            frame.grip_delta = (float)(ctx.avg_grip - ctx.avg_rear_grip);
+            
+            // FFB output
+            frame.ffb_total = (float)norm_force;
+            frame.ffb_grip_factor = (float)ctx.grip_factor;
+            frame.ffb_sop = (float)ctx.sop_base_force;
+            frame.speed_gate = (float)ctx.speed_gate;
+            frame.clipping = (std::abs(norm_force) > 0.99);
+            frame.ffb_base = (float)base_input; // Plan included ffb_base
+            
+            AsyncLogger::Get().Log(frame);
+        }
+        
+        return (std::max)(-1.0, (std::min)(1.0, norm_force));
+    }
+
+    // ========================================
+    // Helper Methods (v0.6.36 Refactoring) - PUBLIC for testability
+    // ========================================
+
+    // Signal Conditioning: Applies idle smoothing and notch filters to raw torque
+    // Returns the conditioned force value ready for effect processing
+    double apply_signal_conditioning(double raw_torque, const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        double game_force_proc = raw_torque;
+
+        // Idle Smoothing
+        double effective_shaft_smoothing = (double)m_steering_shaft_smoothing;
+        double idle_speed_threshold = (double)m_speed_gate_upper;
+        if (idle_speed_threshold < 3.0) idle_speed_threshold = 3.0;
+        if (ctx.car_speed < idle_speed_threshold) {
+            double idle_blend = (idle_speed_threshold - ctx.car_speed) / idle_speed_threshold;
+            double dynamic_smooth = 0.1 * idle_blend; // 0.1s target
+            effective_shaft_smoothing = (std::max)(effective_shaft_smoothing, dynamic_smooth);
+        }
+        
+        if (effective_shaft_smoothing > 0.0001) {
+            double alpha_shaft = ctx.dt / (effective_shaft_smoothing + ctx.dt);
+            alpha_shaft = (std::min)(1.0, (std::max)(0.001, alpha_shaft));
+            m_steering_shaft_torque_smoothed += alpha_shaft * (game_force_proc - m_steering_shaft_torque_smoothed);
+            game_force_proc = m_steering_shaft_torque_smoothed;
+        } else {
+            m_steering_shaft_torque_smoothed = game_force_proc;
+        }
+
+        // Frequency Estimator Logic
+        double alpha_hpf = ctx.dt / (0.1 + ctx.dt);
+        m_torque_ac_smoothed += alpha_hpf * (game_force_proc - m_torque_ac_smoothed);
+        double ac_torque = game_force_proc - m_torque_ac_smoothed;
+
+        if ((m_prev_ac_torque < -0.05 && ac_torque > 0.05) ||
+            (m_prev_ac_torque > 0.05 && ac_torque < -0.05)) {
+
+            double now = data->mElapsedTime;
+            double period = now - m_last_crossing_time;
+
+            if (period > 0.005 && period < 1.0) {
+                double inst_freq = 1.0 / (period * 2.0);
+                m_debug_freq = m_debug_freq * 0.9 + inst_freq * 0.1;
+            }
+            m_last_crossing_time = now;
+        }
+        m_prev_ac_torque = ac_torque;
+
+        // Dynamic Notch Filter
+        const TelemWheelV01& fl_ref = data->mWheel[0];
+        double radius = (double)fl_ref.mStaticUndeflectedRadius / 100.0;
+        if (radius < 0.1) radius = 0.33;
+        double circumference = 2.0 * PI * radius;
+        double wheel_freq = (circumference > 0.0) ? (ctx.car_speed / circumference) : 0.0;
+        m_theoretical_freq = wheel_freq;
+        
+        if (m_flatspot_suppression) {
+            if (wheel_freq > 1.0) {
+                m_notch_filter.Update(wheel_freq, 1.0/ctx.dt, (double)m_notch_q);
+                double input_force = game_force_proc;
+                double filtered_force = m_notch_filter.Process(input_force);
+                game_force_proc = input_force * (1.0f - m_flatspot_strength) + filtered_force * m_flatspot_strength;
+            } else {
+                m_notch_filter.Reset();
+            }
+        }
+        
+        // Static Notch Filter
+        if (m_static_notch_enabled) {
+             double bw = (double)m_static_notch_width;
+             if (bw < 0.1) bw = 0.1;
+             double q = (double)m_static_notch_freq / bw;
+             m_static_notch_filter.Update((double)m_static_notch_freq, 1.0/ctx.dt, q);
+             game_force_proc = m_static_notch_filter.Process(game_force_proc);
+        } else {
+             m_static_notch_filter.Reset();
+        }
+
+        return game_force_proc;
+    }
+
+private:
+    // Effect Helper Methods
+
+    void calculate_sop_lateral(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        // Lateral G
+        double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
+        double lat_g = (raw_g / 9.81);
+        
+        // Smoothing
+        double smoothness = 1.0 - (double)m_sop_smoothing_factor;
+        smoothness = (std::max)(0.0, (std::min)(0.999, smoothness));
+        double tau = smoothness * 0.1;
+        double alpha = ctx.dt / (tau + ctx.dt);
+        alpha = (std::max)(0.001, (std::min)(1.0, alpha));
+        m_sop_lat_g_smoothed += alpha * (lat_g - m_sop_lat_g_smoothed);
+        
+        double sop_base = m_sop_lat_g_smoothed * m_sop_effect * (double)m_sop_scale * ctx.decoupling_scale;
+        ctx.sop_unboosted_force = sop_base; // Store unboosted for snapshot
+        
+        // Rear Grip Estimation (v0.4.5 FIX)
+        GripResult rear_grip_res = calculate_grip(data->mWheel[2], data->mWheel[3], ctx.avg_load, m_warned_rear_grip,
+                                                  m_prev_slip_angle[2], m_prev_slip_angle[3],
+                                                  ctx.car_speed, ctx.dt, data->mVehicleName, data, false);
+        ctx.avg_rear_grip = rear_grip_res.value;
+        m_grip_diag.rear_original = rear_grip_res.original;
+        m_grip_diag.rear_approximated = rear_grip_res.approximated;
+        m_grip_diag.rear_slip_angle = rear_grip_res.slip_angle;
+        if (rear_grip_res.approximated) ctx.frame_warn_rear_grip = true;
+        
+        // Lateral G Boost (Oversteer)
+        // v0.7.1 FIX: Disable when slope detection is enabled to prevent oscillations.
+        // Slope detection uses a different calculation method for front grip than the
+        // static threshold used for rear grip. This asymmetry creates artificial
+        // grip_delta values that cause feedback oscillation.
+        // See: docs/dev_docs/investigations/slope_detection_issues_v0.7.0.md (Issue 2)
+        if (!m_slope_detection_enabled) {
+            double grip_delta = ctx.avg_grip - ctx.avg_rear_grip;
+            if (grip_delta > 0.0) {
+                sop_base *= (1.0 + (grip_delta * m_oversteer_boost * 2.0));
+            }
+        }
+        ctx.sop_base_force = sop_base;
+        
+        // Rear Align Torque
+        double calc_load_rl = approximate_rear_load(data->mWheel[2]);
+        double calc_load_rr = approximate_rear_load(data->mWheel[3]);
+        ctx.avg_rear_load = (calc_load_rl + calc_load_rr) / 2.0;
+        
+        double rear_slip_angle = m_grip_diag.rear_slip_angle;
+        ctx.calc_rear_lat_force = rear_slip_angle * ctx.avg_rear_load * REAR_TIRE_STIFFNESS_COEFFICIENT;
+        ctx.calc_rear_lat_force = (std::max)(-MAX_REAR_LATERAL_FORCE, (std::min)(MAX_REAR_LATERAL_FORCE, ctx.calc_rear_lat_force));
+        
+        ctx.rear_torque = -ctx.calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect * ctx.decoupling_scale;
+        
+        // Yaw Kick
+        double raw_yaw_accel = data->mLocalRotAccel.y;
+        if (ctx.car_speed < 5.0) raw_yaw_accel = 0.0;
+        else if (std::abs(raw_yaw_accel) < (double)m_yaw_kick_threshold) raw_yaw_accel = 0.0;
+        
+        double tau_yaw = (double)m_yaw_accel_smoothing;
+        if (tau_yaw < 0.0001) tau_yaw = 0.0001;
+        double alpha_yaw = ctx.dt / (tau_yaw + ctx.dt);
+        m_yaw_accel_smoothed += alpha_yaw * (raw_yaw_accel - m_yaw_accel_smoothed);
+        
+        ctx.yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * (double)BASE_NM_YAW_KICK * ctx.decoupling_scale;
+        
+        // Apply Speed Gate
+        ctx.sop_base_force *= ctx.speed_gate;
+        ctx.rear_torque *= ctx.speed_gate;
+        ctx.yaw_force *= ctx.speed_gate;
+    }
+
+    void calculate_gyro_damping(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        float range = data->mPhysicalSteeringWheelRange;
+        if (range <= 0.0f) range = (float)DEFAULT_STEERING_RANGE_RAD;
+        double steer_angle = data->mUnfilteredSteering * (range / 2.0);
+        double steer_vel = (steer_angle - m_prev_steering_angle) / ctx.dt;
+        m_prev_steering_angle = steer_angle;
+        
+        double tau_gyro = (double)m_gyro_smoothing;
+        if (tau_gyro < 0.0001) tau_gyro = 0.0001;
+        double alpha_gyro = ctx.dt / (tau_gyro + ctx.dt);
+        m_steering_velocity_smoothed += alpha_gyro * (steer_vel - m_steering_velocity_smoothed);
+        
+        ctx.gyro_force = -1.0 * m_steering_velocity_smoothed * m_gyro_gain * (ctx.car_speed / GYRO_SPEED_SCALE) * ctx.decoupling_scale;
+    }
+
+    void calculate_abs_pulse(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        if (!m_abs_pulse_enabled) return;
+        
+        bool abs_active = false;
+        for (int i = 0; i < 4; i++) {
+            double pressure_delta = (data->mWheel[i].mBrakePressure - m_prev_brake_pressure[i]) / ctx.dt;
+            if (data->mUnfilteredBrake > ABS_PEDAL_THRESHOLD && std::abs(pressure_delta) > ABS_PRESSURE_RATE_THRESHOLD) {
+                abs_active = true;
+                break;
+            }
+        }
+        
+        if (abs_active) {
+            m_abs_phase += (double)m_abs_freq_hz * ctx.dt * TWO_PI;
+            m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
+            ctx.abs_pulse_force = (double)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * ctx.decoupling_scale * ctx.speed_gate);
+        }
+    }
+
+    // ... Implement other helpers inline ...
+
+    void calculate_lockup_vibration(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        if (!m_lockup_enabled) return;
+        
+        // ... (Keep existing logic, updating ctx.lockup_rumble) ...
+        double worst_severity = 0.0;
+        double chosen_freq_multiplier = 1.0;
+        double chosen_pressure_factor = 0.0;
+        
+        // v0.6.36: Use unified helper method instead of lambda
+
+        double slip_fl = calculate_wheel_slip_ratio(data->mWheel[0]);
+        double slip_fr = calculate_wheel_slip_ratio(data->mWheel[1]);
+        double worst_front = (std::min)(slip_fl, slip_fr);
+
+        for (int i = 0; i < 4; i++) {
+            const auto& w = data->mWheel[i];
+            double slip = calculate_wheel_slip_ratio(w);
+            double slip_abs = std::abs(slip);
+            double wheel_accel = (w.mRotation - m_prev_rotation[i]) / ctx.dt;
+            double radius = (double)w.mStaticUndeflectedRadius / 100.0;
+            if (radius < 0.1) radius = 0.33;
+            double car_dec_ang = -std::abs(data->mLocalAccel.z / radius);
+            double susp_vel = std::abs(w.mVerticalTireDeflection - m_prev_vert_deflection[i]) / ctx.dt;
+            bool is_bumpy = (susp_vel > (double)m_lockup_bump_reject);
+            bool brake_active = (data->mUnfilteredBrake > PREDICTION_BRAKE_THRESHOLD);
+            bool is_grounded = (w.mSuspForce > PREDICTION_LOAD_THRESHOLD);
+
+            double start_threshold = (double)m_lockup_start_pct / 100.0;
+            double full_threshold = (double)m_lockup_full_pct / 100.0;
+            double trigger_threshold = full_threshold;
+
+            if (brake_active && is_grounded && !is_bumpy) {
+                double sensitivity_threshold = -1.0 * (double)m_lockup_prediction_sens;
+                if (wheel_accel < car_dec_ang * 2.0 && wheel_accel < sensitivity_threshold) {
+                    trigger_threshold = start_threshold;
+                }
+            }
+
+            if (slip_abs > trigger_threshold) {
+                double window = full_threshold - start_threshold;
+                if (window < 0.01) window = 0.01;
+                double normalized = (slip_abs - start_threshold) / window;
+                double severity = (std::min)(1.0, (std::max)(0.0, normalized));
+                severity = std::pow(severity, (double)m_lockup_gamma);
+                
+                double freq_mult = 1.0;
+                if (i >= 2) {
+                    if (slip < (worst_front - AXLE_DIFF_HYSTERESIS)) {
+                        freq_mult = LOCKUP_FREQ_MULTIPLIER_REAR;
+                    }
+                }
+                double pressure_factor = w.mBrakePressure;
+                if (pressure_factor < 0.1 && slip_abs > 0.5) pressure_factor = 0.5;
+
+                if (severity > worst_severity) {
+                    worst_severity = severity;
+                    chosen_freq_multiplier = freq_mult;
+                    chosen_pressure_factor = pressure_factor;
+                }
+            }
+        }
+
+        if (worst_severity > 0.0) {
+            double base_freq = 10.0 + (ctx.car_speed * 1.5);
+            double final_freq = base_freq * chosen_freq_multiplier * (double)m_lockup_freq_scale;
+            m_lockup_phase += final_freq * ctx.dt * TWO_PI;
+            m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI);
+            double amp = worst_severity * chosen_pressure_factor * m_lockup_gain * (double)BASE_NM_LOCKUP_VIBRATION * ctx.decoupling_scale * ctx.brake_load_factor;
+            if (chosen_freq_multiplier < 1.0) amp *= (double)m_lockup_rear_boost;
+            ctx.lockup_rumble = std::sin(m_lockup_phase) * amp * ctx.speed_gate;
+        }
+    }
+
+    void calculate_wheel_spin(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        if (m_spin_enabled && data->mUnfilteredThrottle > 0.05) {
+            // v0.6.36: Use unified helper method instead of lambda
+            double slip_rl = calculate_wheel_slip_ratio(data->mWheel[2]);
+            double slip_rr = calculate_wheel_slip_ratio(data->mWheel[3]);
+            double max_slip = (std::max)(slip_rl, slip_rr);
+            
+            if (max_slip > 0.2) {
+                double severity = (max_slip - 0.2) / 0.5;
+                severity = (std::min)(1.0, severity);
+                
+                // Torque Drop (Floating feel)
+                ctx.gain_reduction_factor = (1.0 - (severity * m_spin_gain * 0.6));
+                
+                double slip_speed_ms = ctx.car_speed * max_slip;
+                double freq = (10.0 + (slip_speed_ms * 2.5)) * (double)m_spin_freq_scale;
+                if (freq > 80.0) freq = 80.0;
+                m_spin_phase += freq * ctx.dt * TWO_PI;
+                m_spin_phase = std::fmod(m_spin_phase, TWO_PI);
+                double amp = severity * m_spin_gain * (double)BASE_NM_SPIN_VIBRATION * ctx.decoupling_scale;
+                ctx.spin_rumble = std::sin(m_spin_phase) * amp;
+            }
+        }
+    }
+
+    void calculate_slide_texture(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        if (!m_slide_texture_enabled) return;
+        double lat_vel_fl = std::abs(data->mWheel[0].mLateralPatchVel);
+        double lat_vel_fr = std::abs(data->mWheel[1].mLateralPatchVel);
+        double front_slip_avg = (lat_vel_fl + lat_vel_fr) / 2.0;
+        double lat_vel_rl = std::abs(data->mWheel[2].mLateralPatchVel);
+        double lat_vel_rr = std::abs(data->mWheel[3].mLateralPatchVel);
+        double rear_slip_avg = (lat_vel_rl + lat_vel_rr) / 2.0;
+        double effective_slip_vel = (std::max)(front_slip_avg, rear_slip_avg);
+        
+        if (effective_slip_vel > 0.5) {
+            double base_freq = 10.0 + (effective_slip_vel * 5.0);
+            double freq = base_freq * (double)m_slide_freq_scale;
+            if (freq > 250.0) freq = 250.0;
+            m_slide_phase += freq * ctx.dt * TWO_PI;
+            m_slide_phase = std::fmod(m_slide_phase, TWO_PI);
+            double sawtooth = (m_slide_phase / TWO_PI) * 2.0 - 1.0;
+            double grip_scale = (std::max)(0.0, 1.0 - ctx.avg_grip);
+            ctx.slide_noise = sawtooth * m_slide_texture_gain * (double)BASE_NM_SLIDE_TEXTURE * ctx.texture_load_factor * grip_scale * ctx.decoupling_scale;
+        }
+    }
+
+    void calculate_road_texture(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        if (!m_road_texture_enabled) return;
+
+        // Scrub Drag
+        if (m_scrub_drag_gain > 0.0) {
+            double avg_lat_vel = (data->mWheel[0].mLateralPatchVel + data->mWheel[1].mLateralPatchVel) / 2.0;
+            double abs_lat_vel = std::abs(avg_lat_vel);
+            if (abs_lat_vel > 0.001) {
+                double fade = (std::min)(1.0, abs_lat_vel / 0.5);
+                double drag_dir = (avg_lat_vel > 0.0) ? -1.0 : 1.0;
+                ctx.scrub_drag_force = drag_dir * m_scrub_drag_gain * (double)BASE_NM_SCRUB_DRAG * fade * ctx.decoupling_scale;
+            }
+        }
+        
+        double delta_l = data->mWheel[0].mVerticalTireDeflection - m_prev_vert_deflection[0];
+        double delta_r = data->mWheel[1].mVerticalTireDeflection - m_prev_vert_deflection[1];
+        delta_l = (std::max)(-0.01, (std::min)(0.01, delta_l));
+        delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
+        
+        double road_noise_val = 0.0;
+        bool deflection_active = (std::abs(delta_l) > 0.000001 || std::abs(delta_r) > 0.000001);
+        
+        if (deflection_active || ctx.car_speed < 5.0) {
+            road_noise_val = (delta_l + delta_r) * 50.0;
+        } else {
+            // Fallback: Use Vertical Acceleration (Heave) for road feel
+            // m_prev_vert_accel is now updated unconditionally in STATE UPDATES section
+            double vert_accel = data->mLocalAccel.y;
+            double delta_accel = vert_accel - m_prev_vert_accel;
+            road_noise_val = delta_accel * 0.05 * 50.0;
+        }
+        
+        ctx.road_noise = road_noise_val * m_road_texture_gain * ctx.decoupling_scale * ctx.texture_load_factor;
+        ctx.road_noise *= ctx.speed_gate;
+    }
+
+    void calculate_suspension_bottoming(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+        if (!m_bottoming_enabled) return;
+        bool triggered = false;
+        double intensity = 0.0;
+        
+        if (m_bottoming_method == 0) {
+            double min_rh = (std::min)(data->mWheel[0].mRideHeight, data->mWheel[1].mRideHeight);
+            if (min_rh < 0.002 && min_rh > -1.0) {
+                triggered = true;
+                intensity = (0.002 - min_rh) / 0.002;
+            }
+        } else {
+            double dForceL = (data->mWheel[0].mSuspForce - m_prev_susp_force[0]) / ctx.dt;
+            double dForceR = (data->mWheel[1].mSuspForce - m_prev_susp_force[1]) / ctx.dt;
+            double max_dForce = (std::max)(dForceL, dForceR);
+            if (max_dForce > 100000.0) {
+                triggered = true;
+                intensity = (max_dForce - 100000.0) / 200000.0;
+            }
+        }
+
+        if (!triggered) {
+            double max_load = (std::max)(data->mWheel[0].mTireLoad, data->mWheel[1].mTireLoad);
+            if (max_load > 8000.0) {
+                triggered = true;
+                double excess = max_load - 8000.0;
+                intensity = std::sqrt(excess) * 0.05;
+            }
+        }
+
+        if (triggered) {
+            double bump_magnitude = intensity * m_bottoming_gain * (double)BASE_NM_BOTTOMING * ctx.decoupling_scale;
+            double freq = 50.0;
+            m_bottoming_phase += freq * ctx.dt * TWO_PI;
+            m_bottoming_phase = std::fmod(m_bottoming_phase, TWO_PI);
+            ctx.bottoming_crunch = std::sin(m_bottoming_phase) * bump_magnitude * ctx.speed_gate;
+        }
+    }
+};
+
+#endif // FFBENGINE_H
+
+```
+
+# File: src\GameConnector.cpp
+```cpp
+#include "GameConnector.h"
+#include "Logger.h"
+#ifndef _WIN32
+#include "lmu_sm_interface/LinuxMock.h"
+#endif
+#include "lmu_sm_interface/SafeSharedMemoryLock.h"
+#include <iostream>
+
+#define LEGACY_SHARED_MEMORY_NAME "$rFactor2SMMP_Telemetry$"
+
+GameConnector& GameConnector::Get() {
+    static GameConnector instance;
+    return instance;
+}
+
+GameConnector::GameConnector() {}
+
+GameConnector::~GameConnector() {
+    Disconnect();
+}
+
+void GameConnector::Disconnect() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    _DisconnectLocked();
+}
+
+void GameConnector::_DisconnectLocked() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+    if (m_pSharedMemLayout) {
+        UnmapViewOfFile(m_pSharedMemLayout);
+        m_pSharedMemLayout = nullptr;
+    }
+    if (m_hMapFile) {
+        CloseHandle(m_hMapFile);
+        m_hMapFile = NULL;
+    }
+    m_hwndGame = NULL;
+#endif
+    m_smLock.reset();
+    m_connected = false;
+    m_processId = 0;
+}
+
+bool GameConnector::TryConnect() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_connected) return true;
+
+    // Ensure we don't leak handles from a previous partial/failed attempt
+    _DisconnectLocked();
+
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+    m_hMapFile = OpenFileMappingA(FILE_MAP_READ, FALSE, LMU_SHARED_MEMORY_FILE);
+    
+    if (m_hMapFile == NULL) {
+        return false;
+    } 
+
+    m_pSharedMemLayout = (SharedMemoryLayout*)MapViewOfFile(m_hMapFile, FILE_MAP_READ, 0, 0, sizeof(SharedMemoryLayout));
+    if (m_pSharedMemLayout == NULL) {
+        std::cerr << "[GameConnector] Could not map view of file." << std::endl;
+        Logger::Get().LogWin32Error("MapViewOfFile", GetLastError());
+        _DisconnectLocked();
+        return false;
+    }
+
+    m_smLock = SafeSharedMemoryLock::MakeSafeSharedMemoryLock();
+    if (!m_smLock.has_value()) {
+        std::cerr << "[GameConnector] Failed to init LMU Shared Memory Lock" << std::endl;
+        Logger::Get().Log("Failed to init SafeSharedMemoryLock.");
+        _DisconnectLocked();
+        return false;
+    }
+
+    HWND hwnd = m_pSharedMemLayout->data.generic.appInfo.mAppWindow;
+    if (hwnd) {
+        m_hwndGame = hwnd; // Store HWND for liveness check (IsWindow)
+        // Note: multiple threads might access shared memory, but HWND is usually stable during session.
+        // We use IsWindow(m_hwndGame) instead of OpenProcess to avoid AV heuristics flagging "Process Access".
+    }
+
+    m_connected = true;
+    m_lastUpdateLocalTime = std::chrono::steady_clock::now();
+    std::cout << "[GameConnector] Connected to LMU Shared Memory." << std::endl;
+    Logger::Get().Log("Connected to LMU Shared Memory.");
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool GameConnector::CheckLegacyConflict() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+    HANDLE hLegacy = OpenFileMappingA(FILE_MAP_READ, FALSE, LEGACY_SHARED_MEMORY_NAME);
+    if (hLegacy) {
+        std::cout << "[Warning] Legacy rFactor 2 Shared Memory Plugin detected. This may conflict with LMU 1.2 data." << std::endl;
+        CloseHandle(hLegacy);
+        return true;
+    }
+#endif
+    return false;
+}
+
+bool GameConnector::IsConnected() const {
+  if (!m_connected.load(std::memory_order_acquire)) return false;
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (!m_connected.load(std::memory_order_relaxed)) return false;
+
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+  if (m_hwndGame) {
+    if (!IsWindow(m_hwndGame)) {
+      // Window is gone, game likely exited
+      const_cast<GameConnector*>(this)->_DisconnectLocked();
+      return false;
+    }
+  }
+#endif
+
+  return m_connected.load(std::memory_order_relaxed) && m_pSharedMemLayout && m_smLock.has_value();
+}
+
+bool GameConnector::CopyTelemetry(SharedMemoryObjectOut& dest) {
+    if (!m_connected.load(std::memory_order_acquire)) return false;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_connected.load(std::memory_order_relaxed) || !m_pSharedMemLayout || !m_smLock.has_value()) return false;
+
+    if (m_smLock->Lock(50)) {
+        CopySharedMemoryObj(dest, m_pSharedMemLayout->data);
+        
+        if (dest.telemetry.playerHasVehicle) {
+            uint8_t idx = dest.telemetry.playerVehicleIdx;
+            if (idx < 104) {
+                double currentET = dest.telemetry.telemInfo[idx].mElapsedTime;
+                if (currentET != m_lastElapsedTime) {
+                    m_lastElapsedTime = currentET;
+                    m_lastUpdateLocalTime = std::chrono::steady_clock::now();
+                }
+            }
+        } else {
+            m_lastUpdateLocalTime = std::chrono::steady_clock::now();
+        }
+
+        bool isRealtime = (m_pSharedMemLayout->data.scoring.scoringInfo.mInRealtime != 0);
+        m_smLock->Unlock();
+        return isRealtime;
+    } else {
+        return false;
+    }
+}
+
+bool GameConnector::IsStale(long timeoutMs) const {
+    if (!m_connected.load(std::memory_order_acquire)) return true;
+
+    auto now = std::chrono::steady_clock::now();
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastUpdateLocalTime).count();
+    return (diff > timeoutMs);
+}
+
+```
+
+# File: src\GameConnector.h
+```cpp
+#ifndef GAMECONNECTOR_H
+#define GAMECONNECTOR_H
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include "lmu_sm_interface/LinuxMock.h"
+#endif
+
+#include "lmu_sm_interface/LmuSharedMemoryWrapper.h"
+#include "lmu_sm_interface/SafeSharedMemoryLock.h"
+#include <mutex>
+#include <atomic>
+
+class GameConnector {
+public:
+    static GameConnector& Get();
+    
+    // Attempt to connect to LMU Shared Memory
+    bool TryConnect();
+    
+    // Disconnect and clean up resources
+    void Disconnect();
+    
+    // Check for Legacy rFactor 2 Plugin conflict
+    bool CheckLegacyConflict();
+    
+    // Is connected to LMU SM?
+    bool IsConnected() const;
+    
+    // Thread-safe copy of telemetry data
+    // Returns true if in realtime (driving) mode, false if in menu/replay
+    bool CopyTelemetry(SharedMemoryObjectOut& dest);
+
+    // Returns true if telemetry data hasn't changed for more than timeout (v0.7.15)
+    bool IsStale(long timeoutMs = 100) const;
+
+private:
+    GameConnector();
+    ~GameConnector();
+    
+    SharedMemoryLayout* m_pSharedMemLayout = nullptr;
+    mutable std::optional<SafeSharedMemoryLock> m_smLock;
+    HANDLE m_hMapFile = NULL;
+    mutable HWND m_hwndGame = NULL;
+    DWORD m_processId = 0;
+
+    std::atomic<bool> m_connected{false};
+    mutable std::mutex m_mutex;
+
+    // Heartbeat for staleness detection (v0.7.15)
+    double m_lastElapsedTime = -1.0;
+    mutable std::chrono::steady_clock::time_point m_lastUpdateLocalTime;
+
+    void _DisconnectLocked();
+};
+#endif // GAMECONNECTOR_H
+
+```
+
+# File: src\GuiLayer.h
+```cpp
+#ifndef GUILAYER_H
+#define GUILAYER_H
+
+#include "FFBEngine.h"
+#include <string>
+
+class GuiLayer {
+public:
+    static bool Init();
+    static void Shutdown(FFBEngine& engine);
+    
+    static void* GetWindowHandle(); // Returns HWND on Windows, GLFWwindow* on Linux
+    static void SetupGUIStyle();   // Setup professional theme
+
+    // Returns true if the GUI is active/focused (affects lazy rendering)
+    static bool Render(FFBEngine& engine);
+
+private:
+    static void DrawTuningWindow(FFBEngine& engine);
+    static void DrawDebugWindow(FFBEngine& engine);
+};
+
+// Platform helper functions (implemented in GuiLayer_Win32.cpp and GuiLayer_Linux.cpp)
+void ResizeWindowPlatform(int x, int y, int w, int h);
+void SaveCurrentWindowGeometryPlatform(bool is_graph_mode);
+void SetWindowAlwaysOnTopPlatform(bool enabled);
+bool OpenPresetFileDialogPlatform(std::string& outPath);
+bool SavePresetFileDialogPlatform(std::string& outPath, const std::string& defaultName);
+
+#endif // GUILAYER_H
+
+```
+
+# File: src\GuiLayer_Common.cpp
+```cpp
+#include "GuiLayer.h"
+#include "Version.h"
+#include "Config.h"
+#include "DirectInputFFB.h"
+#include "GameConnector.h"
+#include "GuiWidgets.h"
+#include "AsyncLogger.h"
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <cstring>
+#include <mutex>
+#include <chrono>
+#include <ctime>
+
+#ifdef ENABLE_IMGUI
+#include "imgui.h"
+
+// External linkage to FFB loop status
+extern std::atomic<bool> g_running;
+extern std::mutex g_engine_mutex;
+
+static const float CONFIG_PANEL_WIDTH = 500.0f;
+static const int LATENCY_WARNING_THRESHOLD_MS = 15;
+
+// Professional "Flat Dark" Theme
+void GuiLayer::SetupGUIStyle() {
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    style.WindowRounding = 5.0f;
+    style.FrameRounding = 4.0f;
+    style.GrabRounding = 4.0f;
+    style.FramePadding = ImVec2(8, 4);
+    style.ItemSpacing = ImVec2(8, 6);
+
+    ImVec4* colors = style.Colors;
+
+    colors[ImGuiCol_WindowBg]       = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_ChildBg]        = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_PopupBg]        = ImVec4(0.15f, 0.15f, 0.15f, 0.98f);
+
+    colors[ImGuiCol_Header]         = ImVec4(0.20f, 0.20f, 0.20f, 0.00f);
+    colors[ImGuiCol_HeaderHovered]  = ImVec4(0.25f, 0.25f, 0.25f, 0.50f);
+    colors[ImGuiCol_HeaderActive]   = ImVec4(0.30f, 0.30f, 0.30f, 0.50f);
+
+    colors[ImGuiCol_FrameBg]        = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_FrameBgActive]  = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+
+    ImVec4 accent = ImVec4(0.00f, 0.60f, 0.85f, 1.00f);
+    colors[ImGuiCol_SliderGrab]     = accent;
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.00f, 0.70f, 0.95f, 1.00f);
+    colors[ImGuiCol_Button]         = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_ButtonHovered]  = accent;
+    colors[ImGuiCol_ButtonActive]   = ImVec4(0.00f, 0.50f, 0.75f, 1.00f);
+    colors[ImGuiCol_CheckMark]      = accent;
+
+    colors[ImGuiCol_Text]           = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
+    colors[ImGuiCol_TextDisabled]   = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+}
+
+
+static constexpr std::chrono::seconds CONNECT_ATTEMPT_INTERVAL(2);
+
+void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    float current_width = Config::show_graphs ? CONFIG_PANEL_WIDTH : viewport->Size.x;
+
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(ImVec2(current_width, viewport->Size.y));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    ImGui::Begin("MainUI", nullptr, flags);
+
+    ImGui::TextColored(ImVec4(1, 1, 1, 0.4f), "lmuFFB v%s", LMUFFB_VERSION);
+    ImGui::Separator();
+
+    static std::chrono::steady_clock::time_point last_check_time = std::chrono::steady_clock::now();
+
+    if (!GameConnector::Get().IsConnected()) {
+      ImGui::TextColored(ImVec4(1, 1, 0, 1), "Connecting to LMU...");
+      if (std::chrono::steady_clock::now() - last_check_time > CONNECT_ATTEMPT_INTERVAL) {
+        last_check_time = std::chrono::steady_clock::now();
+        GameConnector::Get().TryConnect();
+      }
+    } else {
+      ImGui::TextColored(ImVec4(0, 1, 0, 1), "Connected to LMU");
+    }
+
+    static std::vector<DeviceInfo> devices;
+    static int selected_device_idx = -1;
+
+    if (devices.empty()) {
+        devices = DirectInputFFB::Get().EnumerateDevices();
+        if (selected_device_idx == -1 && !Config::m_last_device_guid.empty()) {
+            GUID target = DirectInputFFB::StringToGuid(Config::m_last_device_guid);
+            for (int i = 0; i < (int)devices.size(); i++) {
+                if (memcmp(&devices[i].guid, &target, sizeof(GUID)) == 0) {
+                    selected_device_idx = i;
+                    DirectInputFFB::Get().SelectDevice(devices[i].guid);
+                    break;
+                }
+            }
+        }
+    }
+
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
+    if (ImGui::BeginCombo("FFB Device", selected_device_idx >= 0 ? devices[selected_device_idx].name.c_str() : "Select Device...")) {
+        for (int i = 0; i < (int)devices.size(); i++) {
+            bool is_selected = (selected_device_idx == i);
+            ImGui::PushID(i);
+            if (ImGui::Selectable(devices[i].name.c_str(), is_selected)) {
+                selected_device_idx = i;
+                DirectInputFFB::Get().SelectDevice(devices[i].guid);
+                Config::m_last_device_guid = DirectInputFFB::GuidToString(devices[i].guid);
+                Config::Save(engine);
+            }
+            if (is_selected) ImGui::SetItemDefaultFocus();
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the DirectInput device to receive Force Feedback signals.\nTypically your steering wheel.");
+
+    ImGui::SameLine();
+    if (ImGui::Button("Rescan")) {
+        devices = DirectInputFFB::Get().EnumerateDevices();
+        selected_device_idx = -1;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Refresh the list of available DirectInput devices.");
+    ImGui::SameLine();
+    if (ImGui::Button("Unbind")) {
+        DirectInputFFB::Get().ReleaseDevice();
+        selected_device_idx = -1;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Release the current device and disable FFB output.");
+
+    if (DirectInputFFB::Get().IsActive()) {
+        if (DirectInputFFB::Get().IsExclusive()) {
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Mode: EXCLUSIVE (Game FFB Blocked)");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("lmuFFB has exclusive control.\nThe game can read steering but cannot send FFB.\nThis prevents 'Double FFB' issues.");
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "Mode: SHARED (Potential Conflict)");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("lmuFFB is sharing the device.\nEnsure In-Game FFB is disabled\nto avoid LMU reacquiring the device.");
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "No device selected.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Please select your steering wheel from the 'FFB Device' menu above.");
+    }
+
+    if (ImGui::Checkbox("Always on Top", &Config::m_always_on_top)) {
+        SetWindowAlwaysOnTopPlatform(Config::m_always_on_top);
+        Config::Save(engine);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keep the lmuFFB window visible over other applications (including the game).");
+    ImGui::SameLine();
+
+    bool toggled = Config::show_graphs;
+    if (ImGui::Checkbox("Graphs", &toggled)) {
+        SaveCurrentWindowGeometryPlatform(Config::show_graphs);
+        Config::show_graphs = toggled;
+        int target_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
+        int target_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
+        ResizeWindowPlatform(Config::win_pos_x, Config::win_pos_y, target_w, target_h);
+        Config::Save(engine);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show real-time physics and output graphs for debugging.\nIncreases window width.");
+
+    ImGui::Separator();
+    bool is_logging = AsyncLogger::Get().IsLogging();
+    if (is_logging) {
+         if (ImGui::Button("STOP LOG", ImVec2(80, 0))) {
+             AsyncLogger::Get().Stop();
+         }
+         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Finish recording and save the log file.");
+         ImGui::SameLine();
+         float time = (float)ImGui::GetTime();
+         bool blink = (fmod(time, 1.0f) < 0.5f);
+         ImGui::TextColored(blink ? ImVec4(1,0,0,1) : ImVec4(0.6f,0,0,1), "REC");
+         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Currently recording high-frequency telemetry data at 100Hz.");
+
+         ImGui::SameLine();
+         size_t bytes = AsyncLogger::Get().GetFileSizeBytes();
+         if (bytes < 1024 * 1024)
+             ImGui::Text("%zu f (%.0f KB)", AsyncLogger::Get().GetFrameCount(), (float)bytes / 1024.0f);
+         else
+             ImGui::Text("%zu f (%.1f MB)", AsyncLogger::Get().GetFrameCount(), (float)bytes / (1024.0f * 1024.0f));
+
+         ImGui::SameLine();
+         if (ImGui::Button("MARKER")) {
+             AsyncLogger::Get().SetMarker();
+         }
+         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add a timestamped marker to the log file to tag an interesting event.");
+    } else {
+         if (ImGui::Button("START LOGGING", ImVec2(120, 0))) {
+             SessionInfo info;
+             info.app_version = LMUFFB_VERSION;
+             if (engine.m_vehicle_name[0] != '\0') info.vehicle_name = engine.m_vehicle_name;
+             else info.vehicle_name = "UnknownCar";
+
+             if (engine.m_track_name[0] != '\0') info.track_name = engine.m_track_name;
+             else info.track_name = "UnknownTrack";
+
+             info.driver_name = "Auto";
+
+             info.gain = engine.m_gain;
+             info.understeer_effect = engine.m_understeer_effect;
+             info.sop_effect = engine.m_sop_effect;
+             info.slope_enabled = engine.m_slope_detection_enabled;
+             info.slope_sensitivity = engine.m_slope_sensitivity;
+             info.slope_threshold = (float)engine.m_slope_min_threshold;
+             info.slope_alpha_threshold = engine.m_slope_alpha_threshold;
+             info.slope_decay_rate = engine.m_slope_decay_rate;
+
+             AsyncLogger::Get().Start(info, Config::m_log_path);
+         }
+         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Start recording high-frequency telemetry and FFB data to a CSV file for analysis.");
+         ImGui::SameLine();
+         ImGui::TextDisabled("(Diagnostics)");
+    }
+
+
+    ImGui::Separator();
+
+    static int selected_preset = 0;
+
+    auto FormatDecoupled = [&](float val, float base_nm) {
+        float scale = (engine.m_max_torque_ref / 20.0f);
+        if (scale < 0.1f) scale = 0.1f;
+        float estimated_nm = val * base_nm * scale;
+        static char buf[64];
+        snprintf(buf, 64, "%.1f%%%% (~%.1f Nm)", val * 100.0f, estimated_nm);
+        return (const char*)buf;
+    };
+
+    auto FormatPct = [&](float val) {
+        static char buf[32];
+        snprintf(buf, 32, "%.1f%%%%", val * 100.0f);
+        return (const char*)buf;
+    };
+
+    auto FloatSetting = [&](const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr, std::function<void()> decorator = nullptr) {
+        GuiWidgets::Result res = GuiWidgets::Float(label, v, min, max, fmt, tooltip, decorator);
+        if (res.deactivated) {
+            Config::Save(engine);
+        }
+    };
+
+    auto BoolSetting = [&](const char* label, bool* v, const char* tooltip = nullptr) {
+        GuiWidgets::Result res = GuiWidgets::Checkbox(label, v, tooltip);
+        if (res.deactivated) {
+            Config::Save(engine);
+        }
+    };
+
+    auto IntSetting = [&](const char* label, int* v, const char* const items[], int items_count, const char* tooltip = nullptr) {
+        GuiWidgets::Result res = GuiWidgets::Combo(label, v, items, items_count, tooltip);
+        if (res.deactivated) {
+            Config::Save(engine);
+        }
+    };
+
+    if (ImGui::TreeNodeEx("Presets and Configuration", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+        if (Config::presets.empty()) Config::LoadPresets();
+
+        static bool first_run = true;
+        if (first_run && !Config::presets.empty()) {
+            for (int i = 0; i < (int)Config::presets.size(); i++) {
+                if (Config::presets[i].name == Config::m_last_preset_name) {
+                    selected_preset = i;
+                    break;
+                }
+            }
+            first_run = false;
+        }
+
+        static std::string preview_buf;
+        const char* preview_value = "Custom";
+        if (selected_preset >= 0 && selected_preset < (int)Config::presets.size()) {
+            preview_buf = Config::presets[selected_preset].name;
+            if (Config::IsEngineDirtyRelativeToPreset(selected_preset, engine)) {
+                preview_buf += "*";
+            }
+            preview_value = preview_buf.c_str();
+        }
+
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
+        if (ImGui::BeginCombo("Load Preset", preview_value)) {
+            for (int i = 0; i < (int)Config::presets.size(); i++) {
+                bool is_selected = (selected_preset == i);
+                ImGui::PushID(i);
+                if (ImGui::Selectable(Config::presets[i].name.c_str(), is_selected)) {
+                    selected_preset = i;
+                    Config::ApplyPreset(i, engine);
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+
+        static char new_preset_name[64] = "";
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
+        ImGui::InputText("##NewPresetName", new_preset_name, 64);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enter a name for your new user preset.");
+        ImGui::SameLine();
+        if (ImGui::Button("Save New")) {
+            if (strlen(new_preset_name) > 0) {
+                Config::AddUserPreset(std::string(new_preset_name), engine);
+                for (int i = 0; i < (int)Config::presets.size(); i++) {
+                    if (Config::presets[i].name == std::string(new_preset_name)) {
+                        selected_preset = i;
+                        break;
+                    }
+                }
+                new_preset_name[0] = '\0';
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create a new user preset from the current settings.");
+
+        if (ImGui::Button("Save Current Config")) {
+            if (selected_preset >= 0 && selected_preset < (int)Config::presets.size() && !Config::presets[selected_preset].is_builtin) {
+                Config::AddUserPreset(Config::presets[selected_preset].name, engine);
+            } else {
+                Config::Save(engine);
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save modifications to the selected user preset or global calibration.");
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Defaults")) {
+            Config::ApplyPreset(0, engine);
+            selected_preset = 0;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Revert all settings to factory default (T300 baseline).");
+        ImGui::SameLine();
+        if (ImGui::Button("Duplicate")) {
+            if (selected_preset >= 0) {
+                Config::DuplicatePreset(selected_preset, engine);
+                for (int i = 0; i < (int)Config::presets.size(); i++) {
+                    if (Config::presets[i].name == Config::m_last_preset_name) {
+                        selected_preset = i;
+                        break;
+                    }
+                }
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create a copy of the currently selected preset.");
+        ImGui::SameLine();
+        bool can_delete = (selected_preset >= 0 && selected_preset < (int)Config::presets.size() && !Config::presets[selected_preset].is_builtin);
+        if (!can_delete) ImGui::BeginDisabled();
+        if (ImGui::Button("Delete")) {
+            Config::DeletePreset(selected_preset, engine);
+            selected_preset = 0;
+            Config::ApplyPreset(0, engine);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove the selected user preset (builtin presets are protected).");
+        if (!can_delete) ImGui::EndDisabled();
+
+        ImGui::Separator();
+        if (ImGui::Button("Import Preset...")) {
+            std::string path;
+            if (OpenPresetFileDialogPlatform(path)) {
+                if (Config::ImportPreset(path, engine)) {
+                    selected_preset = (int)Config::presets.size() - 1;
+                }
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Import an external .ini preset file.");
+        ImGui::SameLine();
+        if (ImGui::Button("Export Selected...")) {
+            if (selected_preset >= 0 && selected_preset < (int)Config::presets.size()) {
+                std::string path;
+                std::string defaultName = Config::presets[selected_preset].name + ".ini";
+                if (SavePresetFileDialogPlatform(path, defaultName)) {
+                    Config::ExportPreset(selected_preset, path);
+                }
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Export the current preset to an external .ini file.");
+
+        ImGui::TreePop();
+    }
+
+    ImGui::Spacing();
+
+    ImGui::Columns(2, "SettingsGrid", false);
+    ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * 0.45f);
+
+    if (ImGui::TreeNodeEx("General FFB", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        BoolSetting("Invert FFB Signal", &engine.m_invert_force, "Check this if the wheel pulls away from center instead of aligning.");
+        FloatSetting("Master Gain", &engine.m_gain, 0.0f, 2.0f, FormatPct(engine.m_gain), "Global scale factor for all forces.\n100% = No attenuation.\nReduce if experiencing heavy clipping.");
+        FloatSetting("Max Torque Ref", &engine.m_max_torque_ref, 1.0f, 200.0f, "%.1f Nm", "The expected PEAK torque of the CAR in the game.");
+        FloatSetting("Min Force", &engine.m_min_force, 0.0f, 0.20f, "%.3f", "Boosts small forces to overcome mechanical friction/deadzone.");
+
+        ImGui::TreePop();
+    } else {
+        ImGui::NextColumn(); ImGui::NextColumn();
+    }
+
+    if (ImGui::TreeNodeEx("Front Axle (Understeer)", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        FloatSetting("Steering Shaft Gain", &engine.m_steering_shaft_gain, 0.0f, 2.0f, FormatPct(engine.m_steering_shaft_gain), "Scales the raw steering torque from the physics engine.");
+
+        FloatSetting("Steering Shaft Smoothing", &engine.m_steering_shaft_smoothing, 0.000f, 0.100f, "%.3f s",
+            "Low Pass Filter applied ONLY to the raw game force.",
+            [&]() {
+                int ms = (int)(engine.m_steering_shaft_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+            });
+
+        FloatSetting("Understeer Effect", &engine.m_understeer_effect, 0.0f, 2.0f, FormatPct(engine.m_understeer_effect),
+            "Scales how much front grip loss reduces steering force.");
+
+        const char* base_modes[] = { "Native (Steering Shaft Torque)", "Synthetic (Constant)", "Muted (Off)" };
+        IntSetting("Base Force Mode", &engine.m_base_force_mode, base_modes, sizeof(base_modes)/sizeof(base_modes[0]),
+            "Debug tool to isolate effects.\nNative: Normal Operation.\nSynthetic: Constant force to test direction.\nMuted: Disables base physics (good for tuning vibrations).");
+
+        if (ImGui::TreeNodeEx("Signal Filtering", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::NextColumn(); ImGui::NextColumn();
+
+            BoolSetting("  Flatspot Suppression", &engine.m_flatspot_suppression, "Dynamic Notch Filter that targets wheel rotation frequency.\nSuppresses vibrations caused by tire flatspots.");
+            if (engine.m_flatspot_suppression) {
+                FloatSetting("    Filter Width (Q)", &engine.m_notch_q, 0.5f, 10.0f, "Q: %.2f", "Quality Factor of the Notch Filter.\nHigher = Narrower bandwidth (surgical removal).\nLower = Wider bandwidth (affects surrounding frequencies).");
+                FloatSetting("    Suppression Strength", &engine.m_flatspot_strength, 0.0f, 1.0f, "%.2f", "How strongly to mute the flatspot vibration.\n1.0 = 100% removal.");
+                ImGui::Text("    Est. / Theory Freq");
+                ImGui::NextColumn();
+                ImGui::TextDisabled("%.1f Hz / %.1f Hz", engine.m_debug_freq, engine.m_theoretical_freq);
+                ImGui::NextColumn();
+            }
+
+            BoolSetting("  Static Noise Filter", &engine.m_static_notch_enabled, "Fixed frequency notch filter to remove hardware resonance or specific noise.");
+            if (engine.m_static_notch_enabled) {
+                FloatSetting("    Target Frequency", &engine.m_static_notch_freq, 10.0f, 100.0f, "%.1f Hz", "Center frequency to suppress.");
+                FloatSetting("    Filter Width", &engine.m_static_notch_width, 0.1f, 10.0f, "%.1f Hz", "Bandwidth of the notch filter.\nLarger = Blocks more frequencies around the target.");
+            }
+
+            ImGui::TreePop();
+        } else {
+            ImGui::NextColumn(); ImGui::NextColumn();
+        }
+
+        ImGui::TreePop();
+    } else {
+        ImGui::NextColumn(); ImGui::NextColumn();
+    }
+
+    if (ImGui::TreeNodeEx("Rear Axle (Oversteer)", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        FloatSetting("Lateral G Boost (Slide)", &engine.m_oversteer_boost, 0.0f, 4.0f, FormatPct(engine.m_oversteer_boost),
+            "Increases the Lateral G (SoP) force when the rear tires lose grip.\nMakes the car feel heavier during a slide, helping you judge the momentum.\nShould build up slightly more gradually than Rear Align Torque,\nreflecting the inertia of the car's mass swinging out.\nIt's a sustained force that tells you about the magnitude of the slide\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
+        FloatSetting("Lateral G", &engine.m_sop_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_sop_effect, FFBEngine::BASE_NM_SOP_LATERAL), "Represents Chassis Roll, simulates the weight of the car leaning in the corner.");
+        FloatSetting("SoP Self-Aligning Torque", &engine.m_rear_align_effect, 0.0f, 2.0f, FormatDecoupled(engine.m_rear_align_effect, FFBEngine::BASE_NM_REAR_ALIGN),
+            "Counter-steering force generated by rear tire slip.\nShould build up very quickly after the Yaw Kick, as the slip angle develops.\nThis is the active \"pull.\"\nTuning Goal: The driver should feel the direction of the counter-steer (Rear Align)\nand the effort required to hold it (Lateral G Boost).");
+        FloatSetting("Yaw Kick", &engine.m_sop_yaw_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_sop_yaw_gain, FFBEngine::BASE_NM_YAW_KICK),
+            "This is the earliest cue for rear stepping out. It's a sharp, momentary impulse that signals the onset of rotation.\nBased on Yaw Acceleration.");
+        FloatSetting("  Activation Threshold", &engine.m_yaw_kick_threshold, 0.0f, 10.0f, "%.2f rad/s²", "Minimum yaw acceleration required to trigger the kick.\nIncrease to filter out road noise and small vibrations.");
+
+        FloatSetting("  Kick Response", &engine.m_yaw_accel_smoothing, 0.000f, 0.050f, "%.3f s",
+            "Low Pass Filter for the Yaw Kick signal.\nSmoothes out kick noise.\nLower = Sharper/Faster kick.\nHigher = Duller/Softer kick.",
+            [&]() {
+                int ms = (int)(engine.m_yaw_accel_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms <= 15) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms", ms);
+            });
+
+        FloatSetting("Gyro Damping", &engine.m_gyro_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_gyro_gain, FFBEngine::BASE_NM_GYRO_DAMPING), "Simulates the gyroscopic solidity of the spinning wheels.\nResists rapid steering movements.\nPrevents oscillation and 'Tank Slappers'.\nActs like a steering damper.");
+
+        FloatSetting("  Gyro Smooth", &engine.m_gyro_smoothing, 0.000f, 0.050f, "%.3f s",
+            "Filters the steering velocity signal used for damping.\nReduces noise in the damping effect.\nLow = Crisper damping, High = Smoother.",
+            [&]() {
+                int ms = (int)(engine.m_gyro_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms <= 20) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms", ms);
+            });
+
+        ImGui::TextColored(ImVec4(0.0f, 0.6f, 0.85f, 1.0f), "Advanced SoP");
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        FloatSetting("SoP Smoothing", &engine.m_sop_smoothing_factor, 0.0f, 1.0f, "%.2f",
+            "Filters the Lateral G signal.\nReduces jerkiness in the SoP effect.",
+            [&]() {
+                int ms = (int)((1.0f - engine.m_sop_smoothing_factor) * 100.0f + 0.5f);
+                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+            });
+
+        FloatSetting("  SoP Scale", &engine.m_sop_scale, 0.0f, 20.0f, "%.2f", "Multiplies the raw G-force signal before limiting.\nAdjusts the dynamic range of the SoP effect.");
+
+        ImGui::TreePop();
+    } else {
+        ImGui::NextColumn(); ImGui::NextColumn();
+    }
+
+    if (ImGui::TreeNodeEx("Grip & Slip Angle Estimation", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        FloatSetting("Slip Angle Smoothing", &engine.m_slip_angle_smoothing, 0.000f, 0.100f, "%.3f s",
+            "Applies a time-based filter (LPF) to the Calculated Slip Angle used to estimate tire grip.\n"
+            "Smooths the high fluctuations from lateral and longitudinal velocity,\nespecially over bumps or curbs.\n"
+            "Affects: Understeer effect, Rear Aligning Torque.",
+            [&]() {
+                int ms = (int)(engine.m_slip_angle_smoothing * 1000.0f + 0.5f);
+                ImVec4 color = (ms < LATENCY_WARNING_THRESHOLD_MS) ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1);
+                ImGui::TextColored(color, "Latency: %d ms - %s", ms, (ms < LATENCY_WARNING_THRESHOLD_MS) ? "OK" : "High");
+            });
+
+        FloatSetting("Chassis Inertia (Load)", &engine.m_chassis_inertia_smoothing, 0.000f, 0.100f, "%.3f s",
+            "Simulation time for weight transfer.\nSimulates how fast the suspension settles.\nAffects calculated tire load magnitude.\n25ms = Stiff Race Car.\n50ms = Soft Road Car.",
+            [&]() {
+                int ms = (int)(engine.m_chassis_inertia_smoothing * 1000.0f + 0.5f);
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 1.0f, 1.0f), "Simulation: %d ms", ms);
+            });
+
+        FloatSetting("Optimal Slip Angle", &engine.m_optimal_slip_angle, 0.05f, 0.20f, "%.2f rad",
+            "The slip angle THRESHOLD above which grip loss begins.\n"
+            "Set this HIGHER than the car's physical peak slip angle.\n"
+            "Recommended: 0.10 for LMDh/LMP2, 0.12 for GT3.\n\n"
+            "Lower = More sensitive (force drops earlier).\n"
+            "Higher = More buffer zone before force drops.\n\n"
+            "NOTE: If the wheel feels too light at the limit, INCREASE this value.\n"
+            "Affects: Understeer Effect, Lateral G Boost (Slide), Slide Texture.");
+        FloatSetting("Optimal Slip Ratio", &engine.m_optimal_slip_ratio, 0.05f, 0.20f, "%.2f",
+            "The longitudinal slip ratio (0.0-1.0) where peak braking/traction occurs.\n"
+            "Typical: 0.12 - 0.15 (12-15%).\n"
+            "Used to estimate grip loss under braking/acceleration.\n"
+            "Affects: How much braking/acceleration contributes to calculated grip loss.");
+
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Slope Detection (Experimental)");
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        bool prev_slope_enabled = engine.m_slope_detection_enabled;
+        GuiWidgets::Result slope_res = GuiWidgets::Checkbox("Enable Slope Detection", &engine.m_slope_detection_enabled,
+            "Replaces static 'Optimal Slip Angle' threshold with dynamic derivative monitoring.\n\n"
+            "When enabled:\n"
+            "• Grip is estimated by tracking the slope of lateral-G vs slip angle\n"
+            "• Automatically adapts to tire temperature, wear, and conditions\n"
+            "• 'Optimal Slip Angle' and 'Optimal Slip Ratio' settings are IGNORED\n\n"
+            "When disabled:\n"
+            "• Uses the static threshold method (default behavior)");
+
+        if (slope_res.changed) {
+            if (!prev_slope_enabled && engine.m_slope_detection_enabled) {
+                engine.m_slope_buffer_count = 0;
+                engine.m_slope_buffer_index = 0;
+                engine.m_slope_smoothed_output = 1.0;
+            }
+        }
+        if (slope_res.deactivated) {
+            Config::Save(engine);
+        }
+
+        if (engine.m_slope_detection_enabled && engine.m_oversteer_boost > 0.01f) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f),
+                "Note: Lateral G Boost (Slide) is auto-disabled when Slope Detection is ON.");
+            ImGui::NextColumn(); ImGui::NextColumn();
+        }
+
+        if (engine.m_slope_detection_enabled) {
+            int window = engine.m_slope_sg_window;
+            if (ImGui::SliderInt("  Filter Window", &window, 5, 41)) {
+                if (window % 2 == 0) window++;
+                engine.m_slope_sg_window = window;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Savitzky-Golay filter window size (samples).\n\n"
+                    "Larger = Smoother but higher latency\n"
+                    "Smaller = Faster response but noisier\n\n"
+                    "Recommended:\n"
+                    "  Direct Drive: 11-15\n"
+                    "  Belt Drive: 15-21\n"
+                    "  Gear Drive: 21-31\n\n"
+                    "Must be ODD (enforced automatically).");
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
+
+            ImGui::SameLine();
+            float latency_ms = (float)(engine.m_slope_sg_window / 2) * 2.5f;
+            ImVec4 color = (latency_ms < 25.0f) ? ImVec4(0,1,0,1) : ImVec4(1,0.5f,0,1);
+            ImGui::TextColored(color, "~%.0f ms latency", latency_ms);
+            ImGui::NextColumn(); ImGui::NextColumn();
+
+            FloatSetting("  Sensitivity", &engine.m_slope_sensitivity, 0.1f, 5.0f, "%.1fx",
+                "Multiplier for slope-to-grip conversion.\n"
+                "Higher = More aggressive grip loss detection.\n"
+                "Lower = Smoother, less pronounced effect.");
+
+            if (ImGui::TreeNode("Advanced Slope Settings")) {
+                ImGui::NextColumn(); ImGui::NextColumn();
+                FloatSetting("  Slope Threshold", &engine.m_slope_min_threshold, -1.0f, 0.0f, "%.2f", "Slope value below which grip loss begins.\nMore negative = Later detection (safer).");
+                FloatSetting("  Output Smoothing", &engine.m_slope_smoothing_tau, 0.005f, 0.100f, "%.3f s", "Time constant for grip factor smoothing.\nPrevents abrupt FFB changes.");
+
+                ImGui::Separator();
+                ImGui::Text("Stability Fixes (v0.7.3)");
+                ImGui::NextColumn(); ImGui::NextColumn();
+                FloatSetting("  Alpha Threshold", &engine.m_slope_alpha_threshold, 0.001f, 0.100f, "%.3f", "Confidence threshold for slope detection.\nHigher = Stricter (less noise, potentially slower).");
+                FloatSetting("  Decay Rate", &engine.m_slope_decay_rate, 0.5f, 20.0f, "%.1f", "How quickly the grip factor recovers after a slide.\nHigher = Faster recovery.");
+                BoolSetting("  Confidence Gate", &engine.m_slope_confidence_enabled, "Ensures slope changes are statistically significant before applying grip loss.");
+
+                ImGui::TreePop();
+            } else {
+                ImGui::NextColumn(); ImGui::NextColumn();
+            }
+
+            ImGui::Text("  Live Slope: %.3f | Grip: %.0f%%",
+                engine.m_slope_current,
+                engine.m_slope_smoothed_output * 100.0f);
+            ImGui::NextColumn(); ImGui::NextColumn();
+        }
+
+        ImGui::TreePop();
+    } else {
+        ImGui::NextColumn(); ImGui::NextColumn();
+    }
+
+    if (ImGui::TreeNodeEx("Braking & Lockup", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        BoolSetting("Lockup Vibration", &engine.m_lockup_enabled, "Simulates tire judder when wheels are locked under braking.");
+        if (engine.m_lockup_enabled) {
+            FloatSetting("  Lockup Strength", &engine.m_lockup_gain, 0.0f, 3.0f, FormatDecoupled(engine.m_lockup_gain, FFBEngine::BASE_NM_LOCKUP_VIBRATION), "Controls the intensity of the vibration when wheels lock up.\nScales with wheel load and speed.");
+            FloatSetting("  Brake Load Cap", &engine.m_brake_load_cap, 1.0f, 10.0f, "%.2fx", "Scales vibration intensity based on tire load.\nPrevents weak vibrations during high-speed heavy braking.");
+            FloatSetting("  Vibration Pitch", &engine.m_lockup_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of lockup and wheel spin vibrations.\nMatch to your hardware resonance.");
+
+            ImGui::Separator();
+            ImGui::Text("Response Curve");
+            ImGui::NextColumn(); ImGui::NextColumn();
+
+            FloatSetting("  Gamma", &engine.m_lockup_gamma, 0.1f, 3.0f, "%.1f", "Response Curve Non-Linearity.\n1.0 = Linear.\n>1.0 = Progressive (Starts weak, gets strong fast).\n<1.0 = Aggressive (Starts strong). 2.0=Quadratic, 3.0=Cubic (Late/Sharp)");
+            FloatSetting("  Start Slip %", &engine.m_lockup_start_pct, 1.0f, 10.0f, "%.1f%%", "Slip percentage where vibration begins.\n1.0% = Immediate feedback.\n5.0% = Only on deep lock.");
+            FloatSetting("  Full Slip %", &engine.m_lockup_full_pct, 5.0f, 25.0f, "%.1f%%", "Slip percentage where vibration reaches maximum intensity.");
+
+            ImGui::Separator();
+            ImGui::Text("Prediction (Advanced)");
+            ImGui::NextColumn(); ImGui::NextColumn();
+
+            FloatSetting("  Sensitivity", &engine.m_lockup_prediction_sens, 10.0f, 100.0f, "%.0f", "Angular Deceleration Threshold.\nHow aggressively the system predicts a lockup before it physically occurs.\nLower = More sensitive (triggers earlier).\nHigher = Less sensitive.");
+            FloatSetting("  Bump Rejection", &engine.m_lockup_bump_reject, 0.1f, 5.0f, "%.1f m/s", "Suspension velocity threshold.\nDisables prediction on bumpy surfaces to prevent false positives.\nIncrease for bumpy tracks (Sebring).");
+            FloatSetting("  Rear Boost", &engine.m_lockup_rear_boost, 1.0f, 10.0f, "%.2fx", "Multiplies amplitude when rear wheels lock harder than front wheels.\nHelps distinguish rear locking (dangerous) from front locking (understeer).");
+        }
+
+        ImGui::Separator();
+        ImGui::Text("ABS & Hardware");
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        BoolSetting("ABS Pulse", &engine.m_abs_pulse_enabled, "Simulates the pulsing of an ABS system.\nInjects high-frequency pulse when ABS modulates pressure.");
+        if (engine.m_abs_pulse_enabled) {
+            FloatSetting("  Pulse Gain", &engine.m_abs_gain, 0.0f, 10.0f, "%.2f", "Intensity of the ABS pulse.");
+            FloatSetting("  Pulse Frequency", &engine.m_abs_freq_hz, 10.0f, 50.0f, "%.1f Hz", "Rate of the ABS pulse oscillation.");
+        }
+
+        ImGui::TreePop();
+    } else {
+        ImGui::NextColumn(); ImGui::NextColumn();
+    }
+
+    if (ImGui::TreeNodeEx("Tactile Textures", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+        ImGui::NextColumn(); ImGui::NextColumn();
+
+        FloatSetting("Texture Load Cap", &engine.m_texture_load_cap, 1.0f, 3.0f, "%.2fx", "Safety Limiter specific to Road and Slide textures.\nPrevents violent shaking when under high downforce or compression.\nONLY affects Road Details and Slide Rumble.");
+
+        BoolSetting("Slide Rumble", &engine.m_slide_texture_enabled, "Vibration proportional to tire sliding/scrubbing velocity.");
+        if (engine.m_slide_texture_enabled) {
+            FloatSetting("  Slide Gain", &engine.m_slide_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_slide_texture_gain, FFBEngine::BASE_NM_SLIDE_TEXTURE), "Intensity of the scrubbing vibration.");
+            FloatSetting("  Slide Pitch", &engine.m_slide_freq_scale, 0.5f, 5.0f, "%.2fx", "Frequency multiplier for the scrubbing sound/feel.\nHigher = Screeching.\nLower = Grinding.");
+        }
+
+        BoolSetting("Road Details", &engine.m_road_texture_enabled, "Vibration derived from high-frequency suspension movement.\nFeels road surface, cracks, and bumps.");
+        if (engine.m_road_texture_enabled) {
+            FloatSetting("  Road Gain", &engine.m_road_texture_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_road_texture_gain, FFBEngine::BASE_NM_ROAD_TEXTURE), "Intensity of road details.");
+        }
+
+        BoolSetting("Spin Vibration", &engine.m_spin_enabled, "Vibration when wheels lose traction under acceleration (Wheel Spin).");
+        if (engine.m_spin_enabled) {
+            FloatSetting("  Spin Strength", &engine.m_spin_gain, 0.0f, 2.0f, FormatDecoupled(engine.m_spin_gain, FFBEngine::BASE_NM_SPIN_VIBRATION), "Intensity of the wheel spin vibration.");
+            FloatSetting("  Spin Pitch", &engine.m_spin_freq_scale, 0.5f, 2.0f, "%.2fx", "Scales the frequency of the wheel spin vibration.");
+        }
+
+        FloatSetting("Scrub Drag", &engine.m_scrub_drag_gain, 0.0f, 1.0f, FormatDecoupled(engine.m_scrub_drag_gain, FFBEngine::BASE_NM_SCRUB_DRAG), "Constant resistance force when pushing tires laterally (Understeer drag).\nAdds weight to the wheel when scrubbing.");
+
+        const char* bottoming_modes[] = { "Method A: Scraping", "Method B: Susp. Spike" };
+        IntSetting("Bottoming Logic", &engine.m_bottoming_method, bottoming_modes, sizeof(bottoming_modes)/sizeof(bottoming_modes[0]), "Algorithm for detecting suspension bottoming.\nScraping = Ride height based.\nSusp Spike = Force rate based.");
+
+        ImGui::TreePop();
+    } else {
+        ImGui::NextColumn(); ImGui::NextColumn();
+    }
+
+    if (ImGui::CollapsingHeader("Advanced Settings")) {
+        ImGui::Indent();
+
+        if (ImGui::TreeNode("Stationary Vibration Gate")) {
+            float lower_kmh = engine.m_speed_gate_lower * 3.6f;
+            if (ImGui::SliderFloat("Mute Below", &lower_kmh, 0.0f, 20.0f, "%.1f km/h")) {
+                engine.m_speed_gate_lower = lower_kmh / 3.6f;
+                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f)
+                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The speed below which all haptic vibrations (Road, Slide, Lockup, Spin) are completely muted to prevent idle shaking.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
+
+            float upper_kmh = engine.m_speed_gate_upper * 3.6f;
+            if (ImGui::SliderFloat("Full Above", &upper_kmh, 1.0f, 50.0f, "%.1f km/h")) {
+                engine.m_speed_gate_upper = upper_kmh / 3.6f;
+                if (engine.m_speed_gate_upper <= engine.m_speed_gate_lower + 0.1f)
+                    engine.m_speed_gate_upper = engine.m_speed_gate_lower + 0.5f;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The speed above which all haptic vibrations reach their full configured strength.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
+
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNode("Telemetry Logger")) {
+            if (ImGui::Checkbox("Auto-Start on Session", &Config::m_auto_start_logging)) {
+                Config::Save(engine);
+            }
+
+            char log_path_buf[256];
+#ifdef _WIN32
+            strncpy_s(log_path_buf, Config::m_log_path.c_str(), 255);
+#else
+            strncpy(log_path_buf, Config::m_log_path.c_str(), 255);
+#endif
+            log_path_buf[255] = '\0';
+            if (ImGui::InputText("Log Path", log_path_buf, 255)) {
+                Config::m_log_path = log_path_buf;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Directory where .csv telemetry logs will be saved.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) Config::Save(engine);
+
+            if (AsyncLogger::Get().IsLogging()) {
+                ImGui::BulletText("Filename: %s", AsyncLogger::Get().GetFilename().c_str());
+            }
+
+            ImGui::TreePop();
+        }
+        ImGui::Unindent();
+    }
+
+    ImGui::Columns(1);
+    ImGui::End();
+}
+
+const float PLOT_HISTORY_SEC = 10.0f;
+const int PHYSICS_RATE_HZ = 400;
+const int PLOT_BUFFER_SIZE = (int)(PLOT_HISTORY_SEC * PHYSICS_RATE_HZ);
+
+struct RollingBuffer {
+    std::vector<float> data;
+    int offset = 0;
+
+    RollingBuffer() {
+        data.resize(PLOT_BUFFER_SIZE, 0.0f);
+    }
+
+    void Add(float val) {
+        data[offset] = val;
+        offset = (offset + 1) % (int)data.size();
+    }
+
+    float GetCurrent() const {
+        if (data.empty()) return 0.0f;
+        size_t idx = (offset - 1 + (int)data.size()) % (int)data.size();
+        return data[idx];
+    }
+
+    float GetMin() const {
+        if (data.empty()) return 0.0f;
+        return *std::min_element(data.begin(), data.end());
+    }
+
+    float GetMax() const {
+        if (data.empty()) return 0.0f;
+        return *std::max_element(data.begin(), data.end());
+    }
+};
+
+inline void PlotWithStats(const char* label, const RollingBuffer& buffer,
+                          float scale_min, float scale_max,
+                          const ImVec2& size = ImVec2(0, 40),
+                          const char* tooltip = nullptr) {
+    ImGui::Text("%s", label);
+    char hidden_label[256];
+    snprintf(hidden_label, sizeof(hidden_label), "##%s", label);
+    ImGui::PlotLines(hidden_label, buffer.data.data(), (int)buffer.data.size(),
+                     buffer.offset, NULL, scale_min, scale_max, size);
+    if (tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tooltip);
+
+    float current = buffer.GetCurrent();
+    float min_val = buffer.GetMin();
+    float max_val = buffer.GetMax();
+    char stats_overlay[128];
+    snprintf(stats_overlay, sizeof(stats_overlay), "Cur:%.4f Min:%.3f Max:%.3f", current, min_val, max_val);
+
+    ImVec2 p_min = ImGui::GetItemRectMin();
+    ImVec2 p_max = ImGui::GetItemRectMax();
+    float plot_width = p_max.x - p_min.x;
+    p_min.x += 2; p_min.y += 2;
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImFont* font = ImGui::GetFont();
+    float font_size = ImGui::GetFontSize();
+    ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
+
+    if (text_size.x > plot_width - 4) {
+         snprintf(stats_overlay, sizeof(stats_overlay), "%.4f [%.3f, %.3f]", current, min_val, max_val);
+         text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
+         if (text_size.x > plot_width - 4) {
+             snprintf(stats_overlay, sizeof(stats_overlay), "Val: %.4f", current);
+             text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, stats_overlay);
+         }
+    }
+    draw_list->AddRectFilled(ImVec2(p_min.x - 1, p_min.y), ImVec2(p_min.x + text_size.x + 2, p_min.y + text_size.y), IM_COL32(0, 0, 0, 90));
+    draw_list->AddText(font, font_size, p_min, IM_COL32(255, 255, 255, 255), stats_overlay);
+}
+
+// Global Buffers
+static RollingBuffer plot_total, plot_base, plot_sop, plot_yaw_kick, plot_rear_torque, plot_gyro_damping, plot_scrub_drag, plot_oversteer, plot_understeer, plot_clipping, plot_road, plot_slide, plot_lockup, plot_spin, plot_bottoming;
+static RollingBuffer plot_calc_front_load, plot_calc_rear_load, plot_calc_front_grip, plot_calc_rear_grip, plot_calc_slip_ratio, plot_calc_slip_angle_smoothed, plot_calc_rear_slip_angle_smoothed, plot_slope_current, plot_calc_rear_lat_force;
+static RollingBuffer plot_raw_steer, plot_raw_input_steering, plot_raw_throttle, plot_raw_brake, plot_input_accel, plot_raw_car_speed, plot_raw_load, plot_raw_grip, plot_raw_rear_grip, plot_raw_front_slip_ratio, plot_raw_susp_force, plot_raw_ride_height, plot_raw_front_lat_patch_vel, plot_raw_front_long_patch_vel, plot_raw_rear_lat_patch_vel, plot_raw_rear_long_patch_vel, plot_raw_slip_angle, plot_raw_rear_slip_angle, plot_raw_front_deflection;
+
+static bool g_warn_dt = false;
+
+void GuiLayer::DrawDebugWindow(FFBEngine& engine) {
+    if (!Config::show_graphs) return;
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + CONFIG_PANEL_WIDTH, viewport->Pos.y));
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x - CONFIG_PANEL_WIDTH, viewport->Size.y));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    ImGui::Begin("FFB Analysis", nullptr, flags);
+
+    auto snapshots = engine.GetDebugBatch();
+    for (const auto& snap : snapshots) {
+        plot_total.Add(snap.total_output);
+        plot_base.Add(snap.base_force);
+        plot_sop.Add(snap.sop_force);
+        plot_yaw_kick.Add(snap.ffb_yaw_kick);
+        plot_rear_torque.Add(snap.ffb_rear_torque);
+        plot_gyro_damping.Add(snap.ffb_gyro_damping);
+        plot_scrub_drag.Add(snap.ffb_scrub_drag);
+        plot_oversteer.Add(snap.oversteer_boost);
+        plot_understeer.Add(snap.understeer_drop);
+        plot_clipping.Add(snap.clipping);
+        plot_road.Add(snap.texture_road);
+        plot_slide.Add(snap.texture_slide);
+        plot_lockup.Add(snap.texture_lockup);
+        plot_spin.Add(snap.texture_spin);
+        plot_bottoming.Add(snap.texture_bottoming);
+        plot_calc_front_load.Add(snap.calc_front_load);
+        plot_calc_rear_load.Add(snap.calc_rear_load);
+        plot_calc_front_grip.Add(snap.calc_front_grip);
+        plot_calc_rear_grip.Add(snap.calc_rear_grip);
+        plot_calc_slip_ratio.Add(snap.calc_front_slip_ratio);
+        plot_calc_slip_angle_smoothed.Add(snap.calc_front_slip_angle_smoothed);
+        plot_calc_rear_slip_angle_smoothed.Add(snap.calc_rear_slip_angle_smoothed);
+        plot_calc_rear_lat_force.Add(snap.calc_rear_lat_force);
+        plot_slope_current.Add(snap.slope_current);
+        plot_raw_steer.Add(snap.steer_force);
+        plot_raw_input_steering.Add(snap.raw_input_steering);
+        plot_raw_throttle.Add(snap.raw_input_throttle);
+        plot_raw_brake.Add(snap.raw_input_brake);
+        plot_input_accel.Add(snap.accel_x);
+        plot_raw_car_speed.Add(snap.raw_car_speed);
+        plot_raw_load.Add(snap.raw_front_tire_load);
+        plot_raw_grip.Add(snap.raw_front_grip_fract);
+        plot_raw_rear_grip.Add(snap.raw_rear_grip);
+        plot_raw_front_slip_ratio.Add(snap.raw_front_slip_ratio);
+        plot_raw_susp_force.Add(snap.raw_front_susp_force);
+        plot_raw_ride_height.Add(snap.raw_front_ride_height);
+        plot_raw_front_lat_patch_vel.Add(snap.raw_front_lat_patch_vel);
+        plot_raw_front_long_patch_vel.Add(snap.raw_front_long_patch_vel);
+        plot_raw_rear_lat_patch_vel.Add(snap.raw_rear_lat_patch_vel);
+        plot_raw_rear_long_patch_vel.Add(snap.raw_rear_long_patch_vel);
+        plot_raw_slip_angle.Add(snap.raw_front_slip_angle);
+        plot_raw_rear_slip_angle.Add(snap.raw_rear_slip_angle);
+        plot_raw_front_deflection.Add(snap.raw_front_deflection);
+        g_warn_dt = snap.warn_dt;
+    }
+
+    if (g_warn_dt) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+        ImGui::Text("TELEMETRY WARNINGS: - Invalid DeltaTime");
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+    }
+
+    if (ImGui::CollapsingHeader("A. FFB Components (Output)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        PlotWithStats("Total Output", plot_total, -1.0f, 1.0f, ImVec2(0, 60));
+        ImGui::Separator();
+        ImGui::Columns(3, "FFBMain", false);
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 1.0f), "[Main Forces]");
+        PlotWithStats("Base Torque (Nm)", plot_base, -30.0f, 30.0f);
+        PlotWithStats("SoP (Chassis G)", plot_sop, -20.0f, 20.0f);
+        PlotWithStats("Yaw Kick", plot_yaw_kick, -20.0f, 20.0f);
+        PlotWithStats("Rear Align", plot_rear_torque, -20.0f, 20.0f);
+        PlotWithStats("Gyro Damping", plot_gyro_damping, -20.0f, 20.0f);
+        PlotWithStats("Scrub Drag", plot_scrub_drag, -20.0f, 20.0f);
+        ImGui::NextColumn();
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.7f, 1.0f), "[Modifiers]");
+        PlotWithStats("Lateral G Boost", plot_oversteer, -20.0f, 20.0f);
+        PlotWithStats("Understeer Cut", plot_understeer, -20.0f, 20.0f);
+        PlotWithStats("Clipping", plot_clipping, 0.0f, 1.1f);
+        ImGui::NextColumn();
+        ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 1.0f), "[Textures]");
+        PlotWithStats("Road Texture", plot_road, -10.0f, 10.0f);
+        PlotWithStats("Slide Texture", plot_slide, -10.0f, 10.0f);
+        PlotWithStats("Lockup Vib", plot_lockup, -10.0f, 10.0f);
+        PlotWithStats("Spin Vib", plot_spin, -10.0f, 10.0f);
+        PlotWithStats("Bottoming", plot_bottoming, -10.0f, 10.0f);
+        ImGui::Columns(1);
+    }
+
+    if (ImGui::CollapsingHeader("B. Internal Physics (Brain)", ImGuiTreeNodeFlags_None)) {
+        ImGui::Columns(3, "PhysCols", false);
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Loads]");
+        ImGui::Text("Front: %.0f N | Rear: %.0f N", plot_calc_front_load.GetCurrent(), plot_calc_rear_load.GetCurrent());
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
+        ImGui::PlotLines("##CLoadF", plot_calc_front_load.data.data(), (int)plot_calc_front_load.data.size(), plot_calc_front_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor();
+        ImVec2 pos_load = ImGui::GetItemRectMin();
+        ImGui::SetCursorScreenPos(pos_load);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0));
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 1.0f, 1.0f));
+        ImGui::PlotLines("##CLoadR", plot_calc_rear_load.data.data(), (int)plot_calc_rear_load.data.size(), plot_calc_rear_load.offset, NULL, 0.0f, 10000.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor(2);
+        ImGui::NextColumn();
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Grip/Slip]");
+        PlotWithStats("Calc Front Grip", plot_calc_front_grip, 0.0f, 1.2f);
+        PlotWithStats("Calc Rear Grip", plot_calc_rear_grip, 0.0f, 1.2f);
+        PlotWithStats("Front Slip Ratio", plot_calc_slip_ratio, -1.0f, 1.0f);
+        PlotWithStats("Front Slip Angle", plot_calc_slip_angle_smoothed, 0.0f, 1.0f);
+        PlotWithStats("Rear Slip Angle", plot_calc_rear_slip_angle_smoothed, 0.0f, 1.0f);
+        if (engine.m_slope_detection_enabled) PlotWithStats("Slope", plot_slope_current, -5.0f, 5.0f);
+        ImGui::NextColumn();
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "[Forces]");
+        PlotWithStats("Calc Rear Lat Force", plot_calc_rear_lat_force, -5000.0f, 5000.0f);
+        ImGui::Columns(1);
+    }
+
+    if (ImGui::CollapsingHeader("C. Raw Game Telemetry (Input)", ImGuiTreeNodeFlags_None)) {
+        ImGui::Columns(4, "TelCols", false);
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Driver Input]");
+        PlotWithStats("Steering Torque", plot_raw_steer, -30.0f, 30.0f);
+        PlotWithStats("Steering Input", plot_raw_input_steering, -1.0f, 1.0f);
+        ImGui::Text("Combined Input");
+        ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+        ImGui::PlotLines("##BrkComb", plot_raw_brake.data.data(), (int)plot_raw_brake.data.size(), plot_raw_brake.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor();
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        ImGui::PlotLines("##ThrComb", plot_raw_throttle.data.data(), (int)plot_raw_throttle.data.size(), plot_raw_throttle.offset, NULL, 0.0f, 1.0f, ImVec2(0, 40));
+        ImGui::PopStyleColor(2);
+        ImGui::NextColumn();
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Vehicle State]");
+        PlotWithStats("Lat Accel", plot_input_accel, -20.0f, 20.0f);
+        PlotWithStats("Speed (m/s)", plot_raw_car_speed, 0.0f, 100.0f);
+        ImGui::NextColumn();
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Raw Tire Data]");
+        PlotWithStats("Raw Front Load", plot_raw_load, 0.0f, 10000.0f);
+        PlotWithStats("Raw Front Grip", plot_raw_grip, 0.0f, 1.2f);
+        PlotWithStats("Raw Rear Grip", plot_raw_rear_grip, 0.0f, 1.2f);
+        ImGui::NextColumn();
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[Patch Velocities]");
+        PlotWithStats("F-Lat PatchVel", plot_raw_front_lat_patch_vel, 0.0f, 20.0f);
+        PlotWithStats("R-Lat PatchVel", plot_raw_rear_lat_patch_vel, 0.0f, 20.0f);
+        PlotWithStats("F-Long PatchVel", plot_raw_front_long_patch_vel, -20.0f, 20.0f);
+        PlotWithStats("R-Long PatchVel", plot_raw_rear_long_patch_vel, -20.0f, 20.0f);
+        ImGui::Columns(1);
+    }
+
+    ImGui::End();
+}
+#endif
+
+```
+
+# File: src\GuiLayer_Linux.cpp
+```cpp
+#include "GuiLayer.h"
+#include "GuiPlatform.h"
+#include "Version.h"
+#include "Config.h"
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <mutex>
+#include <chrono>
+
+#if defined(ENABLE_IMGUI) && !defined(HEADLESS_GUI)
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+#include <GLFW/glfw3.h>
+#if defined(__APPLE__)
+#include <OpenGL/gl.h>
+#else
+#include <GL/gl.h>
+#endif
+
+static GLFWwindow* g_window = nullptr;
+#endif
+
+extern std::atomic<bool> g_running;
+
+class LinuxGuiPlatform : public IGuiPlatform {
+public:
+    void SetAlwaysOnTop(bool enabled) override {
+#if defined(ENABLE_IMGUI) && !defined(HEADLESS_GUI)
+        if (g_window) {
+            glfwSetWindowAttrib(g_window, GLFW_FLOATING, enabled ? GLFW_TRUE : GLFW_FALSE);
+        }
+#else
+        m_always_on_top_mock = enabled;
+#endif
+    }
+
+    void ResizeWindow(int x, int y, int w, int h) override {
+#if defined(ENABLE_IMGUI) && !defined(HEADLESS_GUI)
+        if (g_window) {
+            glfwSetWindowSize(g_window, w, h);
+        }
+#endif
+    }
+
+    void SaveWindowGeometry(bool is_graph_mode) override {
+#if defined(ENABLE_IMGUI) && !defined(HEADLESS_GUI)
+        if (g_window) {
+            int x, y, w, h;
+            glfwGetWindowPos(g_window, &x, &y);
+            glfwGetWindowSize(g_window, &w, &h);
+            Config::win_pos_x = x;
+            Config::win_pos_y = y;
+            if (is_graph_mode) {
+                Config::win_w_large = w;
+                Config::win_h_large = h;
+            } else {
+                Config::win_w_small = w;
+                Config::win_h_small = h;
+            }
+        }
+#endif
+    }
+
+    bool OpenPresetFileDialog(std::string& outPath) override {
+        std::cout << "[GUI] File Dialog not implemented on Linux yet." << std::endl;
+        return false;
+    }
+
+    bool SavePresetFileDialog(std::string& outPath, const std::string& defaultName) override {
+        std::cout << "[GUI] File Dialog not implemented on Linux yet." << std::endl;
+        return false;
+    }
+
+    void* GetWindowHandle() override {
+#if defined(ENABLE_IMGUI) && !defined(HEADLESS_GUI)
+        return (void*)g_window;
+#else
+        return nullptr;
+#endif
+    }
+
+    bool GetAlwaysOnTopMock() override { return m_always_on_top_mock; }
+
+    // Mock access for tests
+    bool m_always_on_top_mock = false;
+};
+
+static LinuxGuiPlatform g_platform;
+IGuiPlatform& GetGuiPlatform() { return g_platform; }
+
+// Compatibility Helpers
+void ResizeWindowPlatform(int x, int y, int w, int h) { GetGuiPlatform().ResizeWindow(x, y, w, h); }
+void SaveCurrentWindowGeometryPlatform(bool is_graph_mode) { GetGuiPlatform().SaveWindowGeometry(is_graph_mode); }
+void SetWindowAlwaysOnTopPlatform(bool enabled) { GetGuiPlatform().SetAlwaysOnTop(enabled); }
+bool OpenPresetFileDialogPlatform(std::string& outPath) { return GetGuiPlatform().OpenPresetFileDialog(outPath); }
+bool SavePresetFileDialogPlatform(std::string& outPath, const std::string& defaultName) { return GetGuiPlatform().SavePresetFileDialog(outPath, defaultName); }
+
+#if defined(ENABLE_IMGUI) && !defined(HEADLESS_GUI)
+
+static void glfw_error_callback(int error, const char* description) {
+    fprintf(stderr, "Glfw Error %d: %s\n", error, description);
+}
+
+bool GuiLayer::Init() {
+    glfwSetErrorCallback(glfw_error_callback);
+    if (!glfwInit()) return false;
+
+    // GL 3.0 + GLSL 130
+    const char* glsl_version = "#version 130";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+
+    int start_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
+    int start_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
+
+    std::string title = "lmuFFB v" + std::string(LMUFFB_VERSION);
+    g_window = glfwCreateWindow(start_w, start_h, title.c_str(), NULL, NULL);
+    if (g_window == NULL) return false;
+
+    glfwMakeContextCurrent(g_window);
+    glfwSwapInterval(1); // Enable vsync
+
+    if (Config::m_always_on_top) SetWindowAlwaysOnTopPlatform(true);
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    SetupGUIStyle();
+
+    ImGui_ImplGlfw_InitForOpenGL(g_window, true);
+    ImGui_ImplOpenGL3_Init(glsl_version);
+
+    return true;
+}
+
+void GuiLayer::Shutdown(FFBEngine& engine) {
+    SaveCurrentWindowGeometryPlatform(Config::show_graphs);
+    Config::Save(engine);
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
+    glfwDestroyWindow(g_window);
+    glfwTerminate();
+}
+
+void* GuiLayer::GetWindowHandle() {
+    return (void*)g_window;
+}
+
+bool GuiLayer::Render(FFBEngine& engine) {
+    if (glfwWindowShouldClose(g_window)) {
+        g_running = false;
+        return false;
+    }
+
+    glfwPollEvents();
+
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    DrawTuningWindow(engine);
+    if (Config::show_graphs) DrawDebugWindow(engine);
+
+    ImGui::Render();
+    int display_w, display_h;
+    glfwGetFramebufferSize(g_window, &display_w, &display_h);
+    glViewport(0, 0, display_w, display_h);
+    glClearColor(0.45f, 0.55f, 0.60f, 1.00f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    glfwSwapBuffers(g_window);
+
+    return true; // Always return true to keep the main loop running at full speed
+}
+
+#else
+// Stub Implementation for Headless Builds (or if IMGUI disabled)
+bool GuiLayer::Init() {
+    std::cout << "[GUI] Disabled (Headless Mode)" << std::endl;
+    return true;
+}
+void GuiLayer::Shutdown(FFBEngine& engine) {
+    Config::Save(engine);
+}
+bool GuiLayer::Render(FFBEngine& engine) { return true; }
+void* GuiLayer::GetWindowHandle() { return nullptr; }
+
+#endif
+
+```
+
+# File: src\GuiLayer_Win32.cpp
+```cpp
+#include "GuiLayer.h"
+#include "GuiPlatform.h"
+#include "Version.h"
+#include "Logger.h"
+#include "Config.h"
+#include <windows.h>
+#include <commdlg.h>
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <mutex>
+#include <chrono>
+
+#if defined(ENABLE_IMGUI) && !defined(HEADLESS_GUI)
+#include "imgui.h"
+#include "imgui_impl_win32.h"
+#include "imgui_impl_dx11.h"
+#include <d3d11.h>
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
+#include <tchar.h>
+
+
+// Global DirectX variables
+static ID3D11Device*            g_pd3dDevice = NULL;
+static ID3D11DeviceContext*     g_pd3dDeviceContext = NULL;
+static IDXGISwapChain*          g_pSwapChain = NULL;
+static ID3D11RenderTargetView*  g_mainRenderTargetView = NULL;
+static HWND                     g_hwnd = NULL;
+
+static const int MIN_WINDOW_WIDTH = 400;
+static const int MIN_WINDOW_HEIGHT = 600;
+
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002
+#endif
+
+// Forward declarations
+bool CreateDeviceD3D(HWND hWnd);
+void CleanupDeviceD3D();
+void CreateRenderTarget();
+void CleanupRenderTarget();
+LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+extern std::atomic<bool> g_running;
+
+class Win32GuiPlatform : public IGuiPlatform {
+public:
+    void SetAlwaysOnTop(bool enabled) override {
+        if (!g_hwnd) return;
+        HWND insertAfter = enabled ? HWND_TOPMOST : HWND_NOTOPMOST;
+        ::SetWindowPos(g_hwnd, insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
+    void ResizeWindow(int x, int y, int w, int h) override {
+        if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
+        if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
+        ::SetWindowPos(g_hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    void SaveWindowGeometry(bool is_graph_mode) override {
+        RECT rect;
+        if (::GetWindowRect(g_hwnd, &rect)) {
+            Config::win_pos_x = rect.left;
+            Config::win_pos_y = rect.top;
+            int w = rect.right - rect.left;
+            int h = rect.bottom - rect.top;
+            if (w < MIN_WINDOW_WIDTH) w = MIN_WINDOW_WIDTH;
+            if (h < MIN_WINDOW_HEIGHT) h = MIN_WINDOW_HEIGHT;
+            if (is_graph_mode) {
+                Config::win_w_large = w;
+                Config::win_h_large = h;
+            } else {
+                Config::win_w_small = w;
+                Config::win_h_small = h;
+            }
+        }
+    }
+
+    bool OpenPresetFileDialog(std::string& outPath) override {
+        char filename[MAX_PATH] = "";
+        OPENFILENAMEA ofn;
+        ZeroMemory(&ofn, sizeof(ofn));
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = g_hwnd;
+        ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile = filename;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+        ofn.lpstrDefExt = "ini";
+        if (GetOpenFileNameA(&ofn)) {
+            outPath = filename;
+            return true;
+        }
+        return false;
+    }
+
+    bool SavePresetFileDialog(std::string& outPath, const std::string& defaultName) override {
+        char filename[MAX_PATH] = "";
+        strncpy_s(filename, defaultName.c_str(), _TRUNCATE);
+        OPENFILENAMEA ofn;
+        ZeroMemory(&ofn, sizeof(ofn));
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = g_hwnd;
+        ofn.lpstrFilter = "Preset Files (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile = filename;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
+        ofn.lpstrDefExt = "ini";
+        if (GetSaveFileNameA(&ofn)) {
+            outPath = filename;
+            return true;
+        }
+        return false;
+    }
+
+    void* GetWindowHandle() override {
+        return (void*)g_hwnd;
+    }
+};
+
+static Win32GuiPlatform g_platform;
+IGuiPlatform& GetGuiPlatform() { return g_platform; }
+
+// Compatibility Helpers
+void ResizeWindowPlatform(int x, int y, int w, int h) { GetGuiPlatform().ResizeWindow(x, y, w, h); }
+void SaveCurrentWindowGeometryPlatform(bool is_graph_mode) { GetGuiPlatform().SaveWindowGeometry(is_graph_mode); }
+void SetWindowAlwaysOnTopPlatform(bool enabled) { GetGuiPlatform().SetAlwaysOnTop(enabled); }
+bool OpenPresetFileDialogPlatform(std::string& outPath) { return GetGuiPlatform().OpenPresetFileDialog(outPath); }
+bool SavePresetFileDialogPlatform(std::string& outPath, const std::string& defaultName) { return GetGuiPlatform().SavePresetFileDialog(outPath, defaultName); }
+
+
+bool GuiLayer::Init() {
+    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"lmuFFB", NULL };
+    ::RegisterClassExW(&wc);
+    std::string ver = LMUFFB_VERSION;
+    std::wstring wver(ver.begin(), ver.end());
+    std::wstring title = L"lmuFFB v" + wver;
+    int start_w = Config::show_graphs ? Config::win_w_large : Config::win_w_small;
+    int start_h = Config::show_graphs ? Config::win_h_large : Config::win_h_small;
+    if (start_w < MIN_WINDOW_WIDTH) start_w = MIN_WINDOW_WIDTH;
+    if (start_h < MIN_WINDOW_HEIGHT) start_h = MIN_WINDOW_HEIGHT;
+    int pos_x = Config::win_pos_x, pos_y = Config::win_pos_y;
+    RECT workArea; SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+    if (pos_x < workArea.left - 100 || pos_x > workArea.right - 100 || pos_y < workArea.top - 100 || pos_y > workArea.bottom - 100) {
+        pos_x = 100; pos_y = 100;
+    }
+    g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, pos_x, pos_y, start_w, start_h, NULL, NULL, wc.hInstance, NULL);
+    if (!g_hwnd) {
+        Logger::Get().LogWin32Error("CreateWindowW", GetLastError());
+        return false;
+    }
+    Logger::Get().Log("Window Created: %p", g_hwnd);
+
+    if (!CreateDeviceD3D(g_hwnd)) {
+        CleanupDeviceD3D(); ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        Logger::Get().Log("Failed to create D3D Device.");
+        return false;
+    }
+    ::ShowWindow(g_hwnd, SW_SHOWDEFAULT); ::UpdateWindow(g_hwnd);
+    if (Config::m_always_on_top) SetWindowAlwaysOnTopPlatform(true);
+    IMGUI_CHECKVERSION(); ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    SetupGUIStyle();
+    ImGui_ImplWin32_Init(g_hwnd);
+    ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+    return true;
+}
+
+void GuiLayer::Shutdown(FFBEngine& engine) {
+    SaveCurrentWindowGeometryPlatform(Config::show_graphs);
+    Config::Save(engine);
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+    CleanupDeviceD3D();
+    ::DestroyWindow(g_hwnd);
+    ::UnregisterClassW(L"lmuFFB", GetModuleHandle(NULL));
+}
+
+void* GuiLayer::GetWindowHandle() {
+    return (void*)g_hwnd;
+}
+
+bool GuiLayer::Render(FFBEngine& engine) {
+    MSG msg;
+    while (::PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
+        ::TranslateMessage(&msg); ::DispatchMessage(&msg);
+        if (msg.message == WM_QUIT) { g_running = false; return false; }
+    }
+    if (g_running == false) return false;
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    DrawTuningWindow(engine);
+    if (Config::show_graphs) DrawDebugWindow(engine);
+    ImGui::Render();
+    const float clear_color_with_alpha[4] = { 0.45f, 0.55f, 0.60f, 1.00f };
+    g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
+    g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    g_pSwapChain->Present(1, 0);
+    return true; // Always return true to keep the main loop running at full speed
+}
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
+    switch (msg) {
+    case WM_SIZE:
+        if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED) {
+            Logger::Get().Log("ResizeBuffers: %d x %d", LOWORD(lParam), HIWORD(lParam));
+            CleanupRenderTarget();
+            g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
+            CreateRenderTarget();
+        }
+        return 0;
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xfff0) == SC_KEYMENU) return 0;
+        break;
+    case WM_DESTROY: ::PostQuitMessage(0); return 0;
+    }
+    return ::DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+bool CreateDeviceD3D(HWND hWnd) {
+    DXGI_SWAP_CHAIN_DESC sd;
+    ZeroMemory(&sd, sizeof(sd));
+    sd.BufferCount = 2; sd.BufferDesc.Width = 0; sd.BufferDesc.Height = 0;
+    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; sd.BufferDesc.RefreshRate.Numerator = 60; sd.BufferDesc.RefreshRate.Denominator = 1;
+    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH; sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.OutputWindow = hWnd; sd.SampleDesc.Count = 1; sd.SampleDesc.Quality = 0; sd.Windowed = TRUE; sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    D3D_FEATURE_LEVEL featureLevel; const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
+    HRESULT hr = D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
+    if (hr != S_OK) {
+        Logger::Get().LogWin32Error("D3D11CreateDeviceAndSwapChain", hr);
+        return false;
+    }
+    Logger::Get().Log("D3D11 Device Created. Feature Level: 0x%X", featureLevel);
+    CreateRenderTarget(); return true;
+}
+
+void CleanupDeviceD3D() {
+    CleanupRenderTarget();
+    if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = NULL; }
+    if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = NULL; }
+    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
+}
+
+void CreateRenderTarget() {
+    ID3D11Texture2D* pBackBuffer; g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
+    g_pd3dDevice->CreateRenderTargetView(pBackBuffer, NULL, &g_mainRenderTargetView); pBackBuffer->Release();
+}
+
+void CleanupRenderTarget() {
+    if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = NULL; }
+}
+
+#else
+// Stub Implementation for Headless Builds
+class Win32GuiPlatform : public IGuiPlatform {
+public:
+    void SetAlwaysOnTop(bool enabled) override { m_always_on_top_mock = enabled; }
+    void ResizeWindow(int x, int y, int w, int h) override {}
+    void SaveWindowGeometry(bool is_graph_mode) override {}
+    bool OpenPresetFileDialog(std::string& outPath) override { return false; }
+    bool SavePresetFileDialog(std::string& outPath, const std::string& defaultName) override { return false; }
+    void* GetWindowHandle() override { return nullptr; }
+    bool GetAlwaysOnTopMock() override { return m_always_on_top_mock; }
+    bool m_always_on_top_mock = false;
+};
+static Win32GuiPlatform g_platform;
+IGuiPlatform& GetGuiPlatform() { return g_platform; }
+
+bool GuiLayer::Init() {
+    return true;
+}
+void GuiLayer::Shutdown(FFBEngine& engine) {
+    Config::Save(engine);
+}
+bool GuiLayer::Render(FFBEngine& engine) { return true; }
+void* GuiLayer::GetWindowHandle() { return nullptr; }
+
+void ResizeWindowPlatform(int x, int y, int w, int h) { GetGuiPlatform().ResizeWindow(x, y, w, h); }
+void SaveCurrentWindowGeometryPlatform(bool is_graph_mode) { GetGuiPlatform().SaveWindowGeometry(is_graph_mode); }
+void SetWindowAlwaysOnTopPlatform(bool enabled) { GetGuiPlatform().SetAlwaysOnTop(enabled); }
+bool OpenPresetFileDialogPlatform(std::string& outPath) { return GetGuiPlatform().OpenPresetFileDialog(outPath); }
+bool SavePresetFileDialogPlatform(std::string& outPath, const std::string& defaultName) { return GetGuiPlatform().SavePresetFileDialog(outPath, defaultName); }
+
+#endif
+
+```
+
+# File: src\GuiPlatform.h
+```cpp
+#pragma once
+#include <string>
+
+class IGuiPlatform {
+public:
+    virtual ~IGuiPlatform() = default;
+    virtual void SetAlwaysOnTop(bool enabled) = 0;
+    virtual void ResizeWindow(int x, int y, int w, int h) = 0;
+    virtual void SaveWindowGeometry(bool is_graph_mode) = 0;
+    virtual bool OpenPresetFileDialog(std::string& outPath) = 0;
+    virtual bool SavePresetFileDialog(std::string& outPath, const std::string& defaultName) = 0;
+    virtual void* GetWindowHandle() = 0;
+
+    // Test support
+    virtual bool GetAlwaysOnTopMock() { return false; }
+};
+
+// Singleton access
+IGuiPlatform& GetGuiPlatform();
+
+// Global helper for simple access (compatibility)
+void SetWindowAlwaysOnTopPlatform(bool enabled);
+
+```
+
+# File: src\GuiWidgets.h
+```cpp
+#ifndef GUIWIDGETS_H
+#define GUIWIDGETS_H
+
+#ifdef ENABLE_IMGUI
+#include "imgui.h"
+#include <string>
+#include <algorithm>
+#include <functional>
+
+namespace GuiWidgets {
+
+    /**
+     * Represents the result of a widget interaction.
+     * Use this to trigger higher-level logic like auto-save or preset dirtying.
+     */
+    struct Result {
+        bool changed = false;     // True if value was modified this frame
+        bool deactivated = false; // True if interaction finished (mouse release, enter key, or discrete change)
+    };
+
+    /**
+     * A standardized float slider with label, adaptive arrow-key support, and decorators.
+     */
+    inline Result Float(const char* label, float* v, float min, float max, const char* fmt = "%.2f", const char* tooltip = nullptr, std::function<void()> decorator = nullptr) {
+        Result res;
+        ImGui::Text("%s", label);
+        bool labelHovered = ImGui::IsItemHovered();
+        ImGui::NextColumn();
+
+        // Render decorator (e.g., latency indicator) above the slider
+        if (decorator) {
+            decorator();
+        }
+
+        ImGui::SetNextItemWidth(-1);
+        std::string id = "##" + std::string(label);
+
+        // Core Slider
+        if (ImGui::SliderFloat(id.c_str(), v, min, max, fmt)) {
+            res.changed = true;
+        }
+
+        // Detect mouse release or Enter key after a series of edits
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            res.deactivated = true;
+        }
+
+        // Unified Interaction Logic (Arrow Keys & Tooltips)
+        if (ImGui::IsItemHovered() || labelHovered) {
+            float range = max - min;
+            // Adaptive step size: finer steps for smaller ranges
+            float step = (range > 50.0f) ? 0.5f : (range < 1.0f) ? 0.001f : 0.01f; 
+            
+            bool keyChanged = false;
+            // Note: We use IsKeyPressed which supports repeats
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) { *v -= step; keyChanged = true; }
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) { *v += step; keyChanged = true; }
+
+            if (keyChanged) {
+                *v = (std::max)(min, (std::min)(max, *v));
+                res.changed = true;
+                res.deactivated = true; // Arrow keys are discrete adjustments, save immediately
+            }
+
+            // Show tooltip only if not actively interacting
+            if (!keyChanged && !ImGui::IsItemActive()) {
+                ImGui::BeginTooltip();
+                if (tooltip && strlen(tooltip) > 0) {
+                    ImGui::Text("%s", tooltip);
+                    ImGui::Separator();
+                }
+                ImGui::Text("Fine Tune: Arrow Keys | Exact: Ctrl+Click");
+                ImGui::EndTooltip();
+            }
+        }
+
+        ImGui::NextColumn();
+        return res;
+    }
+
+    /**
+     * A standardized checkbox with label and tooltip.
+     */
+    inline Result Checkbox(const char* label, bool* v, const char* tooltip = nullptr) {
+        Result res;
+        ImGui::Text("%s", label);
+        bool labelHovered = ImGui::IsItemHovered();
+        ImGui::NextColumn();
+        std::string id = "##" + std::string(label);
+        
+        if (ImGui::Checkbox(id.c_str(), v)) {
+            res.changed = true;
+            res.deactivated = true; // Checkboxes are immediate
+        }
+
+        if (tooltip && (ImGui::IsItemHovered() || labelHovered)) {
+            ImGui::SetTooltip("%s", tooltip);
+        }
+
+        ImGui::NextColumn();
+        return res;
+    }
+
+    /**
+     * A standardized combo box with label and tooltip.
+     */
+    inline Result Combo(const char* label, int* v, const char* const items[], int items_count, const char* tooltip = nullptr) {
+        Result res;
+        ImGui::Text("%s", label);
+        bool labelHovered = ImGui::IsItemHovered();
+        ImGui::NextColumn();
+        ImGui::SetNextItemWidth(-1);
+        std::string id = "##" + std::string(label);
+
+        if (ImGui::Combo(id.c_str(), v, items, items_count)) {
+            res.changed = true;
+            res.deactivated = true; // Selection changes are immediate
+        }
+
+        if (tooltip && (ImGui::IsItemHovered() || labelHovered)) {
+            ImGui::SetTooltip("%s", tooltip);
+        }
+
+        ImGui::NextColumn();
+        return res;
+    }
+}
+
+#endif // ENABLE_IMGUI
+
+#endif // GUIWIDGETS_H
+
+```
+
+# File: src\Logger.h
+```cpp
+#ifndef LOGGER_H
+#define LOGGER_H
+
+#include <string>
+#include <fstream>
+#include <mutex>
+#include <memory>
+#include <iostream>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <cstdarg>
+
+// Simple synchronous logger that flushes every line for crash debugging
+class Logger {
+public:
+    static Logger& Get() {
+        static Logger instance;
+        return instance;
+    }
+
+    void Init(const std::string& filename) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_filename = filename;
+        m_file.open(m_filename, std::ios::out | std::ios::trunc);
+        if (m_file.is_open()) {
+            m_initialized = true;
+            _LogNoLock("Logger Initialized. Version: " + std::string(LMUFFB_VERSION));
+        }
+    }
+
+    void Log(const char* fmt, ...) {
+        if (!m_initialized) return;
+
+        char buffer[1024];
+        va_list args;
+        va_start(args, fmt);
+        vsnprintf(buffer, sizeof(buffer), fmt, args);
+        va_end(args);
+
+        std::string message(buffer);
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        _LogNoLock(message);
+    }
+
+    // Helper for std::string
+    void LogStr(const std::string& msg) {
+        Log("%s", msg.c_str());
+    }
+
+    // Helper for error logging with GetLastError()
+    void LogWin32Error(const char* context, unsigned long errorCode) {
+        Log("Error in %s: Code %lu", context, errorCode);
+    }
+
+private:
+    Logger() {}
+    ~Logger() {
+        if (m_file.is_open()) {
+            m_file << "Logger Shutdown.\n";
+            m_file.close();
+        }
+    }
+
+    void _LogNoLock(const std::string& message) {
+        if (!m_file.is_open()) return;
+
+        // Timestamp
+        auto now = std::chrono::system_clock::now();
+        auto in_time_t = std::chrono::system_clock::to_time_t(now);
+        std::tm time_info;
+        #ifdef _WIN32
+            localtime_s(&time_info, &in_time_t);
+        #else
+            localtime_r(&in_time_t, &time_info);
+        #endif
+
+        m_file << "[" << std::put_time(&time_info, "%H:%M:%S") << "] " << message << "\n";
+        m_file.flush(); // Critical for crash debugging
+
+        // Also print to console for consistency
+        std::cout << "[Log] " << message << std::endl;
+    }
+
+    std::string m_filename;
+    std::ofstream m_file;
+    std::mutex m_mutex;
+    bool m_initialized = false;
+};
+
+#endif // LOGGER_H
+
+```
+
+# File: src\main.cpp
+```cpp
+#ifdef _WIN32
+#include <windows.h>
+#endif
+#include <iostream>
+#include <cmath>
+#include <algorithm>
+#include <thread>
+#include <chrono>
+
+#include "FFBEngine.h"
+#include "GuiLayer.h"
+#include "Config.h"
+#include "DirectInputFFB.h"
+#include "GameConnector.h"
+#include "Version.h"
+#include "Logger.h"    // Added Logger
+#include <optional>
+#include <atomic>
+#include <mutex>
+
+// Constants
+
+// Threading Globals
+std::atomic<bool> g_running(true);
+std::atomic<bool> g_ffb_active(true);
+
+SharedMemoryObjectOut g_localData; // Local copy of shared memory
+
+FFBEngine g_engine;
+std::mutex g_engine_mutex; // Protects settings access if GUI changes them
+
+// --- FFB Loop (High Priority 400Hz) ---
+void FFBThread() {
+    std::cout << "[FFB] Loop Started." << std::endl;
+
+    while (g_running) {
+        if (g_ffb_active && GameConnector::Get().IsConnected()) {
+            bool in_realtime = GameConnector::Get().CopyTelemetry(g_localData);
+            bool is_stale = GameConnector::Get().IsStale(100);
+
+            static bool was_in_menu = true;
+            if (was_in_menu && in_realtime) {
+                std::cout << "[Game] User entered driving session." << std::endl;
+                if (Config::m_auto_start_logging && !AsyncLogger::Get().IsLogging()) {
+                    SessionInfo info;
+                    info.app_version = LMUFFB_VERSION;
+                    std::lock_guard<std::mutex> lock(g_engine_mutex);
+                    info.vehicle_name = g_engine.m_vehicle_name;
+                    info.track_name = g_engine.m_track_name;
+                    info.driver_name = "Auto";
+                    info.gain = g_engine.m_gain;
+                    info.understeer_effect = g_engine.m_understeer_effect;
+                    info.sop_effect = g_engine.m_sop_effect;
+                    info.slope_enabled = g_engine.m_slope_detection_enabled;
+                    info.slope_sensitivity = g_engine.m_slope_sensitivity;
+                    info.slope_threshold = (float)g_engine.m_slope_min_threshold;
+                    info.slope_alpha_threshold = g_engine.m_slope_alpha_threshold;
+                    info.slope_decay_rate = g_engine.m_slope_decay_rate;
+                    AsyncLogger::Get().Start(info, Config::m_log_path);
+                }
+            } else if (!was_in_menu && !in_realtime) {
+                std::cout << "[Game] User exited to menu (FFB Muted)." << std::endl;
+                if (Config::m_auto_start_logging && AsyncLogger::Get().IsLogging()) {
+                    AsyncLogger::Get().Stop();
+                }
+            }
+            was_in_menu = !in_realtime;
+            
+            double force = 0.0;
+            bool should_output = false;
+
+            if (in_realtime && !is_stale && g_localData.telemetry.playerHasVehicle) {
+                uint8_t idx = g_localData.telemetry.playerVehicleIdx;
+                if (idx < 104) {
+                    auto& scoring = g_localData.scoring.vehScoringInfo[idx];
+                    TelemInfoV01* pPlayerTelemetry = &g_localData.telemetry.telemInfo[idx];
+
+                    std::lock_guard<std::mutex> lock(g_engine_mutex);
+                    if (g_engine.IsFFBAllowed(scoring)) {
+                        force = g_engine.calculate_force(pPlayerTelemetry);
+                        should_output = true;
+                    }
+                }
+            }
+            
+            if (!should_output) force = 0.0;
+
+            DirectInputFFB::Get().UpdateForce(force);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    std::cout << "[FFB] Loop Stopped." << std::endl;
+}
+
+int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    timeBeginPeriod(1);
+#endif
+
+    bool headless = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--headless") headless = true;
+    }
+
+    std::cout << "Starting lmuFFB (C++ Port)..." << std::endl;
+    // Initialize persistent debug logging for crash analysis
+    Logger::Get().Init("lmuffb_debug.log");
+    Logger::Get().Log("Application Started. Version: %s", LMUFFB_VERSION);
+    if (headless) Logger::Get().Log("Mode: HEADLESS");
+    else Logger::Get().Log("Mode: GUI");
+
+    Preset::ApplyDefaultsToEngine(g_engine);
+    Config::Load(g_engine);
+
+    if (!headless) {
+        if (!GuiLayer::Init()) {
+            std::cerr << "Failed to initialize GUI." << std::endl;
+        }
+        DirectInputFFB::Get().Initialize((HWND)GuiLayer::GetWindowHandle());
+    } else {
+        std::cout << "Running in HEADLESS mode." << std::endl;
+        DirectInputFFB::Get().Initialize(NULL);
+    }
+
+    if (GameConnector::Get().CheckLegacyConflict()) {
+        std::cout << "[Info] Legacy rF2 plugin detected (not a problem for LMU 1.2+)" << std::endl;
+    }
+
+    if (!GameConnector::Get().TryConnect()) {
+        std::cout << "Game not running or Shared Memory not ready. Waiting..." << std::endl;
+    }
+
+    std::thread ffb_thread(FFBThread);
+    std::cout << "[GUI] Main Loop Started." << std::endl;
+
+    while (g_running) {
+        GuiLayer::Render(g_engine);
+        // Maintain a consistent 60Hz message loop even when backgrounded
+        // to ensure DirectInput performance and reliability.
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+    
+    Config::Save(g_engine);
+    if (!headless) {
+        Logger::Get().Log("Shutting down GUI...");
+        GuiLayer::Shutdown(g_engine);
+    }
+    if (ffb_thread.joinable()) {
+        Logger::Get().Log("Stopping FFB Thread...");
+        g_running = false; // Ensure loop breaks
+        ffb_thread.join();
+        Logger::Get().Log("FFB Thread Stopped.");
+    }
+    DirectInputFFB::Get().Shutdown();
+    Logger::Get().Log("Main Loop Ended. Clean Exit.");
+    
+    return 0;
+}
+
+```
+
+# File: src\resource.h
+```cpp
+//{{NO_DEPENDENCIES}}
+// Microsoft Visual C++ generated include file.
+// Used by res.rc
+//
+#define IDI_ICON1                       112
+
+// Next default values for new objects
+// 
+#ifdef APSTUDIO_INVOKED
+#ifndef APSTUDIO_READONLY_SYMBOLS
+#define _APS_NEXT_RESOURCE_VALUE        116
+#define _APS_NEXT_COMMAND_VALUE         40001
+#define _APS_NEXT_CONTROL_VALUE         1000
+#define _APS_NEXT_SYMED_VALUE           101
+#endif
+#endif
+
+```
+
+# File: src\Version.h
+```cpp
+﻿
+```
+
+# File: src\aceFFB\aceFFBEngine.h
+```cpp
+
+```
+
+# File: src\lmu_sm_interface\InternalsPlugin.hpp
+```
+//###########################################################################
+//#                                                                         #
+//# Module: Header file for internals plugin                                #
+//#                                                                         #
+//# Description: Interface declarations for internals plugin                #
+//#                                                                         #
+//# This source code module, and all information, data, and algorithms      #
+//# associated with it, are part of isiMotor Technology (tm).               #
+//#                 PROPRIETARY AND CONFIDENTIAL                            #
+//# Copyright (c) 2025 Studio 397 BV and Motorsport Games Inc.              #
+//#                                                                         #
+//###########################################################################
+
+#ifndef _INTERNALS_PLUGIN_HPP_
+#define _INTERNALS_PLUGIN_HPP_
+
+#include "PluginObjects.hpp"     // base class for plugin objects to derive from
+#include <cmath>                 // for sqrt()
+#include <windows.h>             // for HWND
+// rF2 and plugins must agree on structure packing, so set it explicitly here.
+// Whatever the current packing is will be restored at the end of this include
+// with another #pragma.
+#pragma pack( push, 4 )
+
+
+//#########################################################################
+//# Version01 Structures                                                   #
+//##########################################################################
+
+struct TelemVect3
+{
+    union
+    {
+        struct
+        {
+            double x, y, z;
+        };
+
+        double data[3];
+    };
+
+
+  void Set( const double a, const double b, const double c )  { x = a; y = b; z = c; }
+
+  // Allowed to reference as [0], [1], or [2], instead of .x, .y, or .z, respectively
+        double &operator[]( long i )               { return( data [ i ] ); }
+  const double &operator[]( long i ) const         { return( data [ i ] ); }
+};
+
+
+struct TelemQuat
+{
+  double w, x, y, z;
+
+  // Convert this quaternion to a matrix
+  void ConvertQuatToMat( TelemVect3 ori[3] ) const
+  {
+    const double x2 = x + x;
+    const double xx = x * x2;
+    const double y2 = y + y;
+    const double yy = y * y2;
+    const double z2 = z + z;
+    const double zz = z * z2;
+    const double xz = x * z2;
+    const double xy = x * y2;
+    const double wy = w * y2;
+    const double wx = w * x2;
+    const double wz = w * z2;
+    const double yz = y * z2;
+    ori[0][0] = (double) 1.0 - ( yy + zz );
+    ori[0][1] = xy - wz;
+    ori[0][2] = xz + wy;
+    ori[1][0] = xy + wz;
+    ori[1][1] = (double) 1.0 - ( xx + zz );
+    ori[1][2] = yz - wx;
+    ori[2][0] = xz - wy;
+    ori[2][1] = yz + wx;
+    ori[2][2] = (double) 1.0 - ( xx + yy );
+  }
+
+  // Convert a matrix to this quaternion
+  void ConvertMatToQuat( const TelemVect3 ori[3] )
+  {
+    const double trace = ori[0][0] + ori[1][1] + ori[2][2] + (double) 1.0;
+    if( trace > 0.0625f )
+    {
+      const double sqrtTrace = sqrt( trace );
+      const double s = (double) 0.5 / sqrtTrace;
+      w = (double) 0.5 * sqrtTrace;
+      x = ( ori[2][1] - ori[1][2] ) * s;
+      y = ( ori[0][2] - ori[2][0] ) * s;
+      z = ( ori[1][0] - ori[0][1] ) * s;
+    }
+    else if( ( ori[0][0] > ori[1][1] ) && ( ori[0][0] > ori[2][2] ) )
+    {
+      const double sqrtTrace = sqrt( (double) 1.0 + ori[0][0] - ori[1][1] - ori[2][2] );
+      const double s = (double) 0.5 / sqrtTrace;
+      w = ( ori[2][1] - ori[1][2] ) * s;
+      x = (double) 0.5 * sqrtTrace;
+      y = ( ori[0][1] + ori[1][0] ) * s;
+      z = ( ori[0][2] + ori[2][0] ) * s;
+    }
+    else if( ori[1][1] > ori[2][2] )
+    {
+      const double sqrtTrace = sqrt( (double) 1.0 + ori[1][1] - ori[0][0] - ori[2][2] );
+      const double s = (double) 0.5 / sqrtTrace;
+      w = ( ori[0][2] - ori[2][0] ) * s;
+      x = ( ori[0][1] + ori[1][0] ) * s;
+      y = (double) 0.5 * sqrtTrace;
+      z = ( ori[1][2] + ori[2][1] ) * s;
+    }
+    else
+    {
+      const double sqrtTrace = sqrt( (double) 1.0 + ori[2][2] - ori[0][0] - ori[1][1] );
+      const double s = (double) 0.5 / sqrtTrace;
+      w = ( ori[1][0] - ori[0][1] ) * s;
+      x = ( ori[0][2] + ori[2][0] ) * s;
+      y = ( ori[1][2] + ori[2][1] ) * s;
+      z = (double) 0.5 * sqrtTrace;
+    }
+  }
+};
+
+
+struct TelemWheelV01
+{
+  double mSuspensionDeflection;  // meters
+  double mRideHeight;            // meters
+  double mSuspForce;             // pushrod load in Newtons
+  double mBrakeTemp;             // Celsius
+  double mBrakePressure;         // currently 0.0-1.0, depending on driver input and brake balance; will convert to true brake pressure (kPa) in future
+
+  double mRotation;              // radians/sec
+  double mLateralPatchVel;       // lateral velocity at contact patch
+  double mLongitudinalPatchVel;  // longitudinal velocity at contact patch
+  double mLateralGroundVel;      // lateral velocity at contact patch
+  double mLongitudinalGroundVel; // longitudinal velocity at contact patch
+  double mCamber;                // radians (positive is left for left-side wheels, right for right-side wheels)
+  double mLateralForce;          // Newtons
+  double mLongitudinalForce;     // Newtons
+  double mTireLoad;              // Newtons
+
+  double mGripFract;             // an approximation of what fraction of the contact patch is sliding
+  double mPressure;              // kPa (tire pressure)
+  double mTemperature[3];        // Kelvin (subtract 273.15 to get Celsius), left/center/right (not to be confused with inside/center/outside!)
+  double mWear;                  // wear (0.0-1.0, fraction of maximum) ... this is not necessarily proportional with grip loss
+  char mTerrainName[16];         // the material prefixes from the TDF file
+  unsigned char mSurfaceType;    // 0=dry, 1=wet, 2=grass, 3=dirt, 4=gravel, 5=rumblestrip, 6=special
+  bool mFlat;                    // whether tire is flat
+  bool mDetached;                // whether wheel is detached
+  unsigned char mStaticUndeflectedRadius; // tire radius in centimeters
+
+  double mVerticalTireDeflection;// how much is tire deflected from its (speed-sensitive) radius
+  double mWheelYLocation;        // wheel's y location relative to vehicle y location
+  double mToe;                   // current toe angle w.r.t. the vehicle
+
+  double mTireCarcassTemperature;       // rough average of temperature samples from carcass (Kelvin)
+  double mTireInnerLayerTemperature[3]; // rough average of temperature samples from innermost layer of rubber (before carcass) (Kelvin)
+
+  unsigned char mExpansion[ 24 ];// for future use
+};
+
+
+// Our world coordinate system is left-handed, with +y pointing up.
+// The local vehicle coordinate system is as follows:
+//   +x points out the left side of the car (from the driver's perspective)
+//   +y points out the roof
+//   +z points out the back of the car
+// Rotations are as follows:
+//   +x pitches up
+//   +y yaws to the right
+//   +z rolls to the right
+// Note that ISO vehicle coordinates (+x forward, +y right, +z upward) are
+// right-handed.  If you are using that system, be sure to negate any rotation
+// or torque data because things rotate in the opposite direction.  In other
+// words, a -z velocity in rFactor is a +x velocity in ISO, but a -z rotation
+// in rFactor is a -x rotation in ISO!!!
+
+struct TelemInfoV01
+{
+  // Time
+  long mID;                      // slot ID (note that it can be re-used in multiplayer after someone leaves)
+  double mDeltaTime;             // time since last update (seconds)
+  double mElapsedTime;           // game session time
+  long mLapNumber;               // current lap number
+  double mLapStartET;            // time this lap was started
+  char mVehicleName[64];         // current vehicle name
+  char mTrackName[64];           // current track name
+
+  // Position and derivatives
+  TelemVect3 mPos;               // world position in meters
+  TelemVect3 mLocalVel;          // velocity (meters/sec) in local vehicle coordinates
+  TelemVect3 mLocalAccel;        // acceleration (meters/sec^2) in local vehicle coordinates
+
+  // Orientation and derivatives
+  TelemVect3 mOri[3];            // rows of orientation matrix (use TelemQuat conversions if desired), also converts local
+                                 // vehicle vectors into world X, Y, or Z using dot product of rows 0, 1, or 2 respectively
+  TelemVect3 mLocalRot;          // rotation (radians/sec) in local vehicle coordinates
+  TelemVect3 mLocalRotAccel;     // rotational acceleration (radians/sec^2) in local vehicle coordinates
+
+  // Vehicle status
+  long mGear;                    // -1=reverse, 0=neutral, 1+=forward gears
+  double mEngineRPM;             // engine RPM
+  double mEngineWaterTemp;       // Celsius
+  double mEngineOilTemp;         // Celsius
+  double mClutchRPM;             // clutch RPM
+
+  // Driver input
+  double mUnfilteredThrottle;    // ranges  0.0-1.0
+  double mUnfilteredBrake;       // ranges  0.0-1.0
+  double mUnfilteredSteering;    // ranges -1.0-1.0 (left to right)
+  double mUnfilteredClutch;      // ranges  0.0-1.0
+
+  // Filtered input (various adjustments for rev or speed limiting, TC, ABS?, speed sensitive steering, clutch work for semi-automatic shifting, etc.)
+  double mFilteredThrottle;      // ranges  0.0-1.0
+  double mFilteredBrake;         // ranges  0.0-1.0
+  double mFilteredSteering;      // ranges -1.0-1.0 (left to right)
+  double mFilteredClutch;        // ranges  0.0-1.0
+
+  // Misc
+  double mSteeringShaftTorque;   // torque around steering shaft (used to be mSteeringArmForce, but that is not necessarily accurate for feedback purposes)
+  double mFront3rdDeflection;    // deflection at front 3rd spring
+  double mRear3rdDeflection;     // deflection at rear 3rd spring
+
+  // Aerodynamics
+  double mFrontWingHeight;       // front wing height
+  double mFrontRideHeight;       // front ride height
+  double mRearRideHeight;        // rear ride height
+  double mDrag;                  // drag
+  double mFrontDownforce;        // front downforce
+  double mRearDownforce;         // rear downforce
+
+  // State/damage info
+  double mFuel;                  // amount of fuel (liters)
+  double mEngineMaxRPM;          // rev limit
+  unsigned char mScheduledStops; // number of scheduled pitstops
+  bool  mOverheating;            // whether overheating icon is shown
+  bool  mDetached;               // whether any parts (besides wheels) have been detached
+  bool  mHeadlights;             // whether headlights are on
+  unsigned char mDentSeverity[8];// dent severity at 8 locations around the car (0=none, 1=some, 2=more)
+  double mLastImpactET;          // time of last impact
+  double mLastImpactMagnitude;   // magnitude of last impact
+  TelemVect3 mLastImpactPos;     // location of last impact
+
+  // Expanded
+  double mEngineTorque;          // current engine torque (including additive torque) (used to be mEngineTq, but there's little reason to abbreviate it)
+  long mCurrentSector;           // the current sector (zero-based) with the pitlane stored in the sign bit (example: entering pits from third sector gives 0x80000002)
+  unsigned char mSpeedLimiter;   // whether speed limiter is on
+  unsigned char mMaxGears;       // maximum forward gears
+  unsigned char mFrontTireCompoundIndex;   // index within brand
+  unsigned char mRearTireCompoundIndex;    // index within brand
+  double mFuelCapacity;          // capacity in liters
+  unsigned char mFrontFlapActivated;       // whether front flap is activated
+  unsigned char mRearFlapActivated;        // whether rear flap is activated
+  unsigned char mRearFlapLegalStatus;      // 0=disallowed, 1=criteria detected but not allowed quite yet, 2=allowed
+  unsigned char mIgnitionStarter;          // 0=off 1=ignition 2=ignition+starter
+
+  char mFrontTireCompoundName[18];         // name of front tire compound
+  char mRearTireCompoundName[18];          // name of rear tire compound
+
+  unsigned char mSpeedLimiterAvailable;    // whether speed limiter is available
+  unsigned char mAntiStallActivated;       // whether (hard) anti-stall is activated
+  unsigned char mUnused[2];                //
+  float mVisualSteeringWheelRange;         // the *visual* steering wheel range
+
+  double mRearBrakeBias;                   // fraction of brakes on rear
+  double mTurboBoostPressure;              // current turbo boost pressure if available
+  float mPhysicsToGraphicsOffset[3];       // offset from static CG to graphical center
+  float mPhysicalSteeringWheelRange;       // the *physical* steering wheel range
+
+  // deltabest
+  double mDeltaBest;
+
+  double mBatteryChargeFraction; // Battery charge as fraction [0.0-1.0]
+
+  // electric boost motor
+  double mElectricBoostMotorTorque; // current torque of boost motor (can be negative when in regenerating mode)
+  double mElectricBoostMotorRPM; // current rpm of boost motor
+  double mElectricBoostMotorTemperature; // current temperature of boost motor
+  double mElectricBoostWaterTemperature; // current water temperature of boost motor cooler if present (0 otherwise)
+  unsigned char mElectricBoostMotorState; // 0=unavailable 1=inactive, 2=propulsion, 3=regeneration
+  
+  // Future use
+  unsigned char mExpansion[111-8]; // for future use (note that the slot ID has been moved to mID above)
+
+  // keeping this at the end of the structure to make it easier to replace in future versions
+  TelemWheelV01 mWheel[4];       // wheel info (front left, front right, rear left, rear right)
+};
+
+
+struct GraphicsInfoV01
+{
+  TelemVect3 mCamPos;            // camera position
+  TelemVect3 mCamOri[3];         // rows of orientation matrix (use TelemQuat conversions if desired), also converts local
+  HWND mHWND;                    // app handle
+
+  double mAmbientRed;
+  double mAmbientGreen;
+  double mAmbientBlue;
+};
+
+
+struct GraphicsInfoV02 : public GraphicsInfoV01
+{
+  long mID;                      // slot ID being viewed (-1 if invalid)
+
+  // Camera types (some of these may only be used for *setting* the camera type in WantsToViewVehicle())
+  //    0  = TV cockpit
+  //    1  = cockpit
+  //    2  = nosecam
+  //    3  = swingman
+  //    4  = trackside (nearest)
+  //    5  = onboard000
+  //       :
+  //       :
+  // 1004  = onboard999
+  // 1005+ = (currently unsupported, in the future may be able to set/get specific trackside camera)
+  long mCameraType;              // see above comments for possible values
+
+  unsigned char mExpansion[128]; // for future use (possibly camera name)
+};
+
+
+struct CameraControlInfoV01
+{
+  // Cameras
+  long mID;                      // slot ID to view
+  long mCameraType;              // see GraphicsInfoV02 comments for values
+
+  // Replays (note that these are asynchronous)
+  bool mReplayActive;            // This variable is an *input* filled with whether the replay is currently active (as opposed to realtime).
+  bool mReplayUnused;            //
+  unsigned char mReplayCommand;  // 0=do nothing, 1=begin, 2=end, 3=rewind, 4=fast backwards, 5=backwards, 6=slow backwards, 7=stop, 8=slow play, 9=play, 10=fast play, 11=fast forward
+
+  bool mReplaySetTime;           // Whether to skip to the following replay time:
+  float mReplaySeconds;          // The replay time in seconds to skip to (note: the current replay maximum ET is passed into this variable in case you need it)
+
+  //
+  unsigned char mExpansion[120]; // for future use (possibly camera name & positions/orientations)
+};
+
+
+struct MessageInfoV01
+{
+  char mText[128];               // message to display
+
+  unsigned char mDestination;    // 0 = message center, 1 = chat (can be used for multiplayer chat commands)
+  unsigned char mTranslate;      // 0 = do not attempt to translate, 1 = attempt to translate
+
+  unsigned char mExpansion[126]; // for future use (possibly what color, what font, and seconds to display)
+};
+
+
+struct VehicleScoringInfoV01
+{
+  long mID;                      // slot ID (note that it can be re-used in multiplayer after someone leaves)
+  char mDriverName[32];          // driver name
+  char mVehicleName[64];         // vehicle name
+  short mTotalLaps;              // laps completed
+  signed char mSector;           // 0=sector3, 1=sector1, 2=sector2 (don't ask why)
+  signed char mFinishStatus;     // 0=none, 1=finished, 2=dnf, 3=dq
+  double mLapDist;               // current distance around track
+  double mPathLateral;           // lateral position with respect to *very approximate* "center" path
+  double mTrackEdge;             // track edge (w.r.t. "center" path) on same side of track as vehicle
+
+  double mBestSector1;           // best sector 1
+  double mBestSector2;           // best sector 2 (plus sector 1)
+  double mBestLapTime;           // best lap time
+  double mLastSector1;           // last sector 1
+  double mLastSector2;           // last sector 2 (plus sector 1)
+  double mLastLapTime;           // last lap time
+  double mCurSector1;            // current sector 1 if valid
+  double mCurSector2;            // current sector 2 (plus sector 1) if valid
+  // no current laptime because it instantly becomes "last"
+
+  short mNumPitstops;            // number of pitstops made
+  short mNumPenalties;           // number of outstanding penalties
+  bool mIsPlayer;                // is this the player's vehicle
+
+  signed char mControl;          // who's in control: -1=nobody (shouldn't get this), 0=local player, 1=local AI, 2=remote, 3=replay (shouldn't get this)
+  bool mInPits;                  // between pit entrance and pit exit (not always accurate for remote vehicles)
+  unsigned char mPlace;          // 1-based position
+  char mVehicleClass[32];        // vehicle class
+
+  // Dash Indicators
+  double mTimeBehindNext;        // time behind vehicle in next higher place
+  long mLapsBehindNext;          // laps behind vehicle in next higher place
+  double mTimeBehindLeader;      // time behind leader
+  long mLapsBehindLeader;        // laps behind leader
+  double mLapStartET;            // time this lap was started
+
+  // Position and derivatives
+  TelemVect3 mPos;               // world position in meters
+  TelemVect3 mLocalVel;          // velocity (meters/sec) in local vehicle coordinates
+  TelemVect3 mLocalAccel;        // acceleration (meters/sec^2) in local vehicle coordinates
+
+  // Orientation and derivatives
+  TelemVect3 mOri[3];            // rows of orientation matrix (use TelemQuat conversions if desired), also converts local
+                                 // vehicle vectors into world X, Y, or Z using dot product of rows 0, 1, or 2 respectively
+  TelemVect3 mLocalRot;          // rotation (radians/sec) in local vehicle coordinates
+  TelemVect3 mLocalRotAccel;     // rotational acceleration (radians/sec^2) in local vehicle coordinates
+
+  // tag.2012.03.01 - stopped casting some of these so variables now have names and mExpansion has shrunk, overall size and old data locations should be same
+  unsigned char mHeadlights;     // status of headlights
+  unsigned char mPitState;       // 0=none, 1=request, 2=entering, 3=stopped, 4=exiting
+  unsigned char mServerScored;   // whether this vehicle is being scored by server (could be off in qualifying or racing heats)
+  unsigned char mIndividualPhase;// game phases (described below) plus 9=after formation, 10=under yellow, 11=under blue (not used)
+
+  long mQualification;           // 1-based, can be -1 when invalid
+
+  double mTimeIntoLap;           // estimated time into lap
+  double mEstimatedLapTime;      // estimated laptime used for 'time behind' and 'time into lap' (note: this may changed based on vehicle and setup!?)
+
+  char mPitGroup[24];            // pit group (same as team name unless pit is shared)
+  unsigned char mFlag;           // primary flag being shown to vehicle (currently only 0=green or 6=blue)
+  bool mUnderYellow;             // whether this car has taken a full-course caution flag at the start/finish line
+  unsigned char mCountLapFlag;   // 0 = do not count lap or time, 1 = count lap but not time, 2 = count lap and time
+  bool mInGarageStall;           // appears to be within the correct garage stall
+
+  unsigned char mUpgradePack[16];  // Coded upgrades
+  float mPitLapDist;             // location of pit in terms of lap distance
+
+  float mBestLapSector1;         // sector 1 time from best lap (not necessarily the best sector 1 time)
+  float mBestLapSector2;         // sector 2 time from best lap (not necessarily the best sector 2 time)
+
+  unsigned long long mSteamID;            // SteamID of the current driver (if any)
+
+  char mVehFilename[32];		// filename of veh file used to identify this vehicle.
+
+  short mAttackMode;
+
+  // 2020.11.12 - Took 1 byte from mExpansion to transmit fuel percentage
+  unsigned char mFuelFraction; // Percentage of fuel or battery left in vehicle. 0x00 = 0%; 0xFF = 100%
+
+  // 2021.05.28 - Took 1 byte from mExpansion to transmit DRS (RearFlap) state - consider making this a bitfield if further bools are needed later on
+  bool mDRSState;
+
+  // Future use
+  unsigned char mExpansion[4];		// for future use
+};
+
+
+struct ScoringInfoV01
+{
+  char mTrackName[64];           // current track name
+  long mSession;                 // current session (0=testday 1-4=practice 5-8=qual 9=warmup 10-13=race)
+  double mCurrentET;             // current time
+  double mEndET;                 // ending time
+  long  mMaxLaps;                // maximum laps
+  double mLapDist;               // distance around track
+  char *mResultsStream;          // results stream additions since last update (newline-delimited and NULL-terminated)
+
+  long mNumVehicles;             // current number of vehicles
+
+  // Game phases:
+  // 0 Before session has begun
+  // 1 Reconnaissance laps (race only)
+  // 2 Grid walk-through (race only)
+  // 3 Formation lap (race only)
+  // 4 Starting-light countdown has begun (race only)
+  // 5 Green flag
+  // 6 Full course yellow / safety car
+  // 7 Session stopped
+  // 8 Session over
+  // 9 Paused (tag.2015.09.14 - this is new, and indicates that this is a heartbeat call to the plugin)
+  unsigned char mGamePhase;
+
+  // Yellow flag states (applies to full-course only)
+  // -1 Invalid
+  //  0 None
+  //  1 Pending
+  //  2 Pits closed
+  //  3 Pit lead lap
+  //  4 Pits open
+  //  5 Last lap
+  //  6 Resume
+  //  7 Race halt (not currently used)
+  signed char mYellowFlagState;
+
+  signed char mSectorFlag[3];      // whether there are any local yellows at the moment in each sector (not sure if sector 0 is first or last, so test)
+  unsigned char mStartLight;       // start light frame (number depends on track)
+  unsigned char mNumRedLights;     // number of red lights in start sequence
+  bool mInRealtime;                // in realtime as opposed to at the monitor
+  char mPlayerName[32];            // player name (including possible multiplayer override)
+  char mPlrFileName[64];           // may be encoded to be a legal filename
+
+  // weather
+  double mDarkCloud;               // cloud darkness? 0.0-1.0
+  double mRaining;                 // raining severity 0.0-1.0
+  double mAmbientTemp;             // temperature (Celsius)
+  double mTrackTemp;               // temperature (Celsius)
+  TelemVect3 mWind;                // wind speed
+  double mMinPathWetness;          // minimum wetness on main path 0.0-1.0
+  double mMaxPathWetness;          // maximum wetness on main path 0.0-1.0
+
+  // multiplayer
+  unsigned char mGameMode; // 1 = server, 2 = client, 3 = server and client
+  bool mIsPasswordProtected; // is the server password protected
+  unsigned short mServerPort; // the port of the server (if on a server)
+  unsigned long mServerPublicIP; // the public IP address of the server (if on a server)
+  long mMaxPlayers; // maximum number of vehicles that can be in the session
+  char mServerName[32]; // name of the server
+  float mStartET; // start time (seconds since midnight) of the event
+
+  //
+  double mAvgPathWetness;          // average wetness on main path 0.0-1.0
+
+  // Future use
+  unsigned char mExpansion[200];
+
+  // keeping this at the end of the structure to make it easier to replace in future versions
+  VehicleScoringInfoV01 *mVehicle; // array of vehicle scoring info's
+};
+
+
+struct CommentaryRequestInfoV01
+{
+  char mName[32];                  // one of the event names in the commentary INI file
+  double mInput1;                  // first value to pass in (if any)
+  double mInput2;                  // first value to pass in (if any)
+  double mInput3;                  // first value to pass in (if any)
+  bool mSkipChecks;                // ignores commentary detail and random probability of event
+
+  // constructor (for noobs, this just helps make sure everything is initialized to something reasonable)
+  CommentaryRequestInfoV01()       { mName[0] = 0; mInput1 = 0.0; mInput2 = 0.0; mInput3 = 0.0; mSkipChecks = false; }
+};
+
+
+//#########################################################################
+//# Version02 Structures                                                   #
+//##########################################################################
+
+struct PhysicsOptionsV01
+{
+  unsigned char mTractionControl;  // 0 (off) - 3 (high)
+  unsigned char mAntiLockBrakes;   // 0 (off) - 2 (high)
+  unsigned char mStabilityControl; // 0 (off) - 2 (high)
+  unsigned char mAutoShift;        // 0 (off), 1 (upshifts), 2 (downshifts), 3 (all)
+  unsigned char mAutoClutch;       // 0 (off), 1 (on)
+  unsigned char mInvulnerable;     // 0 (off), 1 (on)
+  unsigned char mOppositeLock;     // 0 (off), 1 (on)
+  unsigned char mSteeringHelp;     // 0 (off) - 3 (high)
+  unsigned char mBrakingHelp;      // 0 (off) - 2 (high)
+  unsigned char mSpinRecovery;     // 0 (off), 1 (on)
+  unsigned char mAutoPit;          // 0 (off), 1 (on)
+  unsigned char mAutoLift;         // 0 (off), 1 (on)
+  unsigned char mAutoBlip;         // 0 (off), 1 (on)
+
+  unsigned char mFuelMult;         // fuel multiplier (0x-7x)
+  unsigned char mTireMult;         // tire wear multiplier (0x-7x)
+  unsigned char mMechFail;         // mechanical failure setting; 0 (off), 1 (normal), 2 (timescaled)
+  unsigned char mAllowPitcrewPush; // 0 (off), 1 (on)
+  unsigned char mRepeatShifts;     // accidental repeat shift prevention (0-5; see PLR file)
+  unsigned char mHoldClutch;       // for auto-shifters at start of race: 0 (off), 1 (on)
+  unsigned char mAutoReverse;      // 0 (off), 1 (on)
+  unsigned char mAlternateNeutral; // Whether shifting up and down simultaneously equals neutral
+
+  // tag.2014.06.09 - yes these are new, but no they don't change the size of the structure nor the address of the other variables in it (because we're just using the existing padding)
+  unsigned char mAIControl;        // Whether player vehicle is currently under AI control
+  unsigned char mUnused1;          //
+  unsigned char mUnused2;          //
+
+  float mManualShiftOverrideTime;  // time before auto-shifting can resume after recent manual shift
+  float mAutoShiftOverrideTime;    // time before manual shifting can resume after recent auto shift
+  float mSpeedSensitiveSteering;   // 0.0 (off) - 1.0
+};
+
+
+struct EnvironmentInfoV01
+{
+  // TEMPORARY buffers (you should copy them if needed for later use) containing various paths that may be needed.  Each of these
+  // could be relative ("UserData\") or full ("C:\BlahBlah\rFactorProduct\UserData\").
+  // mPath[ 0 ] points to the UserData directory.
+  // mPath[ 1 ] points to the CustomPluginOptions.JSON filename.
+  // mPath[ 2 ] points to the latest results file
+  // (in the future, we may add paths for the current garage setup, fully upgraded physics files, etc., any other requests?)
+  const char *mPath[ 16 ];
+  unsigned char mExpansion[256];   // future use
+};
+
+
+// deprecated (callbacks are no longer invoked in DX11) since V8
+struct ScreenInfoV01
+{
+  HWND mAppWindow;                      // Application window handle
+  void *mDevice;                        // Cast type to LPDIRECT3DDEVICE9
+  void *mRenderTarget;                  // Cast type to LPDIRECT3DTEXTURE9
+  long mDriver;                         // Current video driver index
+
+  long mWidth;                          // Screen width
+  long mHeight;                         // Screen height
+  long mPixelFormat;                    // Pixel format
+  long mRefreshRate;                    // Refresh rate
+  long mWindowed;                       // Really just a boolean whether we are in windowed mode
+
+  long mOptionsWidth;                   // Width dimension of screen portion used by UI
+  long mOptionsHeight;                  // Height dimension of screen portion used by UI
+  long mOptionsLeft;                    // Horizontal starting coordinate of screen portion used by UI
+  long mOptionsUpper;                   // Vertical starting coordinate of screen portion used by UI
+
+  unsigned char mOptionsLocation;       // 0=main UI, 1=track loading, 2=monitor, 3=on track
+  char mOptionsPage[ 31 ];              // the name of the options page
+
+  unsigned char mExpansion[ 224 ];      // future use
+};
+
+
+// replaces the ScreenInfoV01 structure that was deprecated since V8
+struct ApplicationStateV01 {
+  HWND mAppWindow;                      // application window handle
+  unsigned long mWidth;                 // screen width
+  unsigned long mHeight;                // screen height
+  unsigned long mRefreshRate;           // refresh rate
+  unsigned long mWindowed;              // really just a boolean whether we are in windowed mode
+  unsigned char mOptionsLocation;       // 0=main UI, 1=track loading, 2=monitor, 3=on track
+  char mOptionsPage[ 31 ];              // the name of the options page
+  unsigned char mExpansion[ 204 ];      // future use
+};
+
+
+struct CustomControlInfoV01
+{
+  // The name passed through CheckHWControl() will be the mUntranslatedName prepended with an underscore (e.g. "Track Map Toggle" -> "_Track Map Toggle")
+  char mUntranslatedName[ 64 ];         // name of the control that will show up in UI (but translated if available)
+  long mRepeat;                         // 0=registers once per hit, 1=registers once, waits briefly, then starts repeating quickly, 2=registers as long as key is down
+  unsigned char mExpansion[ 64 ];       // future use
+};
+
+
+struct WeatherControlInfoV01
+{
+  // The current conditions are passed in with the API call. The following ET (Elapsed Time) value should typically be far
+  // enough in the future that it can be interpolated smoothly, and allow clouds time to roll in before rain starts. In
+  // other words you probably shouldn't have mCloudiness and mRaining suddenly change from 0.0 to 1.0 and expect that
+  // to happen in a few seconds without looking crazy.
+  double mET;                           // when you want this weather to take effect
+
+  // mRaining[1][1] is at the origin (2013.12.19 - and currently the only implemented node), while the others
+  // are spaced at <trackNodeSize> meters where <trackNodeSize> is the maximum absolute value of a track vertex
+  // coordinate (and is passed into the API call).
+  double mRaining[ 3 ][ 3 ];            // rain (0.0-1.0) at different nodes
+
+  double mCloudiness;                   // general cloudiness (0.0=clear to 1.0=dark), will be automatically overridden to help ensure clouds exist over rainy areas
+  double mAmbientTempK;                 // ambient temperature (Kelvin)
+  double mWindMaxSpeed;                 // maximum speed of wind (ground speed, but it affects how fast the clouds move, too)
+
+  bool mApplyCloudinessInstantly;       // preferably we roll the new clouds in, but you can instantly change them now
+  bool mUnused1;                        //
+  bool mUnused2;                        //
+  bool mUnused3;                        //
+
+  unsigned char mExpansion[ 508 ];      // future use (humidity, pressure, air density, etc.)
+};
+
+
+//#########################################################################
+//# Version07 Structures                                                   #
+//##########################################################################
+
+struct CustomVariableV01
+{
+  char mCaption[ 128 ];                 // Name of variable. This will be used for storage. In the future, this may also be used in the UI (after attempting to translate).
+  long mNumSettings;                    // Number of available settings. The special value 0 should be used for types that have limitless possibilities, which will be treated as a string type.
+  long mCurrentSetting;                 // Current setting (also the default setting when returned in GetCustomVariable()). This is zero-based, so: ( 0 <= mCurrentSetting < mNumSettings )
+
+  // future expansion
+  unsigned char mExpansion[ 256 ];
+};
+
+struct CustomSettingV01
+{
+  char mName[ 128 ];                    // Enumerated name of setting (only used if CustomVariableV01::mNumSettings > 0). This will be stored in the JSON file for informational purposes only. It may also possibly be used in the UI in the future.
+};
+
+struct MultiSessionParticipantV01
+{
+  // input only
+  long mID;                             // slot ID (if loaded) or -1 (if currently disconnected)
+  char mDriverName[ 32 ];               // driver name
+  char mVehicleName[ 64 ];              // vehicle name
+  unsigned char mUpgradePack[ 16 ];     // coded upgrades
+
+  float mBestPracticeTime;              // best practice time
+  long mQualParticipantIndex;           // once qualifying begins, this becomes valid and ranks participants according to practice time if possible
+  float mQualificationTime[ 4 ];        // best qualification time in up to 4 qual sessions
+  float mFinalRacePlace[ 4 ];           // final race place in up to 4 race sessions
+  float mFinalRaceTime[ 4 ];            // final race time in up to 4 race sessions
+
+  // input/output
+  bool mServerScored;                   // whether vehicle is allowed to participate in current session
+  long mGridPosition;                   // 1-based grid position for current race session (or upcoming race session if it is currently warmup), or -1 if currently disconnected
+// long mPitIndex;
+// long mGarageIndex;
+
+  // future expansion
+  unsigned char mExpansion[ 128 ];
+};
+
+struct MultiSessionRulesV01
+{
+  // input only
+  long mSession;                        // current session (0=testday 1-4=practice 5-8=qual 9=warmup 10-13=race)
+  long mSpecialSlotID;                  // slot ID of someone who just joined, or -2 requesting to update qual order, or -1 (default/general)
+  char mTrackType[ 32 ];                // track type from GDB
+  long mNumParticipants;                // number of participants (vehicles)
+
+  // input/output
+  MultiSessionParticipantV01 *mParticipant;       // array of partipants (vehicles)
+  long mNumQualSessions;                // number of qualifying sessions configured
+  long mNumRaceSessions;                // number of race sessions configured
+  long mMaxLaps;                        // maximum laps allowed in current session (LONG_MAX = unlimited) (note: cannot currently edit in *race* sessions)
+  long mMaxSeconds;                     // maximum time allowed in current session (LONG_MAX = unlimited) (note: cannot currently edit in *race* sessions)
+  char mName[ 32 ];                     // untranslated name override for session (please use mixed case here, it should get uppercased if necessary)
+
+  // future expansion
+  unsigned char mExpansion[ 256 ];
+};
+
+
+enum TrackRulesCommandV01               //
+{
+  TRCMD_ADD_FROM_TRACK = 0,             // crossed s/f line for first time after full-course yellow was called
+  TRCMD_ADD_FROM_PIT,                   // exited pit during full-course yellow
+  TRCMD_ADD_FROM_UNDQ,                  // during a full-course yellow, the admin reversed a disqualification
+  TRCMD_REMOVE_TO_PIT,                  // entered pit during full-course yellow
+  TRCMD_REMOVE_TO_DNF,                  // vehicle DNF'd during full-course yellow
+  TRCMD_REMOVE_TO_DQ,                   // vehicle DQ'd during full-course yellow
+  TRCMD_REMOVE_TO_UNLOADED,             // vehicle unloaded (possibly kicked out or banned) during full-course yellow
+  TRCMD_MOVE_TO_BACK,                   // misbehavior during full-course yellow, resulting in the penalty of being moved to the back of their current line
+  TRCMD_LONGEST_LINE,                   // misbehavior during full-course yellow, resulting in the penalty of being moved to the back of the longest line
+  //------------------
+  TRCMD_MAXIMUM                         // should be last
+};
+
+struct TrackRulesActionV01
+{
+  // input only
+  TrackRulesCommandV01 mCommand;        // recommended action
+  long mID;                             // slot ID if applicable
+  unsigned char mLine;                  // line this command applies to (if applicable)
+};
+
+enum TrackRulesColumnV01
+{
+  TRCOL_LEFT_LANE = 0,                  // left (inside)
+  TRCOL_MIDDLE_LANE,                    // middle
+  TRCOL_RIGHT_LANE,                     // right (outside)
+  //------------------
+  TRCOL_MAX_LANES,                      // should be after the valid static lane choices
+  //------------------
+  TRCOL_INVALID = TRCOL_MAX_LANES,      // currently invalid (hasn't crossed line or in pits/garage)
+  TRCOL_FREECHOICE,                     // free choice (dynamically chosen by driver)
+  TRCOL_PENDING,                        // depends on another participant's free choice (dynamically set after another driver chooses)
+  //------------------
+  TRCOL_MAXIMUM                         // should be last
+};
+
+struct TrackRulesParticipantV01
+{
+  // input only
+  long mID;                             // slot ID
+  short mFrozenOrder;                   // 0-based place when caution came out (not valid for formation laps)
+  short mPlace;                         // 1-based place (typically used for the initialization of the formation lap track order)
+  float mYellowSeverity;                // a rating of how much this vehicle is contributing to a yellow flag (the sum of all vehicles is compared to TrackRulesV01::mSafetyCarThreshold)
+  double mCurrentRelativeDistance;      // equal to ( ( ScoringInfoV01::mLapDist * this->mRelativeLaps ) + VehicleScoringInfoV01::mLapDist )
+
+  // input/output
+  long mRelativeLaps;                   // current formation/caution laps relative to safety car (should generally be zero except when safety car crosses s/f line); this can be decremented to implement 'wave around' or 'beneficiary rule' (a.k.a. 'lucky dog' or 'free pass')
+  TrackRulesColumnV01 mColumnAssignment;// which column (line/lane) that participant is supposed to be in
+  long mPositionAssignment;             // 0-based position within column (line/lane) that participant is supposed to be located at (-1 is invalid)
+  unsigned char mPitsOpen;              // whether the rules allow this particular vehicle to enter pits right now (input is 2=false or 3=true; if you want to edit it, set to 0=false or 1=true)
+  bool mUpToSpeed;                      // while in the frozen order, this flag indicates whether the vehicle can be followed (this should be false for somebody who has temporarily spun and hasn't gotten back up to speed yet)
+  bool mUnused[ 2 ];                    //
+  double mGoalRelativeDistance;         // calculated based on where the leader is, and adjusted by the desired column spacing and the column/position assignments
+  char mMessage[ 96 ];                  // a message for this participant to explain what is going on (untranslated; it will get run through translator on client machines)
+
+  // future expansion
+  unsigned char mExpansion[ 192 ];
+};
+
+enum TrackRulesStageV01                 //
+{
+  TRSTAGE_FORMATION_INIT = 0,           // initialization of the formation lap
+  TRSTAGE_FORMATION_UPDATE,             // update of the formation lap
+  TRSTAGE_NORMAL,                       // normal (non-yellow) update
+  TRSTAGE_CAUTION_INIT,                 // initialization of a full-course yellow
+  TRSTAGE_CAUTION_UPDATE,               // update of a full-course yellow
+  //------------------
+  TRSTAGE_MAXIMUM                       // should be last
+};
+
+struct TrackRulesV01
+{
+  // input only
+  double mCurrentET;                    // current time
+  TrackRulesStageV01 mStage;            // current stage
+  TrackRulesColumnV01 mPoleColumn;      // column assignment where pole position seems to be located
+  long mNumActions;                     // number of recent actions
+  TrackRulesActionV01 *mAction;         // array of recent actions
+  long mNumParticipants;                // number of participants (vehicles)
+
+  bool mYellowFlagDetected;             // whether yellow flag was requested or sum of participant mYellowSeverity's exceeds mSafetyCarThreshold
+  unsigned char mYellowFlagLapsWasOverridden;     // whether mYellowFlagLaps (below) is an admin request (0=no 1=yes 2=clear yellow)
+
+  bool mSafetyCarExists;                // whether safety car even exists
+  bool mSafetyCarActive;                // whether safety car is active
+  long mSafetyCarLaps;                  // number of laps
+  float mSafetyCarThreshold;            // the threshold at which a safety car is called out (compared to the sum of TrackRulesParticipantV01::mYellowSeverity for each vehicle)
+  double mSafetyCarLapDist;             // safety car lap distance
+  float mSafetyCarLapDistAtStart;       // where the safety car starts from
+
+  float mPitLaneStartDist;              // where the waypoint branch to the pits breaks off (this may not be perfectly accurate)
+  float mTeleportLapDist;               // the front of the teleport locations (a useful first guess as to where to throw the green flag)
+
+  // future input expansion
+  unsigned char mInputExpansion[ 256 ];
+
+  // input/output
+  signed char mYellowFlagState;         // see ScoringInfoV01 for values
+  short mYellowFlagLaps;                // suggested number of laps to run under yellow (may be passed in with admin command)
+
+  long mSafetyCarInstruction;           // 0=no change, 1=go active, 2=head for pits
+  float mSafetyCarSpeed;                // maximum speed at which to drive
+  float mSafetyCarMinimumSpacing;       // minimum spacing behind safety car (-1 to indicate no limit)
+  float mSafetyCarMaximumSpacing;       // maximum spacing behind safety car (-1 to indicate no limit)
+
+  float mMinimumColumnSpacing;          // minimum desired spacing between vehicles in a column (-1 to indicate indeterminate/unenforced)
+  float mMaximumColumnSpacing;          // maximum desired spacing between vehicles in a column (-1 to indicate indeterminate/unenforced)
+
+  float mMinimumSpeed;                  // minimum speed that anybody should be driving (-1 to indicate no limit)
+  float mMaximumSpeed;                  // maximum speed that anybody should be driving (-1 to indicate no limit)
+
+  char mMessage[ 96 ];                  // a message for everybody to explain what is going on (which will get run through translator on client machines)
+  TrackRulesParticipantV01 *mParticipant;         // array of partipants (vehicles)
+
+  // future input/output expansion
+  unsigned char mInputOutputExpansion[ 256 ];
+};
+
+
+struct PitMenuV01
+{
+  long mCategoryIndex;                  // index of the current category
+  char mCategoryName[ 32 ];             // name of the current category (untranslated)
+
+  long mChoiceIndex;                    // index of the current choice (within the current category)
+  char mChoiceString[ 32 ];             // name of the current choice (may have some translated words)
+  long mNumChoices;                     // total number of choices (0 <= mChoiceIndex < mNumChoices)
+
+  unsigned char mExpansion[ 256 ];      // for future use
+};
+
+
+//#########################################################################
+//# Plugin classes used to access internals                                #
+//##########################################################################
+
+// Note: use class InternalsPluginV01 and have exported function GetPluginVersion() return 1, or
+//       use class InternalsPluginV02 and have exported function GetPluginVersion() return 2, etc.
+class InternalsPlugin : public PluginObject
+{
+ public:
+
+  // General internals methods
+  InternalsPlugin() {}
+  virtual ~InternalsPlugin() {}
+
+  // GAME FLOW NOTIFICATIONS
+  virtual void Startup( long version ) {}                      // sim startup with version * 1000
+  virtual void Shutdown() {}                                   // sim shutdown
+
+  virtual void Load() {}                                       // scene/track load
+  virtual void Unload() {}                                     // scene/track unload
+
+  virtual void StartSession() {}                               // session started
+  virtual void EndSession() {}                                 // session ended
+
+  virtual void EnterRealtime() {}                              // entering realtime (where the vehicle can be driven)
+  virtual void ExitRealtime() {}                               // exiting realtime
+
+  // SCORING OUTPUT
+  virtual bool WantsScoringUpdates() { return( false ); }      // whether we want scoring updates
+  virtual void UpdateScoring( const ScoringInfoV01 &info ) {}  // update plugin with scoring info (approximately five times per second)
+
+  // GAME OUTPUT
+  virtual long WantsTelemetryUpdates() { return( 0 ); }        // whether we want telemetry updates (0=no 1=player-only 2=all vehicles)
+  virtual void UpdateTelemetry( const TelemInfoV01 &info ) {}  // update plugin with telemetry info
+
+  virtual bool WantsGraphicsUpdates() { return( false ); }     // whether we want graphics updates
+  virtual void UpdateGraphics( const GraphicsInfoV01 &info ) {}// update plugin with graphics info
+
+  // COMMENTARY INPUT
+  virtual bool RequestCommentary( CommentaryRequestInfoV01 &info ) { return( false ); } // to use our commentary event system, fill in data and return true
+
+  // GAME INPUT
+  virtual bool HasHardwareInputs() { return( false ); }        // whether plugin has hardware plugins
+  virtual void UpdateHardware( const double fDT ) {}           // update the hardware with the time between frames
+  virtual void EnableHardware() {}                             // message from game to enable hardware
+  virtual void DisableHardware() {}                            // message from game to disable hardware
+
+  // See if the plugin wants to take over a hardware control.  If the plugin takes over the
+  // control, this method returns true and sets the value of the double pointed to by the
+  // second arg.  Otherwise, it returns false and leaves the double unmodified.
+  virtual bool CheckHWControl( const char * const controlName, double &fRetVal ) { return false; }
+
+  virtual bool ForceFeedback( double &forceValue ) { return( false ); } // alternate force feedback computation - return true if editing the value
+
+  // ERROR FEEDBACK
+  virtual void Error( const char * const msg ) {} // Called with explanation message if there was some sort of error in a plugin callback
+};
+
+
+class InternalsPluginV01 : public InternalsPlugin  // Version 01 is the exact same as the original
+{
+  // REMINDER: exported function GetPluginVersion() should return 1 if you are deriving from this InternalsPluginV01!
+};
+
+
+class InternalsPluginV02 : public InternalsPluginV01  // V02 contains everything from V01 plus the following:
+{
+  // REMINDER: exported function GetPluginVersion() should return 2 if you are deriving from this InternalsPluginV02!
+
+ public:
+
+  // This function is called occasionally
+  virtual void SetPhysicsOptions( PhysicsOptionsV01 &options ) {}
+};
+
+
+class InternalsPluginV03 : public InternalsPluginV02  // V03 contains everything from V02 plus the following:
+{
+  // REMINDER: exported function GetPluginVersion() should return 3 if you are deriving from this InternalsPluginV03!
+
+ public:
+
+  virtual unsigned char WantsToViewVehicle( CameraControlInfoV01 &camControl ) { return( 0 ); } // return values: 0=do nothing, 1=set ID and camera type, 2=replay controls, 3=both
+
+  // EXTENDED GAME OUTPUT
+  virtual void UpdateGraphics( const GraphicsInfoV02 &info )          {} // update plugin with extended graphics info
+
+  // MESSAGE BOX INPUT
+  virtual bool WantsToDisplayMessage( MessageInfoV01 &msgInfo )       { return( false ); } // set message and return true
+};
+
+
+class InternalsPluginV04 : public InternalsPluginV03  // V04 contains everything from V03 plus the following:
+{
+  // REMINDER: exported function GetPluginVersion() should return 4 if you are deriving from this InternalsPluginV04!
+
+ public:
+
+  // EXTENDED GAME FLOW NOTIFICATIONS
+  virtual void SetEnvironment( const EnvironmentInfoV01 &info )       {} // may be called whenever the environment changes
+};
+
+
+class InternalsPluginV05 : public InternalsPluginV04  // V05 contains everything from V04 plus the following:
+{
+  // REMINDER: exported function GetPluginVersion() should return 5 if you are deriving from this InternalsPluginV05!
+
+ public:
+
+  // Note: these callbacks below for ScreenInfoV01 are all deprecated and will no longer be invoked in DX11
+  // SCREEN INFO NOTIFICATIONS
+  virtual void InitScreen( const ScreenInfoV01 &info )                {} // Now happens right after graphics device initialization
+  virtual void UninitScreen( const ScreenInfoV01 &info )              {} // Now happens right before graphics device uninitialization
+
+  virtual void DeactivateScreen( const ScreenInfoV01 &info )          {} // Window deactivation
+  virtual void ReactivateScreen( const ScreenInfoV01 &info )          {} // Window reactivation
+
+  virtual void RenderScreenBeforeOverlays( const ScreenInfoV01 &info ){} // before rFactor overlays
+  virtual void RenderScreenAfterOverlays( const ScreenInfoV01 &info ) {} // after rFactor overlays
+
+  virtual void PreReset( const ScreenInfoV01 &info )                  {} // after detecting device lost but before resetting
+  virtual void PostReset( const ScreenInfoV01 &info )                 {} // after resetting
+
+  // CUSTOM CONTROLS
+  virtual bool InitCustomControl( CustomControlInfoV01 &info )        { return( false ); } // called repeatedly at startup until false is returned
+};
+
+
+class InternalsPluginV06 : public InternalsPluginV05  // V06 contains everything from V05 plus the following:
+{
+  // REMINDER: exported function GetPluginVersion() should return 6 if you are deriving from this InternalsPluginV06!
+
+ public:
+
+  // CONDITIONS CONTROL
+  virtual bool WantsWeatherAccess()                                   { return( false ); } // change to true in order to read or write weather with AccessWeather() call:
+  virtual bool AccessWeather( double trackNodeSize, WeatherControlInfoV01 &info ) { return( false ); } // current weather is passed in; return true if you want to change it
+
+  // ADDITIONAL GAMEFLOW NOTIFICATIONS
+  virtual void ThreadStarted( long type )                             {} // called just after a primary thread is started (type is 0=multimedia or 1=simulation)
+  virtual void ThreadStopping( long type )                            {} // called just before a primary thread is stopped (type is 0=multimedia or 1=simulation)
+};
+
+
+class InternalsPluginV07 : public InternalsPluginV06  // V07 contains everything from V06 plus the following:
+{
+  // REMINDER: exported function GetPluginVersion() should return 7 if you are deriving from this InternalsPluginV07!
+
+ public:
+
+  // CUSTOM PLUGIN VARIABLES
+  // This relatively simple feature allows plugins to store settings in a shared location without doing their own
+  // file I/O. Direct UI support may also be added in the future so that end users can control plugin settings within
+  // rFactor. But for now, users can access the data in UserData\Player\CustomPluginOptions.JSON.
+  // Plugins should only access these variables through this interface, though:
+  virtual bool GetCustomVariable( long i, CustomVariableV01 &var )   { return( false ); } // At startup, this will be called with increasing index (starting at zero) until false is returned. Feel free to add/remove/rearrange the variables when updating your plugin; the index does not have to be consistent from run to run.
+  virtual void AccessCustomVariable( CustomVariableV01 &var )        {}                   // This will be called at startup, shutdown, and any time that the variable is changed (within the UI).
+  virtual void GetCustomVariableSetting( CustomVariableV01 &var, long i, CustomSettingV01 &setting ) {} // This gets the name of each possible setting for a given variable.
+
+  // SCORING CONTROL (only available in single-player or on multiplayer server)
+  virtual bool WantsMultiSessionRulesAccess()                         { return( false ); } // change to true in order to read or write multi-session rules
+  virtual bool AccessMultiSessionRules( MultiSessionRulesV01 &info )  { return( false ); } // current internal rules passed in; return true if you want to change them
+
+  virtual bool WantsTrackRulesAccess()                                { return( false ); } // change to true in order to read or write track order (during formation or caution laps)
+  virtual bool AccessTrackRules( TrackRulesV01 &info )                { return( false ); } // current track order passed in; return true if you want to change it (note: this will be called immediately after UpdateScoring() when appropriate)
+
+  // PIT MENU INFO (currently, the only way to edit the pit menu is to use this in conjunction with CheckHWControl())
+  virtual bool WantsPitMenuAccess()                                   { return( false ); } // change to true in order to view pit menu info
+  virtual bool AccessPitMenu( PitMenuV01 &info )                      { return( false ); } // currently, the return code should always be false (because we may allow more direct editing in the future)
+};
+
+
+class InternalsPluginV08 : public InternalsPluginV07 {
+  // REMINDER: exported function GetPluginVersion() should return 8 if you are deriving from this InternalsPluginV08!
+
+public:
+  // APPLICATION STATE NOTIFICATIONS
+  virtual void InitApplication( const ApplicationStateV01 &state )                {} // Now happens right after graphics device initialization
+  virtual void UninitApplication( const ApplicationStateV01 &state )              {} // Now happens right before graphics device uninitialization
+
+  virtual void DeactivateApplication( const ApplicationStateV01 &state )          {} // Application window deactivation
+  virtual void ReactivateApplication( const ApplicationStateV01 &state )          {} // Application window reactivation
+
+  virtual void ApplicationRenderBeforeOverlays( const ApplicationStateV01 &state ){} // before rFactor 2 overlays
+  virtual void ApplicationRenderAfterOverlays( const ApplicationStateV01 &state ) {} // after rFactor 2 overlays
+
+  virtual void PreResetApplication( const ApplicationStateV01 &state )                  {} // after detecting device lost but before resetting
+  virtual void PostResetApplication( const ApplicationStateV01 &state )                 {} // after resetting
+};
+
+//#########################################################################
+//##########################################################################
+
+// See #pragma at top of file
+#pragma pack( pop )
+
+#endif // _INTERNALS_PLUGIN_HPP_
+
+
+```
+
+# File: src\lmu_sm_interface\InternalsPluginWrapper.h
+```cpp
+#pragma once
+
+// FIX: LMU Plugin Update 2025
+// The official InternalsPlugin.hpp provided by Studio 397 depends on
+// PluginObjects.hpp which is missing windows.h.
+// We include our wrapper here to ensure dependencies are met.
+
+#include "PluginObjectsWrapper.h"
+#include "InternalsPlugin.hpp"
+
+```
+
+# File: src\lmu_sm_interface\LinuxMock.h
+```cpp
+#ifndef LINUXMOCK_H
+#define LINUXMOCK_H
+
+#ifndef _WIN32
+#include <chrono>
+#include <optional>
+#include <cstdint>
+#include <cstring>
+#include <algorithm>
+#include <map>
+#include <vector>
+#include <string>
+
+// Dummy typedefs for Linux compatibility
+using DWORD = uint32_t;
+using HANDLE = void*;
+using HWND = void*;
+using BOOL = int;
+using UINT = unsigned int;
+using LONG = long;
+using SHORT = short;
+using VOID = void;
+using PVOID = void*;
+using UINT_PTR = unsigned long;
+using LPARAM = long;
+using WPARAM = unsigned long;
+using LRESULT = long;
+using HRESULT = long;
+using WORD = uint16_t;
+using BYTE = uint8_t;
+using LONG_PTR = intptr_t;
+
+typedef struct _GUID {
+    uint32_t Data1;
+    uint16_t Data2;
+    uint16_t Data3;
+    uint8_t Data4[8];
+} GUID;
+
+#ifndef __cdecl
+#define __cdecl
+#endif
+
+#ifndef TRUE
+#define TRUE 1
+#endif
+
+#ifndef FALSE
+#define FALSE 0
+#endif
+
+#ifndef NULL
+#define NULL 0
+#endif
+
+#ifndef MAX_PATH
+#define MAX_PATH 260
+#endif
+
+// Windows Constants for Mocking
+#define INVALID_HANDLE_VALUE ((HANDLE)(UINT_PTR)-1)
+#define PAGE_READWRITE 0x04
+#define FILE_MAP_ALL_ACCESS 0xF001F
+#define FILE_MAP_READ 0x04
+#define ERROR_ALREADY_EXISTS 183
+#define WAIT_OBJECT_0 0
+#define WAIT_FAILED 0xFFFFFFFF
+#define INFINITE 0xFFFFFFFF
+#define SYNCHRONIZE 0x00100000L
+#define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
+
+// Memory Mapping Mock (Global Storage)
+namespace MockSM {
+    inline std::map<std::string, std::vector<uint8_t>>& GetMaps() {
+        static std::map<std::string, std::vector<uint8_t>> maps;
+        return maps;
+    }
+    inline DWORD& LastError() {
+        static DWORD err = 0;
+        return err;
+    }
+}
+
+// Interlocked functions for Linux mocking
+inline long InterlockedCompareExchange(long volatile* Destination, long Exchange, long Comparand) {
+    long old = *Destination;
+    if (old == Comparand) *Destination = Exchange;
+    return old;
+}
+inline long InterlockedIncrement(long volatile* Addend) { return ++(*Addend); }
+inline long InterlockedDecrement(long volatile* Addend) { return --(*Addend); }
+inline long InterlockedExchange(long volatile* Target, long Value) {
+    long old = *Target;
+    *Target = Value;
+    return old;
+}
+
+// Memory and Event mocks
+inline void YieldProcessor() {}
+inline DWORD WaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds) { return WAIT_OBJECT_0; }
+inline BOOL SetEvent(HANDLE hEvent) { return TRUE; }
+inline BOOL CloseHandle(HANDLE hObject) {
+    if (hObject != (HANDLE)0 && hObject != (HANDLE)1 && hObject != (HANDLE)(intptr_t)-1) {
+        // We could delete the string* here, but for mocks it's fine to leak a bit in tests
+    }
+    return TRUE;
+}
+inline DWORD GetLastError() { return MockSM::LastError(); }
+
+// Shared Memory Mocks
+inline HANDLE CreateFileMappingA(HANDLE hFile, void* lpAttributes, DWORD flProtect, DWORD dwMaximumSizeHigh, DWORD dwMaximumSizeLow, const char* lpName) {
+    if (lpName == nullptr) return (HANDLE)1;
+    std::string name(lpName);
+    auto& maps = MockSM::GetMaps();
+    if (maps.find(name) == maps.end()) {
+        maps[name].resize(dwMaximumSizeLow);
+        MockSM::LastError() = 0;
+    } else {
+        MockSM::LastError() = ERROR_ALREADY_EXISTS;
+    }
+    return (HANDLE)new std::string(name);
+}
+
+inline HANDLE OpenFileMappingA(DWORD dwDesiredAccess, BOOL bInheritHandle, const char* lpName) {
+    if (lpName == nullptr) return nullptr;
+    std::string name(lpName);
+    auto& maps = MockSM::GetMaps();
+    if (maps.find(name) != maps.end()) {
+        return (HANDLE)new std::string(name);
+    }
+    return nullptr;
+}
+
+inline void* MapViewOfFile(HANDLE hFileMappingObject, DWORD dwDesiredAccess, DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, size_t dwNumberOfBytesToMap) {
+    if (hFileMappingObject == (HANDLE)1 || hFileMappingObject == nullptr || hFileMappingObject == INVALID_HANDLE_VALUE) return nullptr;
+    std::string* name = (std::string*)hFileMappingObject;
+    return MockSM::GetMaps()[*name].data();
+}
+
+inline BOOL UnmapViewOfFile(const void* lpBaseAddress) { return TRUE; }
+inline HANDLE CreateEventA(void* lpEventAttributes, BOOL bManualReset, BOOL bInitialState, const char* lpName) { return (HANDLE)1; }
+
+// Window mocks
+inline HWND GetConsoleWindow() { return (HWND)1; }
+inline BOOL IsWindow(HWND hWnd) { return hWnd != nullptr; }
+
+#endif // _WIN32
+
+#endif // LINUXMOCK_H
+
+```
+
+# File: src\lmu_sm_interface\LmuSharedMemoryWrapper.h
+```cpp
+#pragma once
+
+// FIX: LMU Plugin Update 2025
+// The official SharedMemoryInterface.hpp provided by Studio 397 is missing
+// several standard library includes required for compilation.
+// We include them here BEFORE including the vendor file.
+
+#include <optional>  // Required for std::optional
+#include <utility>   // Required for std::exchange, std::swap
+#include <cstdint>   // Required for uint32_t, uint8_t
+#include <cstring>   // Required for memcpy
+
+#ifndef _WIN32
+#include "LinuxMock.h"
+#endif
+
+#include "InternalsPluginWrapper.h"
+
+// Include the official vendor file
+#include "SharedMemoryInterface.hpp"
+
+```
+
+# File: src\lmu_sm_interface\PluginObjects.hpp
+```
+//###########################################################################
+//#                                                                         #
+//# Module: Header file for plugin object types                             #
+//#                                                                         #
+//# Description: interface declarations for plugin objects                  #
+//#                                                                         #
+//# This source code module, and all information, data, and algorithms      #
+//# associated with it, are part of isiMotor Technology (tm).               #
+//#                 PROPRIETARY AND CONFIDENTIAL                            #
+//# Copyright (c) 2025 Studio 397 BV and Motorsport Games Inc.              #
+//#                                                                         #
+//# Change history:                                                         #
+//#   tag.2008.02.15: created                                               #
+//#                                                                         #
+//###########################################################################
+
+#ifndef _PLUGIN_OBJECTS_HPP_
+#define _PLUGIN_OBJECTS_HPP_
+
+
+// rF currently uses 4-byte packing ... whatever the current packing is will
+// be restored at the end of this include with another #pragma.
+#pragma pack( push, 4 )
+
+
+//#########################################################################
+//# types of plugins                                                       #
+//##########################################################################
+
+enum PluginObjectType
+{
+  PO_INVALID      = -1,
+  //-------------------
+  PO_GAMESTATS    =  0,
+  PO_NCPLUGIN     =  1,
+  PO_IVIBE        =  2,
+  PO_INTERNALS    =  3,
+  PO_RFONLINE     =  4,
+  //-------------------
+  PO_MAXIMUM
+};
+
+
+//#########################################################################
+//#  PluginObject                                                          #
+//#    - interface used by plugin classes.                                 #
+//##########################################################################
+
+class PluginObject
+{
+ private:
+
+  class PluginInfo *mInfo;             // used by main executable to obtain info about the plugin that implements this object
+
+ public:
+
+  void SetInfo( class PluginInfo *p )  { mInfo = p; }        // used by main executable
+  class PluginInfo *GetInfo() const    { return( mInfo ); }  // used by main executable
+  class PluginInfo *GetInfo()          { return( mInfo ); }  // used by main executable
+};
+
+
+//#########################################################################
+//# typedefs for dll functions - easier to use a typedef than to type      #
+//# out the crazy syntax for declaring and casting function pointers       #
+//##########################################################################
+
+typedef const char *      ( __cdecl *GETPLUGINNAME )();
+typedef PluginObjectType  ( __cdecl *GETPLUGINTYPE )();
+typedef int               ( __cdecl *GETPLUGINVERSION )();
+typedef PluginObject *    ( __cdecl *CREATEPLUGINOBJECT )();
+typedef void              ( __cdecl *DESTROYPLUGINOBJECT )( PluginObject *obj );
+
+
+//#########################################################################
+//##########################################################################
+
+// See #pragma at top of file
+#pragma pack( pop )
+
+#endif // _PLUGIN_OBJECTS_HPP_
+
+
+```
+
+# File: src\lmu_sm_interface\PluginObjectsWrapper.h
+```cpp
+#pragma once
+
+// FIX: LMU Plugin Update 2025
+// The official PluginObjects.hpp provided by Studio 397 is missing 
+// windows.h include which is required for some of the types/definitions used.
+// We include it here BEFORE including the vendor file.
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include "LinuxMock.h"
+#endif
+
+// Include the official vendor file
+#include "PluginObjects.hpp"
+
+```
+
+# File: src\lmu_sm_interface\SafeSharedMemoryLock.h
+```cpp
+#pragma once
+#include "LmuSharedMemoryWrapper.h"
+
+// Wrapper for SharedMemoryLock that adds timeout support without modifying vendor code
+// This avoids the maintenance burden of modifying the vendor's SharedMemoryInterface.hpp
+class SafeSharedMemoryLock {
+public:
+    // Factory method that returns a SafeSharedMemoryLock wrapper
+    static std::optional<SafeSharedMemoryLock> MakeSafeSharedMemoryLock() {
+        auto vendorLock = SharedMemoryLock::MakeSharedMemoryLock();
+        if (vendorLock.has_value()) {
+            return SafeSharedMemoryLock(std::move(vendorLock.value()));
+        }
+        return std::nullopt;
+    }
+
+    // Lock with timeout support - wraps the vendor's Lock() method
+    // Returns false if timeout expires or lock acquisition fails
+    bool Lock(DWORD timeout_ms = 50) {
+        // The vendor implementation already supports timeout parameter
+        // We just expose it through our wrapper
+        return m_vendorLock.Lock(timeout_ms);
+    }
+
+    void Unlock() {
+        m_vendorLock.Unlock();
+    }
+
+    // Move constructor and assignment to allow std::optional usage
+    SafeSharedMemoryLock(SafeSharedMemoryLock&& other) = default;
+    SafeSharedMemoryLock& operator=(SafeSharedMemoryLock&& other) = default;
+
+private:
+    // Private constructor - use factory method
+    explicit SafeSharedMemoryLock(SharedMemoryLock&& vendorLock) 
+        : m_vendorLock(std::move(vendorLock)) {}
+
+    SharedMemoryLock m_vendorLock;
+};
+
+```
+
+# File: src\lmu_sm_interface\SharedMemoryInterface.hpp
+```
+#pragma once
+#include "InternalsPlugin.hpp"
+
+/*
+* Usage example:
+
+int main(int argc, char* argv[])
+{
+    int retVal = 0;
+    if (argc < 2) {
+        std::cerr << "Usage: child.exe <LMU-pid>\n";
+        return 1;
+    }
+    // Get the LMU Handle
+    DWORD parentPid = 0;
+    try {
+        parentPid = static_cast<DWORD>(std::stoul(argv[1]));
+    }
+    catch (...) {
+        std::cerr << "Invalid parent PID argument.\n";
+        return 1;
+    }
+    auto smLock = SharedMemoryLock::MakeSharedMemoryLock();
+    if (!smLock.has_value()) {
+        std::cerr << "Cannot initialize SharedMemoryLock.\n";
+        return 1;
+    }
+    static SharedMemoryObjectOut copiedMem;
+    // Try to open a handle to the parent process with SYNCHRONIZE right.
+    // SYNCHRONIZE is enough to wait on the process handle for exit.
+    HANDLE hParent = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, parentPid);
+    HANDLE hEvent = OpenEventA(SYNCHRONIZE, FALSE, "LMU_Data_Event");
+    HANDLE hMapFile = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, L"LMU_Data");
+    if (hParent && hEvent && hMapFile) {
+        if (SharedMemoryLayout* pBuf = (SharedMemoryLayout*)MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedMemoryLayout))) {
+            HANDLE objectHandlesArray[2] = { hParent, hEvent };
+            for (DWORD waitObject = WaitForMultipleObjects(2, objectHandlesArray, FALSE, INFINITE); waitObject != WAIT_OBJECT_0; waitObject = WaitForMultipleObjects(2, objectHandlesArray, FALSE, INFINITE)) {
+                if (waitObject == WAIT_OBJECT_0 + 1) {
+                    smLock->Lock();
+                    CopySharedMemoryObj(copiedMem, pBuf->data);
+                    smLock->Unlock();
+                    // >>>>> ProcessSharedMemory(copiedMem); <<<<<<
+                }
+                else {
+                    std::cerr << "Wait failed: " << GetLastError() << "\n";
+                    break;
+                }
+            }
+            UnmapViewOfFile(pBuf);
+        }
+        else {
+            std::cerr << "Could not map view of file. Error: " << GetLastError() << std::endl;
+            retVal = 1;
+        }
+    }
+    else {
+        std::cerr << "Something went wrong durin initialization. Error: " << GetLastError() << std::endl;
+        retVal = 1;
+    }
+    if (hMapFile)
+        CloseHandle(hMapFile);
+    if (hEvent)
+        CloseHandle(hEvent);
+    if (hParent)
+        CloseHandle(hParent);
+
+    return retVal;
+}
+
+*/
+
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(HEADLESS_GUI)
+#include "LinuxMock.h"
+#endif
+
+#define LMU_SHARED_MEMORY_FILE "LMU_Data"
+#define LMU_SHARED_MEMORY_EVENT "LMU_Data_Event"
+enum SharedMemoryEvent : uint32_t {
+    SME_ENTER,
+    SME_EXIT,
+    SME_STARTUP,
+    SME_SHUTDOWN,
+    SME_LOAD,
+    SME_UNLOAD,
+    SME_START_SESSION,
+    SME_END_SESSION,
+    SME_ENTER_REALTIME,
+    SME_EXIT_REALTIME,
+    SME_UPDATE_SCORING,
+    SME_UPDATE_TELEMETRY,
+    SME_INIT_APPLICATION,
+    SME_UNINIT_APPLICATION,
+    SME_SET_ENVIRONMENT,
+    SME_FFB,
+    SME_MAX
+};
+
+class SharedMemoryLock {
+public:
+    static std::optional<SharedMemoryLock> MakeSharedMemoryLock() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        SharedMemoryLock memoryLock;
+        if (memoryLock.Init()) {
+            return std::move(memoryLock);
+        }
+#endif
+        return std::nullopt;
+    }
+    bool Lock(DWORD dwMilliseconds = 0xFFFFFFFF) {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        auto* data = (LockData*)mDataPtr;
+        int MAX_SPINS = 4000;
+        for (int spins = 0; spins < MAX_SPINS; ++spins) {
+            if (InterlockedCompareExchange(&data->busy, 1, 0) == 0)
+                return true;
+            YieldProcessor(); // CPU pause hint
+        }
+        InterlockedIncrement(&data->waiters);
+        while (true) {
+            if (InterlockedCompareExchange(&data->busy, 1, 0) == 0) {
+                InterlockedDecrement(&data->waiters);
+                return true;
+            }
+            return WaitForSingleObject(mWaitEventHandle, dwMilliseconds) == 0; // WAIT_OBJECT_0
+        }
+#else
+        return false;
+#endif
+    }
+    void Unlock() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        auto* data = (LockData*)mDataPtr;
+        InterlockedExchange(&data->busy, 0);
+        if (data->waiters > 0) {
+            SetEvent(mWaitEventHandle);
+        }
+#endif
+    }
+    void Reset() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        auto* data = (LockData*)mDataPtr;
+        data->waiters = 0;
+        data->busy = 0;
+#endif
+    }
+    ~SharedMemoryLock() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        if (mWaitEventHandle)
+            CloseHandle(mWaitEventHandle);
+        if (mMapHandle)
+            CloseHandle(mMapHandle);
+        if (mDataPtr)
+            UnmapViewOfFile(mDataPtr);
+#endif
+    }
+    SharedMemoryLock(SharedMemoryLock&& other) : mMapHandle(std::exchange(other.mMapHandle, nullptr)), mWaitEventHandle(std::exchange(other.mWaitEventHandle, nullptr)) ,
+        mDataPtr(std::exchange(other.mDataPtr, nullptr)) {}
+    SharedMemoryLock& operator=(SharedMemoryLock&& other) {
+        std::swap(mMapHandle, other.mMapHandle);
+        std::swap(mWaitEventHandle, other.mWaitEventHandle);
+        std::swap(mDataPtr, other.mDataPtr);
+        return *this;
+    }
+private:
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+    struct LockData {
+        volatile LONG waiters;
+        volatile LONG busy;
+    };
+#endif
+    SharedMemoryLock() = default;
+    bool Init() {
+#if defined(_WIN32) || defined(HEADLESS_GUI)
+        mMapHandle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, (DWORD)sizeof(LockData), "LMU_SharedMemoryLockData");
+        if (!mMapHandle) {
+            return false;
+        }
+        mDataPtr = (LockData*)MapViewOfFile(mMapHandle, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(LockData));
+        if (!mDataPtr) {
+            CloseHandle(mMapHandle);
+            return false;
+        }
+        if (GetLastError() != ERROR_ALREADY_EXISTS) {
+            Reset();
+        }
+        mWaitEventHandle = CreateEventA(NULL, FALSE, FALSE, "LMU_SharedMemoryLockEvent");
+        if (!mWaitEventHandle) {
+            UnmapViewOfFile(mDataPtr);
+            CloseHandle(mMapHandle);
+            return false;
+        }
+        return true;
+#else
+        return false;
+#endif
+    }
+    HANDLE mMapHandle = NULL;
+    HANDLE mWaitEventHandle = NULL;
+    void* mDataPtr = nullptr;
+};
+
+struct SharedMemoryScoringData { // Remember to check CopySharedMemoryObj still works properly when updating this struct
+    ScoringInfoV01 scoringInfo;
+    size_t scoringStreamSize;
+    VehicleScoringInfoV01 vehScoringInfo[104]; // MUST NOT BE MOVED!
+    char scoringStream[65536];
+};
+
+struct SharedMemoryTelemtryData { // Remember to check CopySharedMemoryObj still works properly when updating this struct
+    uint8_t activeVehicles;
+    uint8_t playerVehicleIdx;
+    bool playerHasVehicle;
+    TelemInfoV01 telemInfo[104];
+};
+
+struct SharedMemoryPathData {
+    char userData[MAX_PATH];
+    char customVariables[MAX_PATH];
+    char stewardResults[MAX_PATH];
+    char playerProfile[MAX_PATH];
+    char pluginsFolder[MAX_PATH];
+};
+
+struct SharedMemoryGeneric {
+    SharedMemoryEvent events[SharedMemoryEvent::SME_MAX];
+    long gameVersion;
+    float FFBTorque;
+    ApplicationStateV01 appInfo;
+};
+
+struct SharedMemoryObjectOut { // Remember to check CopySharedMemoryObj still works properly when updating this struct
+    SharedMemoryGeneric generic;
+    SharedMemoryPathData paths;
+    SharedMemoryScoringData scoring;
+    SharedMemoryTelemtryData telemetry;
+};
+
+struct SharedMemoryLayout {
+    SharedMemoryObjectOut data;
+};
+
+static void CopySharedMemoryObj(SharedMemoryObjectOut& dst, SharedMemoryObjectOut& src) {
+    memcpy(&dst.generic, &src.generic, sizeof(SharedMemoryGeneric));
+    if (src.generic.events[SME_UPDATE_SCORING]) {
+        memcpy(&dst.scoring.scoringInfo, &src.scoring.scoringInfo, sizeof(ScoringInfoV01));
+        memcpy(&dst.scoring.vehScoringInfo, &src.scoring.vehScoringInfo, src.scoring.scoringInfo.mNumVehicles * sizeof(VehicleScoringInfoV01));
+        memcpy(&dst.scoring.scoringStream, &src.scoring.scoringStream, src.scoring.scoringStreamSize);
+        dst.scoring.scoringStreamSize = src.scoring.scoringStreamSize;
+        dst.scoring.scoringStream[dst.scoring.scoringStreamSize] = '\0';
+        dst.scoring.scoringInfo.mVehicle = &dst.scoring.vehScoringInfo[0];
+        dst.scoring.scoringInfo.mResultsStream = &dst.scoring.scoringStream[0];
+    }
+    if (src.generic.events[SME_UPDATE_TELEMETRY]) {
+        dst.telemetry.activeVehicles = src.telemetry.activeVehicles;
+        dst.telemetry.playerHasVehicle = src.telemetry.playerHasVehicle;
+        dst.telemetry.playerVehicleIdx = src.telemetry.playerVehicleIdx;
+        memcpy(&dst.telemetry.telemInfo, &src.telemetry.telemInfo, src.telemetry.activeVehicles * sizeof(TelemInfoV01));
+    }
+    if (src.generic.events[SME_ENTER] || src.generic.events[SME_EXIT] || src.generic.events[SME_SET_ENVIRONMENT]) {
+        memcpy(&dst.paths, &src.paths, sizeof(SharedMemoryPathData));
+    }
+}
+```
+
+# File: src\lmu_sm_interface\linux_mock\windows.h
+```cpp
+#ifndef WINDOWS_H_MOCK
+#define WINDOWS_H_MOCK
+
+#include "../LinuxMock.h"
+
+// Any additional Windows-specific macros needed by ISI headers
+#ifndef CALLBACK
+#define CALLBACK __cdecl
+#endif
+
+#ifndef WINAPI
+#define WINAPI __cdecl
+#endif
+
+#endif // WINDOWS_H_MOCK
+
+```
+
+# File: src\rF2\rF2Data.h
+```cpp
+#ifndef RF2DATA_H
+#define RF2DATA_H
+
+#include <cstdint>
+
+// rFactor 2 Telemetry Data Structures
+// Based on The Iron Wolf's rF2SharedMemoryMapPlugin and rFactor 2 SDK
+
+// Ensure strict alignment if necessary, but standard rF2 SDK usually works with default packing.
+// However, the Shared Memory Plugin might align things specifically.
+// We will use standard alignment matching the Python definition (which used native).
+// Usually in C++ on Windows x64, doubles are 8-byte aligned.
+
+#pragma pack(push, 4) // rFactor 2 often uses 4-byte packing for some legacy reasons, or default. 
+// We will assume default packing for now, but if offsets are off, we might need #pragma pack(push, 1) or 4.
+// Looking at the Python struct, we didn't specify _pack_, so it used native.
+// Let's use standard layout.
+
+struct rF2Vec3 {
+    double x;
+    double y;
+    double z;
+};
+
+struct rF2Wheel {
+    double mSuspensionDeflection;
+    double mRideHeight;
+    double mSuspForce;
+    double mBrakeTemp;
+    double mBrakePressure;
+    double mRotation;
+    double mLateralPatchVel;
+    double mLongitudinalPatchVel;
+    double mLateralGroundVel;
+    double mLongitudinalGroundVel;
+    double mCamber;
+    double mLateralForce;
+    double mLongitudinalForce;
+    double mTireLoad;
+    double mGripFract;
+    double mPressure;
+    double mTemperature[3]; // Inner, Middle, Outer
+    double mWear;
+    char mTerrainName[16];
+    unsigned char mSurfaceType;
+    unsigned char mFlat;
+    unsigned char mDetached;
+    unsigned char mPadding[5]; // Align next double? Python handled this automatically.
+                               // In Python ctypes: c_byte, c_byte, c_byte follow each other.
+                               // Then c_double starts. on x64, double aligns to 8.
+                               // 16 + 1 + 1 + 1 = 19. Next double at 24. Padding = 5.
+    
+    double mStaticCamber;
+    double mToeIn;
+    double mTireRadius;
+    double mVerticalTireDeflection;
+    double mWheelYLocation;
+    double mToe;
+    double mCaster;
+    double mHAngle;
+    double mVAngle;
+    double mSlipAngle;
+    double mSlipRatio;
+    double mMaxSlipAngle;
+    double mMaxLatGrip;
+};
+
+struct rF2Telemetry {
+    double mTime;
+    double mDeltaTime;
+    double mElapsedTime;
+    int mLapNumber;
+    double mLapStartET;
+    char mVehicleName[64];
+    char mTrackName[64];
+    rF2Vec3 mPos;
+    rF2Vec3 mLocalVel;
+    rF2Vec3 mLocalAccel;
+    rF2Vec3 mOri[3]; // [3][3] rotation matrix rows/cols? Usually 3 vectors.
+    rF2Vec3 mLocalRot;
+    rF2Vec3 mLocalRotAccel;
+    double mSpeed;
+    double mEngineRPM;
+    double mEngineWaterTemp;
+    double mEngineOilTemp;
+    double mClutchRPM;
+    double mUnfilteredThrottle;
+    double mUnfilteredBrake;
+    double mUnfilteredSteering;
+    double mUnfilteredClutch;
+    double mSteeringArmForce;
+    double mFuel;
+    double mEngineMaxRPM;
+    unsigned char mScheduledStops;
+    unsigned char mOverheating;
+    unsigned char mDetached;
+    unsigned char mHeadlights;
+    // Padding to align int?
+    // 4 chars = 4 bytes. Next is int (4 bytes). Aligned.
+    int mGear;
+    int mNumGears;
+    // Next is rF2Wheel which starts with double (8 bytes).
+    // Current pos: int(4) + int(4) = 8. Aligned.
+    
+    rF2Wheel mWheels[4]; // FL, FR, RL, RR
+};
+
+#pragma pack(pop)
+
+#endif // RF2DATA_H
+
+```
+
 # File: tests\CMakeLists.txt
 ```cmake
 ﻿cmake_minimum_required(VERSION 3.10)

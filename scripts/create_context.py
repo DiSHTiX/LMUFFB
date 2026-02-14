@@ -148,7 +148,7 @@ def main():
     # Configuration of defaults - change these to easily update default behavior
     DEFAULT_INCLUDE_TESTS = False
     DEFAULT_INCLUDE_NON_CODE = False
-    DEFAULT_INCLUDE_MAIN_CODE = False
+    DEFAULT_INCLUDE_MAIN_CODE = True
     DEFAULT_INCLUDE_MAKEFILES = True
     DEFAULT_TEST_EXAMPLES_ONLY = True
     
