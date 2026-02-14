@@ -30,10 +30,13 @@ class TestCreateContextExtended(unittest.TestCase):
             DEFAULT_INCLUDE_MAKEFILES = True
             DEFAULT_TEST_EXAMPLES_ONLY = False
             DEFAULT_INCLUDE_LOG_ANALYZER = False
-
+            DEFAULT_INCLUDE_CUSTOM_DOCS = True
+ 
             injected = list(cli_args)
             if "--include-log-analyzer" not in injected and "--exclude-log-analyzer" not in injected:
                 injected.append("--include-log-analyzer" if DEFAULT_INCLUDE_LOG_ANALYZER else "--exclude-log-analyzer")
+            if "--include-custom-docs" not in injected and "--exclude-custom-docs" not in injected:
+                injected.append("--include-custom-docs" if DEFAULT_INCLUDE_CUSTOM_DOCS else "--exclude-custom-docs")
             if "--include-tests" not in injected and "--exclude-tests" not in injected:
                 injected.append("--include-tests" if DEFAULT_INCLUDE_TESTS else "--exclude-tests")
             if "--include-non-code" not in injected and "--exclude-non-code" not in injected:
@@ -51,6 +54,7 @@ class TestCreateContextExtended(unittest.TestCase):
         self.assertIn("--include-main-code", args)
         self.assertIn("--include-makefiles", args)
         self.assertIn("--exclude-log-analyzer", args)
+        self.assertIn("--include-custom-docs", args)
         self.assertNotIn("--test-examples-only", args)
 
         args_ex = get_args(["--exclude-main-code"])

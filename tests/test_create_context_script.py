@@ -37,10 +37,14 @@ class TestCreateContext(unittest.TestCase):
             self.assertFalse(args.include_log_analyzer)
 
     def test_argument_parsing_explicit(self):
-        args = create_context.parse_args(['--exclude-tests', '--exclude-non-code', '--include-log-analyzer'])
+        args = create_context.parse_args(['--exclude-tests', '--exclude-non-code', '--include-log-analyzer', '--exclude-custom-docs'])
         self.assertFalse(args.include_tests)
         self.assertFalse(args.include_non_code)
         self.assertTrue(args.include_log_analyzer)
+        self.assertFalse(args.include_custom_docs)
+
+        args = create_context.parse_args(['--include-custom-docs'])
+        self.assertTrue(args.include_custom_docs)
 
     def test_injection_logic(self):
         # Test the injection logic in a simulated way

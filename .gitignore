@@ -79,3 +79,5 @@ node_modules/@lydell/node-pty-win32-x64/prebuilds/win32-x64/pty.pdb
 node_modules/@lydell/node-pty-win32-x64/prebuilds/win32-x64/winpty-agent.pdb
 node_modules/@lydell/node-pty-win32-x64/prebuilds/win32-x64/winpty.pdb
 package-lock.json
+tests/__pycache__/test_create_context_extended.cpython-312.pyc
+tests/__pycache__/test_create_context_script.cpython-312.pyc
