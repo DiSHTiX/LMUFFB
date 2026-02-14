@@ -19,92 +19,148 @@ project(LMUFFB_CPP)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# vJoy SDK Location - Users should set this
-# We link against the installed vJoy SDK (headers/libs), we do NOT compile vJoy itself.
-# ImGui Detection
-set(IMGUI_DIR "vendor/imgui")
-option(BUILD_HEADLESS "Build without GUI support" OFF)
+# Security Flags (MSVC)
+if(MSVC)
+    # Compile flags: Buffer Security Check (/GS) is usually default, but good to ensure.
+    add_compile_options(/GS)
 
-if(NOT BUILD_HEADLESS)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp")
-        message(STATUS "ImGui found. Enabling GUI support.")
-        add_definitions(-DENABLE_IMGUI)
-        set(IMGUI_SOURCES
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_demo.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_draw.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_tables.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui_widgets.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_win32.cpp
-            ${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
-        )
-        include_directories(${IMGUI_DIR})
-        include_directories(${IMGUI_DIR}/backends)
-        # Link DirectX libraries
-        link_libraries(d3d11 d3dcompiler dxguid)
-        add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX)
-    else()
-        message(FATAL_ERROR "ImGui not found in vendor/imgui. To build headless, use -DBUILD_HEADLESS=ON.")
-    endif()
-else()
-    message(STATUS "Building in Headless mode (User Request).")
-    set(IMGUI_SOURCES "")
+    # Linker flags: ASLR (/DYNAMICBASE) and DEP (/NXCOMPAT)
+    add_link_options(/DYNAMICBASE /NXCOMPAT)
 endif()
 
-# include_directories(${VJOY_SDK_DIR}/inc)
+# ImGui Core Detection & FetchContent
+include(FetchContent)
+set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/vendor/imgui")
 
-# Detect platform and use appropriate vJoy library
-# if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    # 64-bit
-#    link_directories(${VJOY_SDK_DIR}/lib/amd64)
-# else()
-    # 32-bit
-#    link_directories(${VJOY_SDK_DIR}/lib/i386)
-# endif()
+if(EXISTS "${IMGUI_DIR}/imgui.cpp")
+    message(STATUS "ImGui Core found locally.")
+    set(IMGUI_LOCAL_FOUND TRUE)
+else()
+    message(STATUS "ImGui not found locally. Using FetchContent...")
+    FetchContent_Declare(
+      imgui
+      GIT_REPOSITORY unlinked: github_com/ocornut/imgui_git
+      GIT_TAG        v1.91.8
+    )
+    FetchContent_GetProperties(imgui)
+    if(NOT imgui_POPULATED)
+        FetchContent_Populate(imgui)
+    endif()
+    set(IMGUI_DIR "${imgui_SOURCE_DIR}")
+    set(IMGUI_FETCHED TRUE)
+endif()
 
-# Copy icon file into build directory
-configure_file(${CMAKE_SOURCE_DIR}/icon/lmuffb.ico ${CMAKE_BINARY_DIR}/lmuffb.ico COPYONLY)
+if(EXISTS "${IMGUI_DIR}/imgui.cpp")
+    add_definitions(-DENABLE_IMGUI)
+
+    set(IMGUI_CORE_SOURCES
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_demo.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp
+    )
+    include_directories(${IMGUI_DIR})
+    include_directories(${IMGUI_DIR}/backends)
+endif()
+
+# Platform specific Backends
+option(BUILD_HEADLESS "Build without GUI support" OFF)
+if(BUILD_HEADLESS)
+    add_definitions(-DHEADLESS_GUI)
+endif()
+set(IMGUI_BACKEND_SOURCES "")
+
+if(NOT BUILD_HEADLESS AND IMGUI_CORE_SOURCES)
+    if(WIN32)
+        list(APPEND IMGUI_BACKEND_SOURCES
+            ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
+        )
+        link_libraries(d3d11 d3dcompiler dxguid)
+        add_definitions(-DUNICODE -D_UNICODE -DNOMINMAX -DIMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS)
+    else()
+        # Linux / GLFW + OpenGL
+        find_package(glfw3 REQUIRED)
+        find_package(OpenGL REQUIRED)
+
+        list(APPEND IMGUI_BACKEND_SOURCES
+            ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+        )
+
+        include_directories(${OPENGL_INCLUDE_DIR})
+    endif()
+endif()
+
+set(IMGUI_SOURCES ${IMGUI_CORE_SOURCES} ${IMGUI_BACKEND_SOURCES})
+
+include_directories(src)
+if(NOT WIN32)
+    include_directories(src/lmu_sm_interface/linux_mock)
+    include_directories(src/lmu_sm_interface)
+endif()
+
+# Copy icon file into build directory (Windows only)
+if(WIN32)
+    configure_file(${CMAKE_SOURCE_DIR}/icon/lmuffb.ico ${CMAKE_BINARY_DIR}/lmuffb.ico COPYONLY)
+endif()
+
+# Read Version
+file(STRINGS "VERSION" LMUFFB_VERSION)
+
+# Parse version for Resource File (e.g. 0.7.29 -> 0,7,29,0)
+string(REPLACE "." ";" VERSION_LIST ${LMUFFB_VERSION})
+list(GET VERSION_LIST 0 VERSION_MAJOR)
+list(GET VERSION_LIST 1 VERSION_MINOR)
+list(GET VERSION_LIST 2 VERSION_PATCH)
+set(LMUFFB_VERSION_STR "${LMUFFB_VERSION}")
+set(LMUFFB_VERSION_COMMA "${VERSION_MAJOR},${VERSION_MINOR},${VERSION_PATCH},0")
+
+# Auto-generate versioned files in the BUILD directory
+# This keeps the source tree clean and ensures a single source of truth.
+configure_file(src/Version.h.in ${CMAKE_CURRENT_BINARY_DIR}/src/Version.h @ONLY)
+if(WIN32)
+    configure_file(src/res.rc.in ${CMAKE_CURRENT_BINARY_DIR}/src/res.rc @ONLY)
+endif()
+
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/src)
+add_definitions(-DLMUFFB_VERSION="${LMUFFB_VERSION}")
 
 # Tests
 add_subdirectory(tests)
 
-add_executable(LMUFFB
-               src/main.cpp
-               src/GuiLayer.cpp src/GuiLayer.h
-               src/Config.cpp src/Config.h
-               src/DirectInputFFB.cpp src/DirectInputFFB.h
-               src/GameConnector.cpp src/GameConnector.h
-               src/DynamicVJoy.h
-               src/FFBEngine.h
-               src/res.rc
-               ${IMGUI_SOURCES})
+set(APP_SOURCES
+    src/main.cpp
+    src/GuiLayer_Common.cpp
+    src/GuiLayer.h
+    src/Config.cpp src/Config.h
+    src/DirectInputFFB.cpp src/DirectInputFFB.h
+    src/GameConnector.cpp src/GameConnector.h
+    src/FFBEngine.h
+)
 
-target_link_libraries(LMUFFB dinput8.lib dxguid.lib winmm.lib)
+if(WIN32)
+    list(APPEND APP_SOURCES src/GuiLayer_Win32.cpp ${CMAKE_CURRENT_BINARY_DIR}/src/res.rc)
+else()
+    list(APPEND APP_SOURCES src/GuiLayer_Linux.cpp)
+endif()
 
-# Read Version
-file(STRINGS "VERSION" LMUFFB_VERSION)
-add_definitions(-DLMUFFB_VERSION="${LMUFFB_VERSION}")
+add_executable(LMUFFB ${APP_SOURCES} ${IMGUI_SOURCES})
+
+if(WIN32)
+    target_link_libraries(LMUFFB PRIVATE dinput8.lib dxguid.lib winmm.lib)
+endif()
+
+if(NOT WIN32 AND NOT BUILD_HEADLESS)
+    target_link_libraries(LMUFFB PRIVATE glfw OpenGL::GL dl pthread)
+endif()
 
 # Copy Distribution Files
 add_custom_command(TARGET LMUFFB POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_SOURCE_DIR}/README.txt"
             "$<TARGET_FILE_DIR:LMUFFB>/README.txt")
-
-# Copy vJoy DLL to output directory
-# if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    # 64-bit
-#    add_custom_command(TARGET LMUFFB POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy
-#                "${VJOY_SDK_DIR}/lib/amd64/vJoyInterface.dll"
-#                "$<TARGET_FILE_DIR:LMUFFB>/vJoyInterface.dll")
-# else()
-    # 32-bit
-#    add_custom_command(TARGET LMUFFB POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy
-#                "${VJOY_SDK_DIR}/lib/vJoyInterface.dll"
-#                "$<TARGET_FILE_DIR:LMUFFB>/vJoyInterface.dll")
-# endif()
 
 ```
 
@@ -115,17 +171,22 @@ project(LMUFFB_Tests)
 
 set(CMAKE_CXX_STANDARD 17)
 
+
 # Include main source dir for headers
 include_directories(..)
 include_directories(../src)
+include_directories(${CMAKE_BINARY_DIR})
+include_directories(${CMAKE_BINARY_DIR}/src)
 
 if(NOT WIN32)
     include_directories(linux_mock)
+    include_directories(../src/lmu_sm_interface/linux_mock)
+    include_directories(../src/lmu_sm_interface)
 endif()
 
 # Combined Test Executable
-set(TEST_SOURCES
-    main_test_runner.cpp
+set(TEST_SOURCES 
+    main_test_runner.cpp 
     test_ffb_common.cpp
     test_ffb_core_physics.cpp
     test_ffb_slope_detection.cpp
@@ -145,26 +206,56 @@ set(TEST_SOURCES
     test_versioned_presets.cpp
     test_preset_improvements.cpp
     test_ffb_stability.cpp
+    test_gui_tooltips_presence.cpp
+    test_ffb_logic.cpp
+    test_ffb_safety.cpp
+    test_issue_100_timing.cpp
+    test_issue_104_slope_disconnect.cpp
+
+    # Core Application Logic (Now with Linux Mocks)
     ../src/Config.cpp
+    ../src/DirectInputFFB.cpp
+    ../src/GameConnector.cpp
+    ../src/GuiLayer_Common.cpp
 )
 
-if(WIN32)
+# ImGui Core is now always available if vendor exists
+
+if(IMGUI_CORE_SOURCES)
     list(APPEND TEST_SOURCES
-        test_windows_platform.cpp
-        test_screenshot.cpp
         test_gui_interaction.cpp
-        ../src/DirectInputFFB.cpp
-        ../src/GuiLayer.cpp
-        ../src/GameConnector.cpp
-        ${IMGUI_SOURCES}
+        ${IMGUI_CORE_SOURCES}
+        ${IMGUI_BACKEND_SOURCES}
     )
+endif()
+
+if(WIN32)
+    list(APPEND TEST_SOURCES 
+        test_windows_platform.cpp 
+        ../src/GuiLayer_Win32.cpp
+        ${CMAKE_BINARY_DIR}/src/res.rc
+        test_security_metadata.cpp
+    )
+else()
+    # On Linux, always include the Linux backend file,
+    # but it will use stubs if HEADLESS_GUI is defined.
+    list(APPEND TEST_SOURCES ../src/GuiLayer_Linux.cpp)
+    if(BUILD_HEADLESS)
+        add_definitions(-DHEADLESS_GUI)
+        # Enable some Windows-style tests on Linux using mocks
+        list(APPEND TEST_SOURCES test_windows_platform.cpp)
+    endif()
 endif()
 
 enable_testing()
 add_executable(run_combined_tests ${TEST_SOURCES})
+target_compile_definitions(run_combined_tests PRIVATE HEADLESS_GUI)
 
 if(WIN32)
     target_link_libraries(run_combined_tests dinput8 dxguid version imm32 winmm d3d11 d3dcompiler dxgi)
+elseif(NOT BUILD_HEADLESS)
+    # Link GUI libraries if we are NOT in headless mode
+    target_link_libraries(run_combined_tests glfw OpenGL::GL dl pthread)
 endif()
 
 # Add to CTest
@@ -179,6 +270,8 @@ add_test(NAME CombinedTests COMMAND run_combined_tests)
 #include <atomic>
 #include <mutex>
 #include <cstdio>
+#include <thread>
+#include <chrono>
 #include <filesystem>
 #include "src/Config.h"
 
@@ -190,9 +283,12 @@ add_test(NAME CombinedTests COMMAND run_combined_tests)
 std::atomic<bool> g_running(true);
 std::mutex g_engine_mutex;
 
-namespace FFBEngineTests {
-    extern int g_tests_passed;
-    extern int g_tests_failed;
+namespace FFBEngineTests { 
+    extern int g_tests_passed; 
+    extern int g_tests_failed; 
+    extern int g_test_cases_run;
+    extern int g_test_cases_passed;
+    extern int g_test_cases_failed;
     void Run();
     void ParseTagArguments(int argc, char* argv[]);
 }
@@ -226,33 +322,51 @@ int main(int argc, char* argv[]) {
     std::cout << "\n==============================================" << std::endl;
     std::cout << "           COMBINED TEST SUMMARY              " << std::endl;
     std::cout << "==============================================" << std::endl;
-    std::cout << "  TOTAL PASSED : " << total_passed << std::endl;
-    std::cout << "  TOTAL FAILED : " << total_failed << std::endl;
+    std::cout << "  TEST CASES   : " << FFBEngineTests::g_test_cases_passed << "/" << FFBEngineTests::g_test_cases_run << std::endl;
+    std::cout << "  ASSERTIONS   : " << total_passed << " passed, " << total_failed << " failed" << std::endl;
     std::cout << "==============================================" << std::endl;
 
-    // Cleanup artifacts
-    std::remove(Config::m_config_path.c_str());
-    std::remove("test_persistence.ini");
-    std::remove("test_config_win.ini");
-    std::remove("test_config_top.ini");
-    std::remove("test_config_preset_temp.ini");
-    std::remove("test_config_brake.ini");
-    std::remove("test_config_sg.ini");
-    std::remove("test_config_ap.ini");
-    std::remove("test_version.ini");
-    std::remove("roundtrip.ini");
-    std::remove("test_clamp.ini");
-    std::remove("test_isolation.ini");
-    std::remove("test_order.ini");
-    std::remove("test_legacy.ini");
-    std::remove("test_comments.ini");
-    std::remove("imgui.ini");
-    
-    try {
-        if (std::filesystem::exists("test_logs")) {
-            std::filesystem::remove_all("test_logs");
+    // Ensure output is visible on Windows before console closes
+    std::cout << std::flush;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Robust cleanup of test artifacts
+    auto cleanup = []() {
+        std::vector<std::string> to_remove = {
+            Config::m_config_path,
+            "test_persistence.ini", "test_config_win.ini", "test_config_top.ini",
+            "test_config_preset_temp.ini", "test_config_brake.ini", "test_config_sg.ini",
+            "test_config_ap.ini", "test_version.ini", "roundtrip.ini",
+            "test_clamp.ini", "test_isolation.ini", "test_order.ini",
+            "test_legacy.ini", "test_comments.ini", "imgui.ini",
+            "config.ini", "test_config_runner.ini", "test_val.ini",
+            "test_stability.ini", "tmp_invalid.ini", "test_config.ini",
+            "test_preset_persistence.ini", "test_preservation.ini",
+            "test_global_save.ini", "test_config_logic_window.ini",
+            "test_config_logic_brake.ini", "test_config_logic_legacy.ini",
+            "test_config_logic_legacy_slope.ini", "test_config_logic_legacy_slope_min.ini",
+            "test_slope_config.ini", "test_slope_minmax.ini", "test_slope_migration.ini",
+            "test_config_logic_guid.ini", "test_config_logic_top.ini", "test_config_logic_preset.ini",
+            "tmp_unsafe_config_test.ini", "test_export_preset.ini", "collision_test.ini",
+            "test_bad_config.ini", "test_version_presets.ini", "test_legacy_presets.ini"
+        };
+
+        for (const auto& file : to_remove) {
+            try {
+                if (!file.empty() && std::filesystem::exists(file)) {
+                    std::filesystem::remove(file);
+                }
+            } catch (...) {}
         }
-    } catch (...) {}
+
+        try {
+            if (std::filesystem::exists("test_logs")) {
+                std::filesystem::remove_all("test_logs");
+            }
+        } catch (...) {}
+    };
+
+    cleanup();
 
     return (total_failed > 0) ? 1 : 0;
 }
@@ -268,6 +382,9 @@ namespace FFBEngineTests {
 // --- Global Test Counters ---
 int g_tests_passed = 0;
 int g_tests_failed = 0;
+int g_test_cases_run = 0;
+int g_test_cases_passed = 0;
+int g_test_cases_failed = 0;
 
 // --- Tag Filtering Globals ---
 std::vector<std::string> g_tag_filter;
@@ -279,7 +396,7 @@ bool g_enable_tag_filtering = false;
 void ParseTagArguments(int argc, char* argv[]) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-
+        
         // --tag=Physics,Math
         if (arg.find("--tag=") == 0) {
             g_enable_tag_filtering = true;
@@ -335,7 +452,7 @@ void ParseTagArguments(int argc, char* argv[]) {
             exit(0);
         }
     }
-
+    
     // Print active filters
     if (g_enable_tag_filtering) {
         std::cout << "\n=== Tag Filtering Active ===\n";
@@ -372,13 +489,13 @@ void ParseTagArguments(int argc, char* argv[]) {
 TelemInfoV01 CreateBasicTestTelemetry(double speed, double slip_angle) {
     TelemInfoV01 data;
     std::memset(&data, 0, sizeof(data));
-
+    
     // Time
     data.mDeltaTime = 0.01; // 100Hz
-
+    
     // Velocity
     data.mLocalVel.z = -speed; // Game uses -Z for forward
-
+    
     // Wheel setup (all 4 wheels)
     for (int i = 0; i < 4; i++) {
         data.mWheel[i].mGripFract = 0.0; // Trigger approximation mode
@@ -391,7 +508,7 @@ TelemInfoV01 CreateBasicTestTelemetry(double speed, double slip_angle) {
         data.mWheel[i].mSuspForce = 4000.0; // Grounded (v0.6.0)
         data.mWheel[i].mVerticalTireDeflection = 0.001; // Avoid "missing data" warning (v0.6.21)
     }
-
+    
     return data;
 }
 
@@ -401,22 +518,22 @@ void InitializeEngine(FFBEngine& engine) {
     // v0.5.12: Force consistent baseline for legacy tests
     engine.m_max_torque_ref = 20.0f;
     engine.m_invert_force = false;
-
+    
     // v0.6.31: Zero out all auxiliary effects for clean physics testing by default.
     // Individual tests can re-enable what they need.
-    engine.m_steering_shaft_smoothing = 0.0f;
+    engine.m_steering_shaft_smoothing = 0.0f; 
     engine.m_slip_angle_smoothing = 0.0f;
     engine.m_sop_smoothing_factor = 1.0f; // 1.0 = Instant/No smoothing
     engine.m_yaw_accel_smoothing = 0.0f;
     engine.m_gyro_smoothing = 0.0f;
     engine.m_chassis_inertia_smoothing = 0.0f;
-
+    
     engine.m_sop_effect = 0.0f;
     engine.m_sop_yaw_gain = 0.0f;
     engine.m_oversteer_boost = 0.0f;
     engine.m_rear_align_effect = 0.0f;
     engine.m_gyro_gain = 0.0f;
-
+    
     engine.m_slide_texture_enabled = false;
     engine.m_road_texture_enabled = false;
     engine.m_lockup_enabled = false;
@@ -424,7 +541,7 @@ void InitializeEngine(FFBEngine& engine) {
     engine.m_abs_pulse_enabled = false;
     engine.m_scrub_drag_gain = 0.0f;
     engine.m_min_force = 0.0f;
-
+    
     // v0.6.25: Disable speed gate by default for legacy tests (avoids muting physics at 0 speed)
     engine.m_speed_gate_lower = -10.0f;
     engine.m_speed_gate_upper = -5.0f;
@@ -455,7 +572,7 @@ TestRegistry& TestRegistry::Instance() {
     return instance;
 }
 
-void TestRegistry::Register(const std::string& name,
+void TestRegistry::Register(const std::string& name, 
                             const std::string& category,
                             const std::vector<std::string>& tags,
                             std::function<void()> func,
@@ -465,7 +582,7 @@ void TestRegistry::Register(const std::string& name,
 
 void TestRegistry::SortByCategory() {
     if (m_sorted) return;
-    std::stable_sort(m_tests.begin(), m_tests.end(),
+    std::stable_sort(m_tests.begin(), m_tests.end(), 
         [](const TestEntry& a, const TestEntry& b) {
             int orderA = GetCategoryOrder(a.category);
             int orderB = GetCategoryOrder(b.category);
@@ -479,8 +596,8 @@ const std::vector<TestEntry>& TestRegistry::GetTests() const {
     return m_tests;
 }
 
-AutoRegister::AutoRegister(const std::string& name,
-                           const std::string& category,
+AutoRegister::AutoRegister(const std::string& name, 
+                           const std::string& category, 
                            const std::vector<std::string>& tags,
                            std::function<void()> func,
                            int order) {
@@ -497,7 +614,7 @@ void Run() {
         auto& tests = registry.GetTests();
         
         std::cout << "\n--- Auto-Registered Tests (" << tests.size() << ") ---" << std::endl;
-
+        
         std::string current_category;
         for (const auto& test : tests) {
             if (test.category != current_category) {
@@ -508,20 +625,32 @@ void Run() {
             if (!ShouldRunTest(test.tags, test.category)) continue;
 
             try {
+                int initial_fails = g_tests_failed;
                 test.func();
+
+                g_test_cases_run++;
+                if (g_tests_failed > initial_fails) {
+                    g_test_cases_failed++;
+                } else {
+                    g_test_cases_passed++;
+                }
             } catch (const std::exception& e) {
                 std::cout << "[FAIL] " << test.name << " threw exception: " << e.what() << std::endl;
                 g_tests_failed++;
+                g_test_cases_run++;
+                g_test_cases_failed++;
             } catch (...) {
                 std::cout << "[FAIL] " << test.name << " threw unknown exception" << std::endl;
                 g_tests_failed++;
+                g_test_cases_run++;
+                g_test_cases_failed++;
             }
         }
     }
 
     std::cout << "\n--- Physics Engine Test Summary ---" << std::endl;
-    std::cout << "Tests Passed: " << g_tests_passed << std::endl;
-    std::cout << "Tests Failed: " << g_tests_failed << std::endl;
+    std::cout << "Test Cases: " << g_test_cases_passed << "/" << g_test_cases_run << " passed" << std::endl;
+    std::cout << "Assertions: " << g_tests_passed << " passed, " << g_tests_failed << " failed" << std::endl;
 }
 
 } // namespace FFBEngineTests
@@ -554,6 +683,9 @@ namespace FFBEngineTests {
 // --- Test Counters (defined in test_ffb_common.cpp) ---
 extern int g_tests_passed;
 extern int g_tests_failed;
+extern int g_test_cases_run;
+extern int g_test_cases_passed;
+extern int g_test_cases_failed;
 
 // --- Assert Macros ---
 #define ASSERT_TRUE(condition) \
@@ -623,7 +755,7 @@ extern bool g_enable_tag_filtering;
 // Tag checking helper
 inline bool ShouldRunTest(const std::vector<std::string>& test_tags, const std::string& category) {
     if (!g_enable_tag_filtering) return true;
-
+    
     // Category filter (if specified)
     if (!g_category_filter.empty()) {
         bool category_match = false;
@@ -635,7 +767,7 @@ inline bool ShouldRunTest(const std::vector<std::string>& test_tags, const std::
         }
         if (!category_match) return false;
     }
-
+    
     // Tag exclude filter (if specified)
     if (!g_tag_exclude.empty()) {
         for (const auto& exclude_tag : g_tag_exclude) {
@@ -654,7 +786,7 @@ inline bool ShouldRunTest(const std::vector<std::string>& test_tags, const std::
         }
         return false; // No matching tags found
     }
-
+    
     return true; // No filters, run all tests
 }
 
@@ -698,13 +830,13 @@ struct TestEntry {
 class TestRegistry {
 public:
     static TestRegistry& Instance();
-    void Register(const std::string& name,
-                  const std::string& category,
+    void Register(const std::string& name, 
+                  const std::string& category, 
                   const std::vector<std::string>& tags,
                   std::function<void()> func,
                   int order = 0);
     const std::vector<TestEntry>& GetTests() const;
-    void SortByCategory();
+    void SortByCategory(); 
 
 private:
     std::vector<TestEntry> m_tests;
@@ -713,8 +845,8 @@ private:
 
 // Helper class for static registration
 struct AutoRegister {
-    AutoRegister(const std::string& name,
-                 const std::string& category,
+    AutoRegister(const std::string& name, 
+                 const std::string& category, 
                  const std::vector<std::string>& tags,
                  std::function<void()> func,
                  int order = 0);
