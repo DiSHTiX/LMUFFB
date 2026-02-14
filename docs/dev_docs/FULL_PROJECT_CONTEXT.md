@@ -1683,6 +1683,7 @@ void Config::ParsePresetLine(const std::string& line, Preset& current_preset, st
                 else if (key == "slope_g_slew_limit") current_preset.slope_g_slew_limit = std::stof(value); // NEW v0.7.40
                 else if (key == "slope_use_torque") current_preset.slope_use_torque = (value == "1"); // NEW v0.7.40
                 else if (key == "slope_torque_sensitivity") current_preset.slope_torque_sensitivity = std::stof(value); // NEW v0.7.40
+                else if (key == "slope_confidence_max_rate") current_preset.slope_confidence_max_rate = std::stof(value); // NEW v0.7.42
             } catch (...) {}
         }
     }
@@ -2424,6 +2425,7 @@ void Config::WritePresetFields(std::ofstream& file, const Preset& p) {
     file << "slope_g_slew_limit=" << p.slope_g_slew_limit << "\n";
     file << "slope_use_torque=" << (p.slope_use_torque ? "1" : "0") << "\n";
     file << "slope_torque_sensitivity=" << p.slope_torque_sensitivity << "\n";
+    file << "slope_confidence_max_rate=" << p.slope_confidence_max_rate << "\n";
 
     file << "slip_angle_smoothing=" << p.slip_smoothing << "\n";
     file << "chassis_inertia_smoothing=" << p.chassis_smoothing << "\n";
@@ -2697,6 +2699,7 @@ void Config::Save(const FFBEngine& engine, const std::string& filename) {
         file << "slope_g_slew_limit=" << engine.m_slope_g_slew_limit << "\n";
         file << "slope_use_torque=" << (engine.m_slope_use_torque ? "1" : "0") << "\n";
         file << "slope_torque_sensitivity=" << engine.m_slope_torque_sensitivity << "\n";
+        file << "slope_confidence_max_rate=" << engine.m_slope_confidence_max_rate << "\n";
 
         file << "\n; --- Braking & Lockup ---\n";
         file << "lockup_enabled=" << engine.m_lockup_enabled << "\n";
@@ -2864,6 +2867,7 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
                     else if (key == "slope_g_slew_limit") engine.m_slope_g_slew_limit = std::stof(value); // NEW v0.7.40
                     else if (key == "slope_use_torque") engine.m_slope_use_torque = (value == "1"); // NEW v0.7.40
                     else if (key == "slope_torque_sensitivity") engine.m_slope_torque_sensitivity = std::stof(value); // NEW v0.7.40
+                    else if (key == "slope_confidence_max_rate") engine.m_slope_confidence_max_rate = std::stof(value); // NEW v0.7.42
                 } catch (...) {
                     std::cerr << "[Config] Error parsing line: " << line << std::endl;
                 }
@@ -2917,6 +2921,7 @@ void Config::Load(FFBEngine& engine, const std::string& filename) {
     // Advanced Slope Validation (v0.7.40)
     engine.m_slope_g_slew_limit = (std::max)(1.0f, (std::min)(1000.0f, engine.m_slope_g_slew_limit));
     engine.m_slope_torque_sensitivity = (std::max)(0.01f, (std::min)(10.0f, engine.m_slope_torque_sensitivity));
+    engine.m_slope_confidence_max_rate = (std::max)(engine.m_slope_alpha_threshold + 0.01f, (std::min)(1.0f, engine.m_slope_confidence_max_rate));
 
     // Migration: v0.7.x sensitivity â†’ v0.7.11 thresholds
     // If loading old config with sensitivity but at default thresholds
@@ -3147,6 +3152,7 @@ struct Preset {
     float slope_g_slew_limit = 50.0f;
     bool slope_use_torque = true;
     float slope_torque_sensitivity = 0.5f;
+    float slope_confidence_max_rate = 0.10f;
 
     // 2. Constructors
     Preset(std::string n, bool builtin = false) : name(n), is_builtin(builtin), app_version(LMUFFB_VERSION) {}
@@ -3345,6 +3351,7 @@ struct Preset {
         engine.m_slope_alpha_threshold = (std::max)(0.001f, slope_alpha_threshold); // Critical for slope division
         engine.m_slope_decay_rate = (std::max)(0.1f, slope_decay_rate);
         engine.m_slope_confidence_enabled = slope_confidence_enabled;
+        engine.m_slope_confidence_max_rate = (std::max)(engine.m_slope_alpha_threshold + 0.01f, slope_confidence_max_rate);
 
         // v0.7.11: Min/Max thresholds
         engine.m_slope_min_threshold = slope_min_threshold;
@@ -3409,6 +3416,7 @@ struct Preset {
         slope_decay_rate = (std::max)(0.1f, slope_decay_rate);
         slope_g_slew_limit = (std::max)(1.0f, slope_g_slew_limit);
         slope_torque_sensitivity = (std::max)(0.01f, slope_torque_sensitivity);
+        slope_confidence_max_rate = (std::max)(slope_alpha_threshold + 0.01f, slope_confidence_max_rate);
     }
 
     // NEW: Capture current engine state into this preset
@@ -3484,6 +3492,7 @@ struct Preset {
         slope_alpha_threshold = engine.m_slope_alpha_threshold;
         slope_decay_rate = engine.m_slope_decay_rate;
         slope_confidence_enabled = engine.m_slope_confidence_enabled;
+        slope_confidence_max_rate = engine.m_slope_confidence_max_rate;
 
         // v0.7.11: Min/Max thresholds
         slope_min_threshold = engine.m_slope_min_threshold;
@@ -3582,6 +3591,7 @@ struct Preset {
         if (!is_near(slope_g_slew_limit, p.slope_g_slew_limit, eps)) return false;
         if (slope_use_torque != p.slope_use_torque) return false;
         if (!is_near(slope_torque_sensitivity, p.slope_torque_sensitivity, eps)) return false;
+        if (!is_near(slope_confidence_max_rate, p.slope_confidence_max_rate, eps)) return false;
 
         return true;
     }
@@ -4556,6 +4566,7 @@ public:
     float m_slope_alpha_threshold = 0.02f;    // NEW: Minimum dAlpha/dt to calculate slope
     float m_slope_decay_rate = 5.0f;          // NEW: Decay rate toward 0 when not cornering
     bool m_slope_confidence_enabled = true;   // NEW: Enable confidence-based grip scaling
+    float m_slope_confidence_max_rate = 0.10f; // NEW v0.7.42
 
     // NEW v0.7.11: Min/Max Threshold System
     float m_slope_min_threshold = -0.3f;   // Effect starts here (dead zone edge)
@@ -5127,16 +5138,16 @@ public:
 
         // Initialize slew limiter and smoothing state on first sample to avoid ramp-up transients
         if (m_slope_buffer_count == 0) {
-            m_slope_lat_g_prev = lateral_g;
-            m_slope_lat_g_smoothed = lateral_g;
+            m_slope_lat_g_prev = std::abs(lateral_g);
+            m_slope_lat_g_smoothed = std::abs(lateral_g);
             m_slope_slip_smoothed = std::abs(slip_angle);
             if (data) {
-                m_slope_torque_smoothed = data->mSteeringShaftTorque;
+                m_slope_torque_smoothed = std::abs(data->mSteeringShaftTorque);
                 m_slope_steer_smoothed = std::abs(data->mUnfilteredSteering);
             }
         }
 
-        double lat_g_slew = apply_slew_limiter(lateral_g, m_slope_lat_g_prev, (double)m_slope_g_slew_limit, dt);
+        double lat_g_slew = apply_slew_limiter(std::abs(lateral_g), m_slope_lat_g_prev, (double)m_slope_g_slew_limit, dt);
         m_debug_lat_g_slew = lat_g_slew;
 
         double alpha_smooth = dt / (0.01 + dt);
@@ -5145,7 +5156,7 @@ public:
             m_slope_lat_g_smoothed += alpha_smooth * (lat_g_slew - m_slope_lat_g_smoothed);
             m_slope_slip_smoothed += alpha_smooth * (std::abs(slip_angle) - m_slope_slip_smoothed);
             if (data) {
-                m_slope_torque_smoothed += alpha_smooth * (data->mSteeringShaftTorque - m_slope_torque_smoothed);
+                m_slope_torque_smoothed += alpha_smooth * (std::abs(data->mSteeringShaftTorque) - m_slope_torque_smoothed);
                 m_slope_steer_smoothed += alpha_smooth * (std::abs(data->mUnfilteredSteering) - m_slope_steer_smoothed);
             }
         }
@@ -5188,7 +5199,7 @@ public:
             double dTorque_dt = calculate_sg_derivative(m_slope_torque_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
             double dSteer_dt = calculate_sg_derivative(m_slope_steer_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
 
-            if (std::abs(dSteer_dt) > 0.01) { // Fixed threshold for steering movement
+            if (std::abs(dSteer_dt) > (double)m_slope_alpha_threshold) { // Unified threshold for steering movement
                 m_debug_slope_torque_num = dTorque_dt * dSteer_dt;
                 m_debug_slope_torque_den = (dSteer_dt * dSteer_dt) + 0.000001;
                 m_slope_torque_current = std::clamp(m_debug_slope_torque_num / m_debug_slope_torque_den, -50.0, 50.0);
@@ -5239,9 +5250,9 @@ public:
     inline double calculate_slope_confidence(double dAlpha_dt) {
         if (!m_slope_confidence_enabled) return 1.0;
 
-        // v0.7.21 FIX: Use smoothstep confidence ramp [m_slope_alpha_threshold, 0.10] rad/s
+        // v0.7.21 FIX: Use smoothstep confidence ramp [m_slope_alpha_threshold, m_slope_confidence_max_rate] rad/s
         // to reject singularity artifacts near zero.
-        return smoothstep((double)m_slope_alpha_threshold, 0.10, std::abs(dAlpha_dt));
+        return smoothstep((double)m_slope_alpha_threshold, (double)m_slope_confidence_max_rate, std::abs(dAlpha_dt));
     }
 
     // Helper: Inverse linear interpolation - v0.7.11
@@ -10114,6 +10125,7 @@ set(TEST_SOURCES
     main_test_runner.cpp 
     test_ffb_accuracy_tools.cpp
     test_ffb_advanced_slope.cpp
+    test_ffb_slope_edge_cases.cpp
     test_ffb_common.cpp
     test_ffb_core_physics.cpp
     test_ffb_slope_detection.cpp
@@ -10820,8 +10832,122 @@ from .reports import generate_text_report
 
 console = Console()
 
+def _show_info(metadata, df):
+    console.print(Panel.fit(
+        f"[bold blue]Session Information[/bold blue]\n\n"
+        f"Driver: {metadata.driver_name}\n"
+        f"Vehicle: {metadata.vehicle_name}\n"
+        f"Track: {metadata.track_name}\n"
+        f"Duration: {df['Time'].max():.1f} seconds\n"
+        f"Frames: {len(df)}\n"
+        f"App Version: {metadata.app_version}",
+        title="Log File Info"
+    ))
+
+def _run_analyze(metadata, df, verbose=False):
+    # Run slope analysis
+    slope_results = analyze_slope_stability(df)
+    oscillations = detect_oscillation_events(df)
+    singularity_count, worst_slope = detect_singularities(df)
+    
+    # Display results
+    table = Table(title="Slope Detection Analysis")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_column("Status", style="yellow")
+    
+    table.add_row(
+        "Slope Std Dev",
+        f"{slope_results['slope_std']:.2f}",
+        "HIGH" if slope_results['slope_std'] > 5.0 else "OK"
+    )
+    table.add_row(
+        "Slope Range",
+        f"{slope_results['slope_min']:.1f} to {slope_results['slope_max']:.1f}",
+        "WIDE" if (slope_results['slope_max'] - slope_results['slope_min']) > 20 else "OK"
+    )
+    
+    if slope_results.get('active_percentage') is not None:
+        table.add_row(
+            "Active %",
+            f"{slope_results['active_percentage']:.1f}%",
+            "LOW" if slope_results['active_percentage'] < 30 else "OK"
+        )
+        
+    if slope_results.get('floor_percentage') is not None:
+        table.add_row(
+            "Floor Hits",
+            f"{slope_results['floor_percentage']:.1f}%",
+            "HIGH" if slope_results['floor_percentage'] > 5 else "OK"
+        )
+        
+    table.add_row(
+        "Oscillation Events",
+        str(len(oscillations)),
+        "MANY" if len(oscillations) > 3 else "OK"
+    )
+    table.add_row(
+        "Singularity Events",
+        str(singularity_count),
+        "CRITICAL" if singularity_count > 0 else "OK"
+    )
+    if singularity_count > 0:
+        table.add_row(
+            "Worst Singularity",
+            f"{worst_slope:.1f}",
+            "SEVERE" if worst_slope > 20.0 else "WARN"
+        )
+    
+    console.print(table)
+    
+    # Show issues
+    if slope_results['issues']:
+        console.print("\n[bold red]Issues Detected:[/bold red]")
+        for issue in slope_results['issues']:
+            console.print(f"  • {issue}")
+    else:
+        console.print("\n[bold green]No issues detected in slope analysis.[/bold green]")
+
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
+def _run_plots(metadata, df, output_dir, logfile_stem, plot_all=False):
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True
+    ) as progress:
+        task = progress.add_task(f"Generating plots for {logfile_stem}...", total=None)
+        
+        def update_status(msg):
+            progress.update(task, description=f" {logfile_stem}: {msg}")
+
+        # Time series plot
+        ts_path = output_path / f"{logfile_stem}_timeseries.png"
+        plot_slope_timeseries(df, str(ts_path), show=False, status_callback=update_status)
+        console.print(f"  [OK] Created: {ts_path}")
+        
+        if plot_all:
+            # Tire curve
+            tc_path = output_path / f"{logfile_stem}_tire_curve.png"
+            plot_slip_vs_latg(df, str(tc_path), show=False, status_callback=update_status)
+            console.print(f"  [OK] Created: {tc_path}")
+            
+            # dAlpha histogram
+            hist_path = output_path / f"{logfile_stem}_dalpha_hist.png"
+            plot_dalpha_histogram(df, str(hist_path), show=False, status_callback=update_status)
+            console.print(f"  [OK] Created: {hist_path}")
+
+            # Slope correlation
+            corr_path = output_path / f"{logfile_stem}_slope_corr.png"
+            plot_slope_correlation(df, str(corr_path), show=False, status_callback=update_status)
+            console.print(f"  [OK] Created: {corr_path}")
+
 @click.group()
-@click.version_option(version='1.0.1')
+@click.version_option(version='1.1.0')
 def cli():
     """lmuFFB Log Analyzer - Analyze FFB telemetry logs for diagnostics."""
     pass
@@ -10832,17 +10958,7 @@ def info(logfile):
     """Display session info from a log file."""
     try:
         metadata, df = load_log(logfile)
-        
-        console.print(Panel.fit(
-            f"[bold blue]Session Information[/bold blue]\n\n"
-            f"Driver: {metadata.driver_name}\n"
-            f"Vehicle: {metadata.vehicle_name}\n"
-            f"Track: {metadata.track_name}\n"
-            f"Duration: {df['Time'].max():.1f} seconds\n"
-            f"Frames: {len(df)}\n"
-            f"App Version: {metadata.app_version}",
-            title="Log File Info"
-        ))
+        _show_info(metadata, df)
     except Exception as e:
         console.print(f"[bold red]Error loading log:[/bold red] {e}")
 
@@ -10852,73 +10968,9 @@ def info(logfile):
 def analyze(logfile, verbose):
     """Analyze a log file and show summary."""
     console.print(f"[bold]Analyzing:[/bold] {logfile}")
-    
     try:
         metadata, df = load_log(logfile)
-        
-        # Run slope analysis
-        slope_results = analyze_slope_stability(df)
-        oscillations = detect_oscillation_events(df)
-        singularity_count, worst_slope = detect_singularities(df)
-        
-        # Display results
-        table = Table(title="Slope Detection Analysis")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", style="green")
-        table.add_column("Status", style="yellow")
-        
-        table.add_row(
-            "Slope Std Dev",
-            f"{slope_results['slope_std']:.2f}",
-            "HIGH" if slope_results['slope_std'] > 5.0 else "OK"
-        )
-        table.add_row(
-            "Slope Range",
-            f"{slope_results['slope_min']:.1f} to {slope_results['slope_max']:.1f}",
-            "WIDE" if (slope_results['slope_max'] - slope_results['slope_min']) > 20 else "OK"
-        )
-        
-        if slope_results.get('active_percentage') is not None:
-            table.add_row(
-                "Active %",
-                f"{slope_results['active_percentage']:.1f}%",
-                "LOW" if slope_results['active_percentage'] < 30 else "OK"
-            )
-            
-        if slope_results.get('floor_percentage') is not None:
-            table.add_row(
-                "Floor Hits",
-                f"{slope_results['floor_percentage']:.1f}%",
-                "HIGH" if slope_results['floor_percentage'] > 5 else "OK"
-            )
-            
-        table.add_row(
-            "Oscillation Events",
-            str(len(oscillations)),
-            "MANY" if len(oscillations) > 3 else "OK"
-        )
-        table.add_row(
-            "Singularity Events",
-            str(singularity_count),
-            "CRITICAL" if singularity_count > 0 else "OK"
-        )
-        if singularity_count > 0:
-            table.add_row(
-                "Worst Singularity",
-                f"{worst_slope:.1f}",
-                "SEVERE" if worst_slope > 20.0 else "WARN"
-            )
-        
-        console.print(table)
-        
-        # Show issues
-        if slope_results['issues']:
-            console.print("\n[bold red]Issues Detected:[/bold red]")
-            for issue in slope_results['issues']:
-                console.print(f"  • {issue}")
-        else:
-            console.print("\n[bold green]No issues detected in slope analysis.[/bold green]")
-            
+        _run_analyze(metadata, df, verbose)
     except Exception as e:
         console.print(f"[bold red]Error analyzing log:[/bold red] {e}")
 
@@ -10929,35 +10981,9 @@ def analyze(logfile, verbose):
 def plots(logfile, output, plot_all):
     """Generate diagnostic plots from a log file."""
     console.print(f"[bold]Generating plots for:[/bold] {logfile}")
-    
     try:
         metadata, df = load_log(logfile)
-        output_dir = Path(output)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        base_name = Path(logfile).stem
-        
-        # Time series plot
-        ts_path = output_dir / f"{base_name}_timeseries.png"
-        plot_slope_timeseries(df, str(ts_path), show=False)
-        console.print(f"  [OK] Created: {ts_path}")
-        
-        if plot_all:
-            # Tire curve
-            tc_path = output_dir / f"{base_name}_tire_curve.png"
-            plot_slip_vs_latg(df, str(tc_path), show=False)
-            console.print(f"  [OK] Created: {tc_path}")
-            
-            # dAlpha histogram
-            hist_path = output_dir / f"{base_name}_dalpha_hist.png"
-            plot_dalpha_histogram(df, str(hist_path), show=False)
-            console.print(f"  [OK] Created: {hist_path}")
-
-            # Slope correlation
-            corr_path = output_dir / f"{base_name}_slope_corr.png"
-            plot_slope_correlation(df, str(corr_path), show=False)
-            console.print(f"  [OK] Created: {corr_path}")
-        
+        _run_plots(metadata, df, output, Path(logfile).stem, plot_all)
         console.print("\n[bold green]Done![/bold green]")
     except Exception as e:
         console.print(f"[bold red]Error generating plots:[/bold red] {e}")
@@ -10969,7 +10995,6 @@ def report(logfile, output):
     """Generate a full diagnostic report."""
     try:
         metadata, df = load_log(logfile)
-        
         report_text = generate_text_report(metadata, df)
         
         if output:
@@ -10984,14 +11009,17 @@ def report(logfile, output):
 @cli.command()
 @click.argument('logdir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
 @click.option('--output', '-o', default='analyzer_results', help='Output directory for batch results')
-@click.pass_context
-def batch(ctx, logdir, output):
+def batch(logdir, output):
     """Run all analysis commands for all log files in a directory."""
     log_path = Path(logdir)
     output_path = Path(output)
     output_path.mkdir(parents=True, exist_ok=True)
 
     csv_files = sorted(list(log_path.glob("*.csv")))
+    if not csv_files:
+        # Try finding in subdirectories if direct search fails (sometimes happens on Windows with deep paths)
+        csv_files = sorted(list(log_path.rglob("*.csv")))
+
     if not csv_files:
         console.print(f"[yellow]No .csv files found in {logdir}[/yellow]")
         return
@@ -11000,20 +11028,28 @@ def batch(ctx, logdir, output):
 
     for logfile in csv_files:
         console.print(f"\n[bold blue]Processing: {logfile.name}[/bold blue]")
+        try:
+            # Load ONCE for all operations
+            metadata, df = load_log(str(logfile))
+            
+            # 1. Info
+            _show_info(metadata, df)
+            
+            # 2. Analyze
+            _run_analyze(metadata, df)
+            
+            # 3. Plots
+            _run_plots(metadata, df, output_path, logfile.stem, plot_all=True)
+            
+            # 4. Report
+            report_file = output_path / f"{logfile.stem}_report.txt"
+            report_text = generate_text_report(metadata, df)
+            with open(report_file, 'w') as f:
+                f.write(report_text)
+            console.print(f"  [OK] Created: {report_file}")
 
-        # Run individual commands
-        # 1. Info
-        ctx.invoke(info, logfile=str(logfile))
-
-        # 2. Analyze
-        ctx.invoke(analyze, logfile=str(logfile), verbose=False)
-
-        # 3. Plots (save to output dir)
-        ctx.invoke(plots, logfile=str(logfile), output=str(output_path), plot_all=True)
-
-        # 4. Report (save to output dir)
-        report_file = output_path / f"{logfile.stem}_report.txt"
-        ctx.invoke(report, logfile=str(logfile), output=str(report_file))
+        except Exception as e:
+            console.print(f"[bold red]Error processing {logfile.name}:[/bold red] {e}")
 
     console.print(f"\n[bold green]Batch processing complete! Results saved to: {output}[/bold green]")
 
@@ -11149,93 +11185,126 @@ class MarkerEvent(BaseModel):
 
 # File: tools\lmuffb_log_analyzer\plots.py
 ```python
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Optional
 
+def _safe_legend(ax, loc='upper right'):
+    """Only show legend if there are labeled artists."""
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        ax.legend(loc=loc)
+
+MAX_PLOT_POINTS = 20000
+
+def _downsample_df(df: pd.DataFrame, max_points: int = MAX_PLOT_POINTS) -> pd.DataFrame:
+    """Downsample dataframe for plotting if it exceeds max_points."""
+    if len(df) <= max_points:
+        return df
+    
+    # We want to preserve the temporal order, so we use step-based downsampling
+    # instead of random sampling for time-series plots.
+    step = len(df) // max_points
+    return df.iloc[::step].copy()
+
 def plot_slope_timeseries(
     df: pd.DataFrame, 
     output_path: Optional[str] = None,
-    show: bool = True
+    show: bool = True,
+    status_callback = None
 ) -> str:
     """
     Generate 4-panel time-series plot for slope detection analysis.
     """
+    if status_callback: status_callback("Initializing plot...")
     fig, axes = plt.subplots(4, 1, figsize=(14, 12), sharex=True)
     fig.suptitle('Slope Detection Analysis - Time Series', fontsize=14, fontweight='bold')
     
-    time = df['Time'] if 'Time' in df.columns else np.arange(len(df)) * 0.01
+    # Downsample for performance
+    if status_callback: status_callback("Downsampling data...")
+    plot_df = _downsample_df(df)
+    time = plot_df['Time'] if 'Time' in plot_df.columns else np.arange(len(plot_df)) * 0.01
     
     # Panel 1: Inputs (Lat G and Slip Angle)
+    if status_callback: status_callback("Rendering Panel 1 (Inputs)...")
     ax1 = axes[0]
-    ax1.plot(time, df['LatAccel'] / 9.81, label='Lateral G', color='#2196F3', alpha=0.8)
+    ax1.plot(time, plot_df['LatAccel'] / 9.81, label='Lateral G', color='#2196F3', alpha=0.8)
     ax1.set_ylabel('Lateral G', color='#2196F3')
     ax1.tick_params(axis='y', labelcolor='#2196F3')
-    ax1.legend(loc='upper left')
+    _safe_legend(ax1, loc='upper left')
     ax1.grid(True, alpha=0.3)
     
     ax1_twin = ax1.twinx()
-    if 'calc_slip_angle_front' in df.columns:
-        ax1_twin.plot(time, df['calc_slip_angle_front'], label='Slip Angle', 
+    if 'calc_slip_angle_front' in plot_df.columns:
+        ax1_twin.plot(time, plot_df['calc_slip_angle_front'], label='Slip Angle', 
                       color='#FF9800', alpha=0.8)
     ax1_twin.set_ylabel('Slip Angle (rad)', color='#FF9800')
     ax1_twin.tick_params(axis='y', labelcolor='#FF9800')
-    ax1_twin.legend(loc='upper right')
+    _safe_legend(ax1_twin, loc='upper right')
     ax1.set_title('Inputs: Lateral G and Slip Angle')
     
     # Panel 2: Derivatives
+    if status_callback: status_callback("Rendering Panel 2 (Derivatives)...")
     ax2 = axes[1]
-    if 'dG_dt' in df.columns:
-        ax2.plot(time, df['dG_dt'], label='dG/dt', color='#2196F3', alpha=0.8)
-    if 'dAlpha_dt' in df.columns:
-        ax2.plot(time, df['dAlpha_dt'], label='dAlpha/dt', color='#FF9800', alpha=0.8)
+    if 'dG_dt' in plot_df.columns:
+        ax2.plot(time, plot_df['dG_dt'], label='dG/dt', color='#2196F3', alpha=0.8)
+    if 'dAlpha_dt' in plot_df.columns:
+        ax2.plot(time, plot_df['dAlpha_dt'], label='dAlpha/dt', color='#FF9800', alpha=0.8)
         ax2.axhline(0.02, color='#F44336', linestyle='--', alpha=0.5, label='Threshold (0.02)')
         ax2.axhline(-0.02, color='#F44336', linestyle='--', alpha=0.5)
     ax2.set_ylabel('Derivative')
-    ax2.legend(loc='upper right')
+    _safe_legend(ax2, loc='upper right')
     ax2.grid(True, alpha=0.3)
     ax2.set_title('Derivatives: dG/dt and dAlpha/dt')
     
     # Panel 3: Slope
+    if status_callback: status_callback("Rendering Panel 3 (Slope)...")
     ax3 = axes[2]
-    if 'SlopeCurrent' in df.columns:
-        ax3.plot(time, df['SlopeCurrent'], label='Slope (dG/dAlpha)', color='#9C27B0', linewidth=0.8)
+    if 'SlopeCurrent' in plot_df.columns:
+        ax3.plot(time, plot_df['SlopeCurrent'], label='Slope (dG/dAlpha)', color='#9C27B0', linewidth=0.8)
         ax3.axhline(-0.3, color='#F44336', linestyle='--', alpha=0.5, label='Neg Threshold (-0.3)')
         ax3.axhline(0, color='#4CAF50', linestyle='-', alpha=0.3)
     ax3.set_ylabel('Slope (G/rad)')
     ax3.set_ylim(-15, 15)  # Clamp for visibility
-    ax3.legend(loc='upper right')
+    _safe_legend(ax3, loc='upper right')
     ax3.grid(True, alpha=0.3)
     ax3.set_title('Calculated Slope (dG/dAlpha)')
     
     # Panel 4: Grip Output
+    if status_callback: status_callback("Rendering Panel 4 (Output)...")
     ax4 = axes[3]
-    grip_col = 'GripFactor' if 'GripFactor' in df.columns else 'SlopeSmoothed'
-    if grip_col in df.columns:
-        ax4.plot(time, df[grip_col], label='Grip Factor', color='#4CAF50', linewidth=1.0)
+    grip_col = 'GripFactor' if 'GripFactor' in plot_df.columns else 'SlopeSmoothed'
+    if grip_col in plot_df.columns:
+        ax4.plot(time, plot_df[grip_col], label='Grip Factor', color='#4CAF50', linewidth=1.0)
         ax4.axhline(0.2, color='#9E9E9E', linestyle='--', alpha=0.5, label='Floor (0.2)')
         ax4.axhline(1.0, color='#9E9E9E', linestyle='--', alpha=0.5)
     ax4.set_ylabel('Grip Factor')
     ax4.set_xlabel('Time (s)')
     ax4.set_ylim(0, 1.1)
-    ax4.legend(loc='upper right')
+    _safe_legend(ax4, loc='upper right')
     ax4.grid(True, alpha=0.3)
     ax4.set_title('Output: Grip Factor')
     
     # Add markers if present
-    if 'Marker' in df.columns:
-        marker_times = time[df['Marker'] == 1]
-        for ax in axes:
-            for mt in marker_times:
-                ax.axvline(mt, color='#E91E63', linestyle='-', alpha=0.7, linewidth=2)
+    if 'Marker' in plot_df.columns:
+        marker_times = time[plot_df['Marker'] == 1]
+        if len(marker_times) > 0:
+            if status_callback: status_callback(f"Adding {len(marker_times)} markers...")
+            for ax in axes:
+                # Use vlines for performance instead of multiple axvline calls
+                ax.vlines(marker_times, -100, 100, color='#E91E63', linestyle='-', alpha=0.7, linewidth=2, transform=ax.get_xaxis_transform())
     
+    if status_callback: status_callback("Finalizing layout...")
     plt.tight_layout()
     
     if output_path:
+        if status_callback: status_callback(f"Saving to {Path(output_path).name}...")
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        plt.close(fig)
         return output_path
     
     if show:
@@ -11246,26 +11315,33 @@ def plot_slope_timeseries(
 def plot_slip_vs_latg(
     df: pd.DataFrame,
     output_path: Optional[str] = None,
-    show: bool = True
+    show: bool = True,
+    status_callback = None
 ) -> str:
     """
     Scatter plot of Slip Angle vs Lateral G (tire curve visualization).
     """
+    if status_callback: status_callback("Initializing tire curve plot...")
     fig, ax = plt.subplots(figsize=(10, 8))
     
     slip_col = 'calc_slip_angle_front' if 'calc_slip_angle_front' in df.columns else None
     if slip_col is None:
         return ""
     
-    slip = np.abs(df[slip_col])
-    lat_g = np.abs(df['LatAccel'] / 9.81) if 'LatAccel' in df.columns else None
+    # Downsample for performance (crucial for ax.scatter)
+    if status_callback: status_callback("Downsampling data...")
+    plot_df = _downsample_df(df)
+    
+    slip = np.abs(plot_df[slip_col])
+    lat_g = np.abs(plot_df['LatAccel'] / 9.81) if 'LatAccel' in plot_df.columns else None
     
     if lat_g is None:
         return ""
     
     # Color by speed
-    speed = df['Speed'] * 3.6 if 'Speed' in df.columns else None
+    speed = plot_df['Speed'] * 3.6 if 'Speed' in plot_df.columns else None
     
+    if status_callback: status_callback("Rendering scatter plot...")
     scatter = ax.scatter(slip, lat_g, c=speed, cmap='viridis', alpha=0.3, s=2)
     
     ax.set_xlabel('Slip Angle (rad)')
@@ -11279,13 +11355,14 @@ def plot_slip_vs_latg(
     
     # Mark the theoretical peak region
     ax.axvline(0.08, color='#F44336', linestyle='--', alpha=0.5, label='Typical Peak (~0.08 rad)')
-    ax.legend()
+    _safe_legend(ax)
     
     plt.tight_layout()
     
     if output_path:
+        if status_callback: status_callback(f"Saving to {Path(output_path).name}...")
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        plt.close(fig)
         return output_path
     
     if show:
@@ -11296,7 +11373,8 @@ def plot_slip_vs_latg(
 def plot_dalpha_histogram(
     df: pd.DataFrame,
     output_path: Optional[str] = None,
-    show: bool = True
+    show: bool = True,
+    status_callback = None
 ) -> str:
     """
     Histogram of dAlpha/dt values (shows when slope calculation is "active").
@@ -11304,6 +11382,7 @@ def plot_dalpha_histogram(
     if 'dAlpha_dt' not in df.columns:
         return ""
     
+    if status_callback: status_callback("Rendering dAlpha histogram...")
     fig, ax = plt.subplots(figsize=(10, 6))
     
     dalpha = df['dAlpha_dt'].values
@@ -11322,14 +11401,15 @@ def plot_dalpha_histogram(
     ax.set_xlabel('dAlpha/dt (rad/s)')
     ax.set_ylabel('Frequency')
     ax.set_title(f'Distribution of dAlpha/dt\n{above_threshold:.1f}% of frames above threshold (active calculation)')
-    ax.legend()
+    _safe_legend(ax)
     ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
     
     if output_path:
+        if status_callback: status_callback(f"Saving to {Path(output_path).name}...")
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        plt.close(fig)
         return output_path
     
     if show:
@@ -11340,7 +11420,8 @@ def plot_dalpha_histogram(
 def plot_slope_correlation(
     df: pd.DataFrame,
     output_path: Optional[str] = None,
-    show: bool = True
+    show: bool = True,
+    status_callback = None
 ) -> str:
     """
     Scatter plot of dAlpha/dt vs SlopeCurrent to detect numerical instability.
@@ -11348,6 +11429,7 @@ def plot_slope_correlation(
     if 'dAlpha_dt' not in df.columns or 'SlopeCurrent' not in df.columns:
         return ""
 
+    if status_callback: status_callback("Rendering slope correlation plot...")
     # Downsample if too large for performance
     if len(df) > 20000:
         plot_df = df.sample(n=20000, random_state=42)
@@ -11368,18 +11450,19 @@ def plot_slope_correlation(
     ax.set_title('Instability Check: dAlpha/dt vs SlopeCurrent')
     ax.set_ylim(-50, 50)  # Focus on the relevant range, even if outliers exist
     ax.grid(True, alpha=0.3)
-    ax.legend()
+    _safe_legend(ax)
 
     plt.tight_layout()
 
     if output_path:
+        if status_callback: status_callback(f"Saving to {Path(output_path).name}...")
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        plt.close(fig)
         return output_path
-
+    
     if show:
         plt.show()
-
+    
     return ""
 
 ```
@@ -11599,26 +11682,29 @@ def detect_oscillation_events(
     window = 50  # 0.5 seconds at 100Hz
     rolling_std = pd.Series(signal).rolling(window, center=True).std().values
     
-    # Find periods where std > threshold
-    in_event = False
-    event_start = 0
+    # Vectorized search for events
+    # Find frames where std exceeds threshold
+    std_above = (rolling_std > threshold).astype(int)
+    # Detect starts and ends (1 = starts, -1 = ends)
+    # prepend/append 0 ensures we catch events leading to/from the edges
+    diff = np.diff(std_above, prepend=0, append=0)
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
     
-    for i, std in enumerate(rolling_std):
-        if std > threshold and not in_event:
-            in_event = True
-            event_start = i
-        elif (std <= threshold or np.isnan(std)) and in_event:
-            in_event = False
-            duration = time[i] - time[event_start]
-            if duration >= min_duration:
-                events.append({
-                    'start_time': float(time[event_start]),
-                    'end_time': float(time[i]),
-                    'duration': float(duration),
-                    'amplitude': float(np.abs(signal[event_start:i]).max()),
-                    'frame_start': int(event_start),
-                    'frame_end': int(i)
-                })
+    for s, e in zip(starts, ends):
+        # Index e is the point just after the event, adjust to inclusive range [s, e-1]
+        actual_end = e - 1
+        duration = time[actual_end] - time[s]
+        
+        if duration >= min_duration:
+            events.append({
+                'start_time': float(time[s]),
+                'end_time': float(time[actual_end]),
+                'duration': float(duration),
+                'amplitude': float(np.abs(signal[s:e]).max()),
+                'frame_start': int(s),
+                'frame_end': int(actual_end)
+            })
     
     return events
 
