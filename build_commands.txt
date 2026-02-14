@@ -3,11 +3,26 @@
 ## Update app version, compile main app, compile all tests (including windows tests), all in one single command:
 & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake -S . -B build; cmake --build build --config Release --clean-first
 
-## Run all tests that had already been compiled:
-.\build\tests\Release\run_combined_tests.exe
+
+## Run all tests, c++ and python:
+python scripts/run_all_tests.py
+# explanation:
+# Set PYTHONPATH and run all python tests
+# $env:PYTHONPATH="tools"; python -m pytest tests tools/lmuffb_log_analyzer/tests
+# .\build\tests\Release\run_combined_tests.exe ; $env:PYTHONPATH="tools" ; python -m pytest tests tools/lmuffb_log_analyzer/tests
+# python scripts/run_all_tests.py
+
 
 ## Compile and run tests (physics only, no windows tests) in one command
-& 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake --build build --config Release --target run_combined_tests; .\build\tests\Release\run_combined_tests.exe
+& 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -SkipAutomaticLocation; cmake --build build --config Release --target run_combined_tests; python scripts/run_all_tests.py
+
+-----------
+
+
+## Run all c++ tests that had already been compiled:
+.\build\tests\Release\run_combined_tests.exe
+
+
 
 # Compile and run tests, including windows platform-specific tests
 
