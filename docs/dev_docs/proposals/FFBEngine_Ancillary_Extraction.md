@@ -78,6 +78,45 @@ class FFBEngine {
 3.  **Reusability**: `MathUtils.h` and `PerfStats.h` can be used by other parts of the application (e.g., the GUI or other input handlers) without including the heavy FFB Engine.
 4.  **Testability**: The generic filters and math functions can be unit-tested in isolation in `test_math_utils.cpp`.
 
+## Testing Strategy (Pre-Refactoring Safety Net)
+
+To ensure zero regressions during extraction, we will implement a "100% Coverage" suite for the ancillary modules *before* moving them. This suite must cover edge cases, boundary conditions, and typical usage patterns.
+
+### 1. Math Utils Test Suite (`test_math_utils.cpp`)
+- **`BiquadNotch`**:
+    - **Stability**: Verify output remains finite with extreme inputs.
+    - **Neutrality**: Verify `Process` returns input when gain is effectively 1.0 or frequency is out of range.
+    - **Reset**: Ensure `Reset()` clears internal state (y1, y2, x1, x2) and stops any oscillation.
+    - **Dynamic Update**: Verify changing frequency mid-stream doesn't cause signal discontinuity.
+- **`smoothstep`**:
+    - **Boundaries**: Test `x <= edge0` (returns 0), `x >= edge1` (returns 1).
+    - **Identity**: Test `x` exactly at `edge0` and `edge1`.
+    - **Invalid range**: Test when `edge0 == edge1` to ensure no division by zero.
+- **`inverse_lerp`**:
+    - **Clamping**: Test values far outside the `[min, max]` range.
+    - **Inverse logic**: Verify negative ranges (where `min > max`).
+- **`calculate_sg_derivative`**:
+    - **Linearity**: Test a constant signal (result should be 0).
+    - **Constant Slope**: Test a ramp (result should be constant).
+    - **Buffering**: Test with `count < window` to ensure it handles underfilled buffers gracefully.
+
+### 2. Perf Stats Test Suite (`test_perf_stats.cpp`)
+- **`ChannelStats`**:
+    - **Session Persistent**: Verify `session_min/max` are strictly monotonic and never reset by `ResetInterval()`.
+    - **Interval Tracking**: Verify `interval_sum` and `interval_count` are accurately reset.
+    - **Average Precision**: Test `Avg()` with a known series (e.g., 10, 20, 30).
+    - **Empty State**: Verify behavior when `interval_count == 0` (no division by zero).
+
+### 3. Vehicle Utils Test Suite (`test_vehicle_utils.cpp`)
+- **`ParseVehicleClass`**:
+    - **Case Sensitivity**: Test mixed-case class/vehicle names.
+    - **Unknowns**: Test with empty strings and random strings (should return `UNKNOWN`).
+    - **Ambiguity**: Test names that contain multiple keywords to verify priority logic.
+- **`GetDefaultLoadForClass`**:
+    - **Full Coverage**: Verify every enum value in `ParsedVehicleClass` has a corresponding load value.
+
+---
+
 ## Next Steps
 1.  **Create `MathUtils.h`**: Move constants, interpolators, and `BiquadNotch` (with improved documentation).
 2.  **Create `PerfStats.h`**: Move `ChannelStats`.
