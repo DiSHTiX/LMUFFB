@@ -117,11 +117,8 @@ endif()
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src)
 add_definitions(-DLMUFFB_VERSION="${LMUFFB_VERSION}")
 
-# Tests
-add_subdirectory(tests)
-
-set(APP_SOURCES
-    src/main.cpp
+# Core Library (Shared between App and Tests)
+set(CORE_SOURCES
     src/GuiLayer_Common.cpp
     src/GuiLayer.h
     src/Config.cpp src/Config.h
@@ -131,20 +128,32 @@ set(APP_SOURCES
 )
 
 if(WIN32)
-    list(APPEND APP_SOURCES src/GuiLayer_Win32.cpp ${CMAKE_CURRENT_BINARY_DIR}/src/res.rc)
+    list(APPEND CORE_SOURCES src/GuiLayer_Win32.cpp ${CMAKE_CURRENT_BINARY_DIR}/src/res.rc)
 else()
-    list(APPEND APP_SOURCES src/GuiLayer_Linux.cpp)
+    list(APPEND CORE_SOURCES src/GuiLayer_Linux.cpp)
 endif()
 
-add_executable(LMUFFB ${APP_SOURCES} ${IMGUI_SOURCES})
+add_library(LMUFFB_Core STATIC ${CORE_SOURCES} ${IMGUI_SOURCES})
+target_include_directories(LMUFFB_Core PUBLIC src ${IMGUI_DIR} ${IMGUI_DIR}/backends ${CMAKE_CURRENT_BINARY_DIR}/src)
 
 if(WIN32)
-    target_link_libraries(LMUFFB PRIVATE dinput8.lib dxguid.lib winmm.lib)
+    target_link_libraries(LMUFFB_Core PUBLIC dinput8.lib dxguid.lib winmm.lib)
 endif()
 
 if(NOT WIN32 AND NOT BUILD_HEADLESS)
-    target_link_libraries(LMUFFB PRIVATE glfw OpenGL::GL dl pthread)
+    target_link_libraries(LMUFFB_Core PUBLIC glfw OpenGL::GL dl pthread)
 endif()
+
+# Main Application
+set(APP_SOURCES
+    src/main.cpp
+)
+
+add_executable(LMUFFB ${APP_SOURCES})
+target_link_libraries(LMUFFB PRIVATE LMUFFB_Core)
+
+# Tests
+add_subdirectory(tests)
 
 # Copy Distribution Files
 add_custom_command(TARGET LMUFFB POST_BUILD

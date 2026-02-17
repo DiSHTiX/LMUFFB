@@ -55,12 +55,6 @@ set(TEST_SOURCES
     test_perf_stats.cpp
     test_vehicle_utils.cpp
     test_coverage_boost.cpp
-
-    # Core Application Logic (Now with Linux Mocks)
-    ../src/Config.cpp
-    ../src/DirectInputFFB.cpp
-    ../src/GameConnector.cpp
-    ../src/GuiLayer_Common.cpp
 )
 
 # ImGui Core is now always available if vendor exists
@@ -68,22 +62,16 @@ set(TEST_SOURCES
 if(IMGUI_CORE_SOURCES)
     list(APPEND TEST_SOURCES
         test_gui_interaction.cpp
-        ${IMGUI_CORE_SOURCES}
-        ${IMGUI_BACKEND_SOURCES}
     )
 endif()
 
 if(WIN32)
     list(APPEND TEST_SOURCES 
         test_windows_platform.cpp 
-        ../src/GuiLayer_Win32.cpp
-        ${CMAKE_BINARY_DIR}/src/res.rc
         test_security_metadata.cpp
     )
 else()
-    # On Linux, always include the Linux backend file,
-    # but it will use stubs if HEADLESS_GUI is defined.
-    list(APPEND TEST_SOURCES ../src/GuiLayer_Linux.cpp)
+    # On Linux, backend file is in LMUFFB_Core
     if(BUILD_HEADLESS)
         add_definitions(-DHEADLESS_GUI)
         # Enable some Windows-style tests on Linux using mocks
@@ -94,12 +82,10 @@ endif()
 enable_testing()
 add_executable(run_combined_tests ${TEST_SOURCES})
 target_compile_definitions(run_combined_tests PRIVATE HEADLESS_GUI)
+target_link_libraries(run_combined_tests PRIVATE LMUFFB_Core)
 
 if(WIN32)
-    target_link_libraries(run_combined_tests dinput8 dxguid version imm32 winmm d3d11 d3dcompiler dxgi)
-elseif(NOT BUILD_HEADLESS)
-    # Link GUI libraries if we are NOT in headless mode
-    target_link_libraries(run_combined_tests glfw OpenGL::GL dl pthread)
+    target_link_libraries(run_combined_tests PRIVATE version imm32 dxgi)
 endif()
 
 # Add to CTest
