@@ -161,4 +161,91 @@ struct FFBStateContainer {
 - **Snapshots**: ~70 lines moved to helper.
 - **New Structs**: +15 lines definition.
 
-This approach preserves the "Single File" nature for the core physics while cleaning up the noise.
+## 6. Alternative Proposal: Separation of Declaration and Implementation (.h/.cpp Split)
+
+The user raised a valid architectural question: **"What about splitting FFBEngine.h into declarations (header) and implementation (source)?"**
+
+### Analysis of .h / .cpp Split
+Currently, `FFBEngine` is a header-only library. Moving the implementation to `FFBEngine.cpp`:
+1.  **Compilation Speed**: Improves build times for consumers of `FFBEngine` (only link changes).
+2.  **Code Hygiene**: The header file becomes a clean API contract. Thousands of lines of implementation details (including the Snapshot and Logging blocks) are hidden from the user of the class.
+3.  **Inline Optimization**: We lose the guarantee of compiler inlining unless LTO (Link Time Optimization) is enabled (which it usually is in Release). For a 400Hz loop, function call overhead is negligible, so this is acceptable.
+
+### Does it solve the "Struct Copy Cost" / Data Access issue?
+**Direct Answer: No.**
+Moving code to a `.cpp` file does not change C++ scoping rules.
+- The Snapshot logic depends on *local variables* defined inside `calculate_force` (e.g., `norm_force`, `base_input`, `ctx`).
+- Even if `CaptureSnapshot()` is a private member function in the `.cpp` file, it **cannot** access the local variables of `calculate_force` unless they are passed as arguments.
+- Therefore, we **still need** either the `FFBStateContainer` struct OR a list of 20+ arguments.
+
+### The "Cost" Misconception
+The "cost" of the `FFBStateContainer` is effectively zero in modern C++.
+- **Construction**: It just groups pointers and references. It's equivalent to passing arguments on the stack.
+- **Passing**: We pass by **const reference** (`const FFBStateContainer&`), which is a single pointer size (8 bytes). There is **no deep copy** of the data.
+
+### Hybrid Solution: Member Variable Promotion
+If we truly want to avoid passing arguments/structs, we could promote the critical local variables to **Member Variables** (e.g., `m_ctx`, `m_current_norm_force`).
+- **Pros**: `CaptureSnapshot()` can be `void` and access `m_current_norm_force` directly via `this`.
+- **Cons**: `FFBEngine` becomes stateful per-frame (not thread-safe if called re-entrantly, though FFB is single-threaded). It increases memory footprint slightly (permanently storage vs stack).
+- **Verdict**: Generally discouraged to expose loop-local temporaries as class state just to avoid passing arguments, as it makes data dependency unclear.
+
+### Conclusion on .h/.cpp Split
+We **should** move to a `.h/.cpp` split regardless, for code hygiene. It is a best practice. However, it is **orthogonal** to the Snapshot/Logging extraction problem. The `FFBStateContainer` remains the cleanest pattern for data transfer.
+
+## Updated Recommendations
+1.  **Split FFBEngine**: Move implementation to `src/FFBEngine.cpp` to clean up the header.
+2.  **Use FFBStateContainer**: Implement the unified state struct for Snapshots/Logging.
+3.  **Refactor**: Extract the logic into private helper methods in the `.cpp` file.
+
+
+## 7. Final Clarifications & Readability Roadmap (Q&A)
+
+### Q1: Does splitting `FFBEngine` into .h/.cpp incur struct copy costs if `FFBStateContainer` is kept internal?
+**Answer: No.**
+The "cost" of using a struct like `FFBStateContainer` is determined entirely by **how it is passed**, not where it is defined.
+-   **Pass-by-Value** (`void Foo(FFBState s)`): Copies all ~50 variables. **Expensive.**
+-   **Pass-by-Reference** (`void Foo(const FFBState& s)`): Passes a single memory address (8 bytes). **Negligible Cost.**
+-   **Compiler Inlining**: If the helper function (e.g., `CaptureSnapshot`) is defined in the same `.cpp` file as the caller, the compiler will likely "inline" it, meaning the struct serves only as a logical grouping for the programmer—the machine code sees direct variable access with **zero overhead**.
+
+### Q2: Should we define `FFBStateContainer` mainly for readability?
+**Answer: Yes, absolutely.**
+Even if we don't extract it to a separate file, defining this struct (likely inside `FFBEngine.cpp` or as a private inner class) is the key enabler for **Function Extraction**.
+-   **Without Struct**: Extracting the "Snapshot" block requires a function with ~20 arguments. This is unreadable and brittle.
+-   **With Struct**: `void CaptureSnapshot(const FFBState& state)` is clean, semantic, and easy to maintain.
+
+### Q3: What other proposals would improve `FFBEngine` readability?
+Beyond the ancillary extractions, the most impactful change would be **Decomposing `calculate_force`**.
+
+Currently, `calculate_force` is a monolithic function performing sequentially:
+1.  Input Processing
+2.  Vehicle State Analysis
+3.  Effect Calculation (SOP, Road, Curb, ABS, etc.)
+4.  Generic Diagnostics (Snapshots, Logging)
+
+**Proposal: "The Context Pattern"**
+By implementing the `FFBStateContainer` (or strictly using `FFBCalculationContext`), we can break `calculate_force` into semantic phases:
+
+```cpp
+// FFBEngine.cpp - structured with "The Context Pattern"
+double FFBEngine::calculate_force(const TelemInfoV01* data, ...) {
+    
+    // 1. Prepare Context
+    FFBCalculationContext ctx;
+    PrepareContext(data, ctx); 
+
+    // 2. Calculate Independent Effects (Stateless)
+    ctx.road_noise = CalculateRoadTexture(data, ctx);
+    ctx.sop_force = CalculateSOP(data, ctx);
+    // ... etc ...
+
+    // 3. Diagnostics (The "Observer" Phase)
+    // Using the unified state struct we discussed
+    FFBStateContainer state(data, ctx, *this); 
+    
+    if (ShouldSnapshot()) CaptureSnapshot(state);
+    if (ShouldLog())      LogTelemetry(state);
+
+    return ctx.total_force;
+}
+```
+This transformation moves `FFBEngine` from a "script-like" procedural flow to a modern, modular architecture where each effect is an isolated, testable unit. The `FFBStateContainer` is the necessary glue to make this possible without performance loss.
