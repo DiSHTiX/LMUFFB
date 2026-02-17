@@ -132,6 +132,8 @@ struct FFBSnapshot {
 };
 
 struct BiquadNotch {
+    // TODO: it is not clear what this struct is for. Add some comments to document it.
+    
     // Coefficients
     double b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
     // State history (Inputs x, Outputs y)
