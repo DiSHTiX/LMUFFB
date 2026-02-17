@@ -133,3 +133,20 @@ Since the logic tests **already exist**, the task is to **port** them to the new
     -   `FFBEngineTestAccess` was cleaned up to remove wrappers for functions that are now public in their own modules.
     -   Some integration tests (`test_ffb_slope_detection.cpp`, etc.) required updates to call the new utility functions directly where they were previously accessing them through the engine instance.
 -   **Build System**: `VehicleUtils.cpp` was successfully added to `CORE_SOURCES` in `CMakeLists.txt`.
+
+### Unforeseen Issues
+1.  **Direct Test Usage**: A significant number of integration tests (e.g., `test_ffb_slope_detection.cpp`, `test_ffb_smoothstep.cpp`, `test_ffb_coverage_target.cpp`) were directly accessing helper methods (like `calculate_sg_derivative`, `smoothstep`) via the `FFBEngine` instance. Moving these to free functions or namespaces broke these tests instantly, requiring immediate refactoring of test files that were not originally in scope for this task.
+2.  **Test Accessor Obsolescence**: The `FFBEngineTestAccess` class contained wrappers for many of the extracted functions. These wrappers broke because the underlying private/protected methods on `FFBEngine` no longer existed. This necessitated a cleanup of `test_ffb_common.h` simultaneous with the extraction.
+
+### Plan Deviations
+1.  **Simultaneous Test Refactoring**: The plan suggested refactoring unit tests "Pre-Implementation". However, due to the tight coupling of `FFBEngineTestAccess`, it was more practical to refactor `FFBEngine` and the tests simultaneously to resolve compilation errors in one pass.
+2.  **Compatibility Layers**: Explicitly added `using namespace ffb_math;` and `using ParsedVehicleClass = ::ParsedVehicleClass;` to `FFBEngine.h`. This was a tactical decision to avoid touching ~200 lines of internal engine logic that referenced these types, reducing the risk of introducing logic bugs during the structural refactor.
+
+### Challenges Encountered
+1.  **Compilation Cascades**: The project has a high degree of inter-dependency in headers. Modifying `FFBEngine.h` triggered full rebuilds, and missing includes in the new utility files (like `<algorithm>` or `<cmath>`) caused standard library errors that were previously masked by `FFBEngine.h`'s heavy inclusion list.
+2.  **Ambiguous Overloads**: Moving `operator<<` for `ChannelStats` or `ParsedVehicleClass` required care to ensure they were visible to the test runner's logging system without causing ambiguous overload errors.
+
+### Recommendations for Future Plans
+1.  **Grep First**: When planning an extraction, perform a codebase-wide grep for the functions/types to be moved. This would have revealed the extent of usage in `tests/` and allowed for a better estimate of the refactoring effort.
+2.  **Alias Bridge**: The strategy of using `using` aliases in the legacy header to maintain backward compatibility (internal bridge) proved highly effective. It allows for a phased migration where the engine internals can be updated to use the fully qualified names in a subsequent, lower-risk pass.
+
