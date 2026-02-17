@@ -34,6 +34,10 @@ void FFBThread() {
     std::cout << "[FFB] Loop Started." << std::endl;
 
     while (g_running) {
+        double force = 0.0;
+        double dt = 0.0025; // Default 400Hz
+        bool restricted = true;
+
         if (g_ffb_active && GameConnector::Get().IsConnected()) {
             bool in_realtime = GameConnector::Get().CopyTelemetry(g_localData);
             bool is_stale = GameConnector::Get().IsStale(100);
@@ -66,7 +70,6 @@ void FFBThread() {
             }
             was_in_menu = !in_realtime;
             
-            double force = 0.0;
             bool should_output = false;
 
             if (in_realtime && !is_stale && g_localData.telemetry.playerHasVehicle) {
@@ -74,19 +77,30 @@ void FFBThread() {
                 if (idx < 104) {
                     auto& scoring = g_localData.scoring.vehScoringInfo[idx];
                     TelemInfoV01* pPlayerTelemetry = &g_localData.telemetry.telemInfo[idx];
+                    dt = pPlayerTelemetry->mDeltaTime;
 
                     std::lock_guard<std::mutex> lock(g_engine_mutex);
-                    if (g_engine.IsFFBAllowed(scoring)) {
+                    if (g_engine.IsFFBAllowed(scoring, g_localData.scoring.scoringInfo.mGamePhase)) {
                         force = g_engine.calculate_force(pPlayerTelemetry, scoring.mVehicleClass, scoring.mVehicleName);
                         should_output = true;
+                        restricted = (scoring.mFinishStatus != 0);
                     }
                 }
             }
             
             if (!should_output) force = 0.0;
-
-            DirectInputFFB::Get().UpdateForce(force);
         }
+
+        // Safety Layer (v0.7.49): Slew Rate Limiting and NaN protection
+        // v0.7.48: Always update hardware even if disconnected/inactive to ensure zeroing
+        {
+            std::lock_guard<std::mutex> lock(g_engine_mutex);
+            if (dt < 0.0001) dt = 0.0025;
+            force = g_engine.ApplySafetySlew(force, dt, restricted);
+        }
+
+        DirectInputFFB::Get().UpdateForce(force);
+
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 

@@ -508,6 +508,7 @@ public:
 
     // Frequency Estimator State (v0.4.41)
     double m_last_crossing_time = 0.0;
+    double m_last_output_force = 0.0; // v0.7.49: For safety slew rate limiting
     double m_torque_ac_smoothed = 0.0; // For High-Pass
     double m_prev_ac_torque = 0.0;
 
@@ -529,13 +530,43 @@ public:
 
     // v0.7.34: Safety Check for Issue #79
     // Determines if FFB should be active based on vehicle scoring state.
-    // Mutes FFB if car is under AI control or session has finished.
-    bool IsFFBAllowed(const VehicleScoringInfoV01& scoring) const {
+    // v0.7.49: Modified for #126 to allow cool-down laps after finish.
+    bool IsFFBAllowed(const VehicleScoringInfoV01& scoring, unsigned char gamePhase) const {
         // mControl: 0 = local player, 1 = AI, 2 = Remote, -1 = None
         // mFinishStatus: 0 = none, 1 = finished, 2 = DNF, 3 = DQ
-        return (scoring.mIsPlayer && scoring.mControl == 0 && scoring.mFinishStatus == 0);
+
+        // 1. Core control check
+        if (!scoring.mIsPlayer || scoring.mControl != 0) return false;
+
+        // 2. Session level safety (Game Phases: 7=Stopped, 8=Session Over)
+        if (gamePhase == 7 || gamePhase == 8) return false;
+
+        // 3. Individual status safety
+        // Allow Finished (1) and DNF (2) as long as player is in control.
+        // Mute for Disqualified (3).
+        if (scoring.mFinishStatus == 3) return false;
+
+        return true;
     }
     
+    // v0.7.49: Slew rate limiter for safety (#79)
+    // Clamps the rate of change of the output force to prevent violent jolts.
+    // If restricted is true (e.g. after finish or lost control), limit is tighter.
+    double ApplySafetySlew(double target_force, double dt, bool restricted) {
+        if (!std::isfinite(target_force)) return 0.0;
+
+        // Normal: 1000 units/s (0 to 1.0 in 1ms) - Mostly for NaN/Inf safety
+        // Restricted: 100 units/s (0 to 1.0 in 10ms) - Stops violent snaps
+        double max_slew = restricted ? 100.0 : 1000.0;
+        double max_change = max_slew * dt;
+
+        double delta = target_force - m_last_output_force;
+        delta = std::clamp(delta, -max_change, max_change);
+        m_last_output_force += delta;
+
+        return m_last_output_force;
+    }
+
     // Helper to retrieve data (Consumer)
     std::vector<FFBSnapshot> GetDebugBatch() {
         std::vector<FFBSnapshot> batch;
@@ -1249,6 +1280,9 @@ public:
     double calculate_force(const TelemInfoV01* data, const char* vehicleClass = nullptr, const char* vehicleName = nullptr) {
         if (!data) return 0.0;
 
+        // RELIABILITY FIX: Sanitize input torque
+        if (!std::isfinite(data->mSteeringShaftTorque)) return 0.0;
+
         // Class Seeding
         bool seeded = false;
         if (vehicleClass && m_current_class_name != vehicleClass) {
@@ -1430,7 +1464,8 @@ public:
 
         // Load Factors
         double raw_load_factor = ctx.avg_load / m_auto_peak_load;
-        double texture_safe_max = (std::min)(2.0, (double)m_texture_load_cap);
+        // v0.7.48: Increased texture load cap from 2.0 to 10.0 to match brake load cap
+        double texture_safe_max = (std::min)(10.0, (double)m_texture_load_cap);
         ctx.texture_load_factor = (std::min)(texture_safe_max, (std::max)(0.0, raw_load_factor));
 
         double brake_safe_max = (std::min)(10.0, (double)m_brake_load_cap);
@@ -1990,7 +2025,9 @@ private:
         double rear_slip_avg = (lat_vel_rl + lat_vel_rr) / 2.0;
         double effective_slip_vel = (std::max)(front_slip_avg, rear_slip_avg);
         
-        if (effective_slip_vel > 0.5) {
+        // v0.7.48: Increased activation threshold from 0.5 to 1.5 m/s to suppress
+        // artifacts on straights caused by tire toe-in.
+        if (effective_slip_vel > 1.5) {
             double base_freq = 10.0 + (effective_slip_vel * 5.0);
             double freq = base_freq * (double)m_slide_freq_scale;
             if (freq > 250.0) freq = 250.0;
@@ -2003,9 +2040,7 @@ private:
     }
 
     void calculate_road_texture(const TelemInfoV01* data, FFBCalculationContext& ctx) {
-        if (!m_road_texture_enabled) return;
-
-        // Scrub Drag
+        // Scrub Drag (Decoupled from Road Texture toggle in v0.7.48)
         if (m_scrub_drag_gain > 0.0) {
             double avg_lat_vel = (data->mWheel[0].mLateralPatchVel + data->mWheel[1].mLateralPatchVel) / 2.0;
             double abs_lat_vel = std::abs(avg_lat_vel);
@@ -2015,6 +2050,8 @@ private:
                 ctx.scrub_drag_force = drag_dir * m_scrub_drag_gain * (double)BASE_NM_SCRUB_DRAG * fade * ctx.decoupling_scale;
             }
         }
+
+        if (!m_road_texture_enabled) return;
         
         double delta_l = data->mWheel[0].mVerticalTireDeflection - m_prev_vert_deflection[0];
         double delta_r = data->mWheel[1].mVerticalTireDeflection - m_prev_vert_deflection[1];
