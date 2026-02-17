@@ -52,5 +52,7 @@ TEST_CASE(test_rate_monitor_realtime, "Diagnostics") {
     std::cout << "Measured real-time rate: " << rate << " Hz" << std::endl;
 
     // We expect something roughly between 500 and 1000 Hz depending on scheduler
-    ASSERT_GE(rate, 100.0);
+    // On Windows, sleep_for(1) typically takes ~15ms, giving ~64Hz.
+    // Set threshold to 30.0 to remain robust across different environments.
+    ASSERT_GE(rate, 30.0);
 }
