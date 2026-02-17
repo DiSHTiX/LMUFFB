@@ -131,8 +131,13 @@ struct FFBSnapshot {
     float gen_torque_rate;
 };
 
+/**
+ * @brief Bi-quad Filter (Direct Form II)
+ * 
+ * Used for filtering oscillations (e.g., steering wheel "death wobbles") 
+ * and smoothing out high-frequency road noise.
+ */
 struct BiquadNotch {
-    // TODO: it is not clear what this struct is for. Add some comments to document it.
     
     // Coefficients
     double b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;

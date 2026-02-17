@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.51] - 2026-02-17
+### Added
+- **Ancillary Testing Safety Net**:
+  - Implemented comprehensive unit tests for core math utilities, performance statistics, and vehicle metadata parsing.
+  - This establishes a safety net for upcoming refactoring of the monolithic `FFBEngine.h`, ensuring utility functions remain stable as they are extracted into modular components.
+### Refactored
+- **FFBEngine Code Hygiene**:
+  - Added Doxygen-style documentation to internal utility structures (e.g., `BiquadNotch`).
+  - Exposed internal utility functions through `FFBEngineTestAccess` to enable direct unit testing of private/protected logic without full engine simulation.
+### Testing
+- **New Test Suites**:
+  - `tests/test_math_utils.cpp`: Verifies Biquad filter stability, Savitzky-Golay derivative accuracy, and interpolation helpers (`inverse_lerp`, `smoothstep`).
+  - `tests/test_perf_stats.cpp`: Validates performance tracking channels and reset behavior.
+  - `tests/test_vehicle_utils.cpp`: Hardens vehicle class parsing and default load reference seeding.
+
 ## [0.7.49] - 2026-02-17
 ### Added
 - **FFB Rate Monitoring & Verification (Issue #129)**:
