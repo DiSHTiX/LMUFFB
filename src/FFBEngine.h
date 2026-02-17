@@ -80,6 +80,7 @@ struct FFBSnapshot {
     float texture_lockup;
     float texture_spin;
     float texture_bottoming;
+    float ffb_abs_pulse;    // New v0.7.53
     float clipping;
 
     // --- Header B: Internal Physics (Calculated) ---
@@ -1638,6 +1639,7 @@ public:
                 snap.texture_lockup = (float)ctx.lockup_rumble;
                 snap.texture_spin = (float)ctx.spin_rumble;
                 snap.texture_bottoming = (float)ctx.bottoming_crunch;
+                snap.ffb_abs_pulse = (float)ctx.abs_pulse_force; 
                 snap.clipping = (std::abs(norm_force) > 0.99f) ? 1.0f : 0.0f;
 
                 // Physics

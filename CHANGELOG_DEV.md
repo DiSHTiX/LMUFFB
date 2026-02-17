@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.53] - 2026-02-17
+### Added
+- **Integrated Coverage & Observability**:
+  - Enhanced `test_coverage_integrated` with meaningful assertions to verify seed loads, gyro damping, and slope detection behavior.
+  - Added `ffb_abs_pulse` to `FFBSnapshot` for real-time diagnostics and better unit testing of effect pulsing.
+  - Achieved full coverage for `ParseVehicleClass` and `calculate_slope_grip` (torque fusion branch).
+### Fixed
+- **Build Warning Suppression**:
+  - Resolved `C4244` (double to float conversion) warnings in `test_ffb_common.h`.
+  - Added missing `ASSERT_FALSE` and `ASSERT_GT` macros to the test framework.
+
+## [0.7.52] - 2026-02-17
+### Added
+- **Final Coverage Boost for FFBEngine**:
+  - Implemented `test_coverage_integrated` in `test_coverage_boost.cpp` to close remaining gaps in `FFBEngine.h`.
+  - Achieved full coverage for `ParseVehicleClass` (restricted/WEC branches) and `calculate_slope_grip` (torque fusion branch).
+  - Ensured `calculate_gyro_damping` and `calculate_abs_pulse` are fully exercised through integrated engine loops.
+### Fixed
+- **Build Warning Suppression**:
+  - Resolved `C4244` (double to float conversion) warnings in `test_ffb_common.h` by adjusting `CallApplySignalConditioning` to use consistent `double` types, matching the engine implementation.
+
 ## [0.7.51] - 2026-02-17
 ### Added
 - **Ancillary Testing Safety Net**:

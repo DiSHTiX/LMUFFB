@@ -37,12 +37,30 @@ extern int g_test_cases_failed;
         g_tests_failed++; \
     }
 
+#define ASSERT_FALSE(condition) \
+    if (!(condition)) { \
+        std::cout << "[PASS] !" << #condition << std::endl; \
+        g_tests_passed++; \
+    } else { \
+        std::cout << "[FAIL] !" << #condition << " (" << __FILE__ << ":" << __LINE__ << ")" << std::endl; \
+        g_tests_failed++; \
+    }
+
 #define ASSERT_NEAR(a, b, epsilon) \
     if (std::abs((a) - (b)) < (epsilon)) { \
         std::cout << "[PASS] " << #a << " approx " << #b << std::endl; \
         g_tests_passed++; \
     } else { \
         std::cout << "[FAIL] " << #a << " (" << (a) << ") != " << #b << " (" << (b) << ")" << std::endl; \
+        g_tests_failed++; \
+    }
+
+#define ASSERT_GT(a, b) \
+    if ((a) > (b)) { \
+        std::cout << "[PASS] " << #a << " > " << #b << std::endl; \
+        g_tests_passed++; \
+    } else { \
+        std::cout << "[FAIL] " << #a << " (" << (a) << ") <= " << #b << " (" << (b) << ")" << std::endl; \
         g_tests_failed++; \
     }
 
@@ -182,6 +200,7 @@ public:
     static double CallGetDefaultLoadForClass(FFBEngine& e, FFBEngine::ParsedVehicleClass c) {
         return e.GetDefaultLoadForClass(c);
     }
+    static void SetSlopeDetectionEnabled(FFBEngine& e, bool val) { e.m_slope_detection_enabled = val; }
     static void SetSlopeBufferIndex(FFBEngine& e, int idx) { e.m_slope_buffer_index = idx; }
     static void SetSlopeBuffer(FFBEngine& e, const std::array<double, 41>& lat_g) { e.m_slope_lat_g_buffer = lat_g; }
     static void SetSlopeBufferCount(FFBEngine& e, int count) { e.m_slope_buffer_count = count; }

@@ -148,4 +148,67 @@ TEST_CASE(test_coverage_abs_pulse, "Coverage") {
     ASSERT_TRUE(std::isfinite(ctx.abs_pulse_force));
 }
 
+TEST_CASE(test_coverage_integrated, "Coverage") {
+    FFBEngine engine;
+    TelemInfoV01 data = CreateBasicTestTelemetry(30.0); // 30 m/s
+    data.mDeltaTime = 0.0025f;
+    data.mSteeringShaftTorque = 1.0f;
+    
+    // 1. Verify ParseVehicleClass seeding (Line 730 WEC)
+    engine.calculate_force(&data, "LMP2 WEC", "ORECA");
+    ASSERT_NEAR(FFBEngineTestAccess::GetAutoPeakLoad(engine), 7500.0, 1.0);
+    
+    // 2. Verify ParseVehicleClass seeding (Line 733 Unspecified / Unrestricted)
+    engine.calculate_force(&data, "LMP2 ELMS", "ORECA"); 
+    ASSERT_NEAR(FFBEngineTestAccess::GetAutoPeakLoad(engine), 8500.0, 1.0);
+
+    // 3. Verify calculate_gyro_damping fallback (Line 1917)
+    data.mPhysicalSteeringWheelRange = 0.0f;
+    engine.calculate_force(&data, "GT3", "M4 GT3");
+    auto batch = engine.GetDebugBatch();
+    ASSERT_FALSE(batch.empty());
+    ASSERT_TRUE(std::isfinite(batch.back().ffb_gyro_damping));
+    
+    // 4. Verify calculate_abs_pulse (Line 1930)
+    FFBEngineTestAccess::SetABSPulseEnabled(engine, true);
+    FFBEngineTestAccess::SetAutoPeakLoad(engine, 100.0); // Extreme scaling for visibility
+    data.mUnfilteredBrake = 0.8f;
+    for(int i=0; i<4; i++) data.mWheel[i].mBrakePressure = 1.0f;
+    
+    engine.calculate_force(&data, "GT3", "M4 GT3"); // Prime prev_brake_pressure
+    for(int i=0; i<4; i++) data.mWheel[i].mBrakePressure = 10.0f; // Rapid change
+    
+    engine.calculate_force(&data, "GT3", "M4 GT3"); 
+    batch = engine.GetDebugBatch();
+    ASSERT_FALSE(batch.empty());
+    // ABS phase should have advanced and produced a pulse
+    ASSERT_GT(std::abs(batch.back().ffb_abs_pulse), 0.001f);
+    
+    // 5. Verify calculate_slope_grip with torque fusion (Line 1225)
+    FFBEngineTestAccess::SetSlopeDetectionEnabled(engine, true);
+    FFBEngineTestAccess::SetSlopeUseTorque(engine, true);
+    data.mWheel[0].mGripFract = 0.0f;
+    data.mWheel[1].mGripFract = 0.0f;
+    data.mWheel[0].mTireLoad = 1000.0f;
+    data.mWheel[1].mTireLoad = 1000.0f;
+    
+    for(int i=0; i<45; i++) {
+        data.mSteeringShaftTorque = 1.0f - (i * 0.1f); 
+        data.mUnfilteredSteering = 0.1f + (i * 0.01f);
+        data.mLocalAccel.x = 5.0f + (i * 0.5f); // Create G derivative
+        data.mWheel[0].mLateralPatchVel = 1.0f + (i * 0.1f); // Create Slip derivative
+        data.mWheel[1].mLateralPatchVel = 1.0f + (i * 0.1f);
+        engine.calculate_force(&data, "GT3", "M4 GT3"); 
+    }
+    
+    batch = engine.GetDebugBatch();
+    ASSERT_FALSE(batch.empty());
+    // Slope should have been detected and stored in snapshot
+    ASSERT_GT(std::abs(batch.back().slope_current), 0.001f);
+    
+    // Ensure cleanup
+    FFBEngineTestAccess::SetABSPulseEnabled(engine, false);
+    FFBEngineTestAccess::SetSlopeDetectionEnabled(engine, false);
+}
+
 } // namespace FFBEngineTests
