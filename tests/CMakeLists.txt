@@ -54,6 +54,7 @@ set(TEST_SOURCES
     test_math_utils.cpp
     test_perf_stats.cpp
     test_vehicle_utils.cpp
+    test_coverage_boost.cpp
 
     # Core Application Logic (Now with Linux Mocks)
     ../src/Config.cpp

@@ -34,4 +34,10 @@ TEST_CASE(test_channel_stats_resets, "Performance") {
     ASSERT_NEAR(stats.session_max, 150.0, 0.001);
 }
 
+TEST_CASE(test_channel_stats_empty_reset, "Performance") {
+    ChannelStats stats;
+    stats.ResetInterval();
+    ASSERT_NEAR(stats.l_avg, 0.0, 0.001);
+}
+
 } // namespace FFBEngineTests

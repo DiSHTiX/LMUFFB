@@ -8,6 +8,12 @@ TEST_CASE(test_vehicle_class_parsing_keywords, "Internal") {
     ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "LMP2 ELMS", ""), (int)FFBEngine::ParsedVehicleClass::LMP2_UNRESTRICTED);
     ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "GTE Pro", ""), (int)FFBEngine::ParsedVehicleClass::GTE);
     ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "GT3 Gen 2", ""), (int)FFBEngine::ParsedVehicleClass::GT3);
+    
+    // Explicit requested branches for coverage:
+    ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "LMP2 WEC", ""), (int)FFBEngine::ParsedVehicleClass::LMP2_RESTRICTED); // Line 730
+    ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "", "488 GTE"), (int)FFBEngine::ParsedVehicleClass::GTE); // Line 769
+    ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "", "M4 GT3"), (int)FFBEngine::ParsedVehicleClass::GT3); // Line 777
+
     ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "Random Car", ""), (int)FFBEngine::ParsedVehicleClass::UNKNOWN);
 }
 
