@@ -28,7 +28,7 @@ TEST_CASE(test_slope_sg_derivative, "SlopeDetection") {
     engine.m_slope_buffer_count = window;
     engine.m_slope_buffer_index = window; // Point past last sample
     
-    double derivative = engine.calculate_sg_derivative(engine.m_slope_lat_g_buffer, engine.m_slope_buffer_count, window, dt);
+    double derivative = calculate_sg_derivative(engine.m_slope_lat_g_buffer, engine.m_slope_buffer_count, window, dt, engine.m_slope_buffer_index);
     
     ASSERT_NEAR(derivative, 10.0, 0.1);
 }
@@ -612,23 +612,23 @@ TEST_CASE(test_inverse_lerp_helper, "SlopeDetection") {
     // slope=-0.3 → 0%, slope=-2.0 → 100%
     
     // At min (start of range)
-    double at_min = engine.inverse_lerp(-0.3, -2.0, -0.3);
+    double at_min = inverse_lerp(-0.3, -2.0, -0.3);
     ASSERT_NEAR(at_min, 0.0, 0.001);
     
     // At max (end of range)
-    double at_max = engine.inverse_lerp(-0.3, -2.0, -2.0);
+    double at_max = inverse_lerp(-0.3, -2.0, -2.0);
     ASSERT_NEAR(at_max, 1.0, 0.001);
     
     // At midpoint (-1.15)
-    double at_mid = engine.inverse_lerp(-0.3, -2.0, -1.15);
+    double at_mid = inverse_lerp(-0.3, -2.0, -1.15);
     ASSERT_NEAR(at_mid, 0.5, 0.001);
     
     // Above min (dead zone)
-    double dead_zone = engine.inverse_lerp(-0.3, -2.0, 0.0);
+    double dead_zone = inverse_lerp(-0.3, -2.0, 0.0);
     ASSERT_NEAR(dead_zone, 0.0, 0.001);
     
     // Below max (saturated)
-    double saturated = engine.inverse_lerp(-0.3, -2.0, -5.0);
+    double saturated = inverse_lerp(-0.3, -2.0, -5.0);
     ASSERT_NEAR(saturated, 1.0, 0.001);
 }
 
@@ -771,16 +771,16 @@ TEST_CASE(test_inverse_lerp_edge_cases, "SlopeDetection") {
     FFBEngine engine;
     
     // Min == Max (degenerate)
-    double same = engine.inverse_lerp(-0.3, -0.3, -0.3);
+    double same = inverse_lerp(-0.3, -0.3, -0.3);
     ASSERT_TRUE(same == 0.0 || same == 1.0);
     
     // Very small range
     // value = -0.30001. Since it's < min, it should be 1.0 in negative direction context
-    double tiny = engine.inverse_lerp(-0.3, -0.30001, -0.30001);
+    double tiny = inverse_lerp(-0.3, -0.30001, -0.30001);
     ASSERT_NEAR(tiny, 1.0, 0.01);
     
     // Reversed order (should still work or be caught)
-    double reversed = engine.inverse_lerp(-2.0, -0.3, -1.15);
+    double reversed = inverse_lerp(-2.0, -0.3, -1.15);
     ASSERT_TRUE(reversed >= 0.0 && reversed <= 1.0);
 }
 

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.57] - 2026-02-17
+### Refactored
+- **Ancillary Code Extraction**:
+  - Extracted math utilities into `src/MathUtils.h` (namespace `ffb_math`).
+  - Extracted performance statistics into `src/PerfStats.h`.
+  - Extracted vehicle classification logic into `src/VehicleUtils.h` and `src/VehicleUtils.cpp`.
+  - Refactored `FFBEngine.h` to use these new modular components, significantly reducing header complexity.
+  - Updated all related unit tests to test these components directly, removing dependency on `FFBEngineTestAccess` for utility logic.
+
 ## [0.7.56] - 2026-02-17
 ### Fixed
 - **100% Coverage for FFBEngine Core**:

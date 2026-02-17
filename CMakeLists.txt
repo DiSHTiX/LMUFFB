@@ -125,6 +125,7 @@ set(CORE_SOURCES
     src/DirectInputFFB.cpp src/DirectInputFFB.h
     src/GameConnector.cpp src/GameConnector.h
     src/FFBEngine.h
+    src/VehicleUtils.cpp
 )
 
 if(WIN32)

@@ -5,39 +5,39 @@ namespace FFBEngineTests {
 TEST_CASE(test_smoothstep_helper_function, "SpeedGate") {
     std::cout << "\nTest: Smoothstep Helper Function (v0.7.2)" << std::endl;
     FFBEngine engine;
-    double at_lower = engine.smoothstep(1.0, 5.0, 1.0);
+    double at_lower = smoothstep(1.0, 5.0, 1.0);
     ASSERT_NEAR(at_lower, 0.0, 0.001);
-    double at_upper = engine.smoothstep(1.0, 5.0, 5.0);
+    double at_upper = smoothstep(1.0, 5.0, 5.0);
     ASSERT_NEAR(at_upper, 1.0, 0.001);
-    double at_mid = engine.smoothstep(1.0, 5.0, 3.0);
+    double at_mid = smoothstep(1.0, 5.0, 3.0);
     ASSERT_NEAR(at_mid, 0.5, 0.001);
-    double at_25 = engine.smoothstep(1.0, 5.0, 2.0);
+    double at_25 = smoothstep(1.0, 5.0, 2.0);
     ASSERT_NEAR(at_25, 0.15625, 0.001);
-    double at_75 = engine.smoothstep(1.0, 5.0, 4.0);
+    double at_75 = smoothstep(1.0, 5.0, 4.0);
     ASSERT_NEAR(at_75, 0.84375, 0.001);
 }
 
 TEST_CASE(test_smoothstep_vs_linear, "SpeedGate") {
     std::cout << "\nTest: Smoothstep vs Linear Comparison (v0.7.2)" << std::endl;
     FFBEngine engine;
-    double smooth_25 = engine.smoothstep(1.0, 5.0, 2.0);
+    double smooth_25 = smoothstep(1.0, 5.0, 2.0);
     ASSERT_TRUE(smooth_25 < 0.25);
-    double smooth_75 = engine.smoothstep(1.0, 5.0, 4.0);
+    double smooth_75 = smoothstep(1.0, 5.0, 4.0);
     ASSERT_TRUE(smooth_75 > 0.75);
 }
 
 TEST_CASE(test_smoothstep_edge_cases, "SpeedGate") {
     std::cout << "\nTest: Smoothstep Edge Cases (v0.7.2)" << std::endl;
     FFBEngine engine;
-    double below = engine.smoothstep(1.0, 5.0, 0.0);
+    double below = smoothstep(1.0, 5.0, 0.0);
     ASSERT_NEAR(below, 0.0, 0.001);
-    double above = engine.smoothstep(1.0, 5.0, 10.0);
+    double above = smoothstep(1.0, 5.0, 10.0);
     ASSERT_NEAR(above, 1.0, 0.001);
-    double negative = engine.smoothstep(1.0, 5.0, -5.0);
+    double negative = smoothstep(1.0, 5.0, -5.0);
     ASSERT_NEAR(negative, 0.0, 0.001);
-    double zero_range = engine.smoothstep(3.0, 3.0, 3.0);
+    double zero_range = smoothstep(3.0, 3.0, 3.0);
     ASSERT_TRUE(zero_range == 0.0 || zero_range == 1.0);
-    double tiny_range = engine.smoothstep(1.0, 1.0001, 1.00005);
+    double tiny_range = smoothstep(1.0, 1.0001, 1.00005);
     ASSERT_TRUE(tiny_range >= 0.0 && tiny_range <= 1.0);
 }
 

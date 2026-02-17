@@ -133,17 +133,17 @@ TEST_CASE(test_ffb_engine_full_integration_target, "Coverage") {
 }
 
 TEST_CASE(test_parse_vehicle_class_coverage, "Coverage") {
-    FFBEngine engine;
-    
+    // FFBEngine engine; // Not needed for static method
+
     // Line 731: else if (cls.find("WEC") != std::string::npos)
-    ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "LMP2 WEC", "ORECA"), (int)FFBEngine::ParsedVehicleClass::LMP2_RESTRICTED);
+    ASSERT_EQ((int)ParseVehicleClass("LMP2 WEC", "ORECA"), (int)ParsedVehicleClass::LMP2_RESTRICTED);
     
     // Line 733/734: else (LMP2 unspecified)
-    ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "LMP2", "ORECA"), (int)FFBEngine::ParsedVehicleClass::LMP2_UNSPECIFIED);
+    ASSERT_EQ((int)ParseVehicleClass("LMP2", "ORECA"), (int)ParsedVehicleClass::LMP2_UNSPECIFIED);
 
     // Other branches
-    ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "LMP2 ELMS", "ORECA"), (int)FFBEngine::ParsedVehicleClass::LMP2_UNRESTRICTED);
-    ASSERT_EQ((int)FFBEngineTestAccess::CallParseVehicleClass(engine, "HYPERCAR", ""), (int)FFBEngine::ParsedVehicleClass::HYPERCAR);
+    ASSERT_EQ((int)ParseVehicleClass("LMP2 ELMS", "ORECA"), (int)ParsedVehicleClass::LMP2_UNRESTRICTED);
+    ASSERT_EQ((int)ParseVehicleClass("HYPERCAR", ""), (int)ParsedVehicleClass::HYPERCAR);
 }
 
 TEST_CASE(test_calculate_slope_grip_torque_coverage, "Coverage") {

@@ -1,0 +1,26 @@
+#ifndef VEHICLE_UTILS_H
+#define VEHICLE_UTILS_H
+
+#include <string>
+
+enum class ParsedVehicleClass {
+    UNKNOWN = 0,
+    HYPERCAR,
+    LMP2_UNRESTRICTED, // 8500N (ELMS/Unrestricted)
+    LMP2_RESTRICTED,   // 7500N (WEC/Restricted)
+    LMP2_UNSPECIFIED,  // 8000N (Generic Fallback)
+    LMP3,              // 5800N
+    GTE,               // 5500N
+    GT3                // 4800N
+};
+
+// Returns a ParsedVehicleClass enum for internal logic and categorization
+ParsedVehicleClass ParseVehicleClass(const char* className, const char* vehicleName);
+
+// Lookup table: Map ParsedVehicleClass to Seed Load (Newtons)
+double GetDefaultLoadForClass(ParsedVehicleClass vclass);
+
+// Helper: String representation of parsed class for logging and UI
+const char* VehicleClassToString(ParsedVehicleClass vclass);
+
+#endif // VEHICLE_UTILS_H

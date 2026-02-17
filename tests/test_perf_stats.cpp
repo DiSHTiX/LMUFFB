@@ -1,4 +1,5 @@
 #include "test_ffb_common.h"
+#include "PerfStats.h"
 
 namespace FFBEngineTests {
 

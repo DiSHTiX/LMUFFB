@@ -11,57 +11,15 @@
 #include <cstring>
 #include "lmu_sm_interface/InternalsPluginWrapper.h"
 #include "AsyncLogger.h"
+#include "MathUtils.h"
+#include "PerfStats.h"
+#include "VehicleUtils.h"
 
-// Mathematical Constants
-static constexpr double PI = 3.14159265358979323846;
-static constexpr double TWO_PI = 2.0 * PI;
+// Bring common math into scope
+using namespace ffb_math;
 
-// Stats helper
-struct ChannelStats {
-    // Session-wide stats (Persistent)
-    double session_min = 1e9;
-    double session_max = -1e9;
-    
-    // Interval stats (Reset every second)
-    double interval_sum = 0.0;
-    long interval_count = 0;
-    
-    // Latched values for display/consumption by other threads (Interval)
-    double l_avg = 0.0;
-    // Latched values for display/consumption by other threads (Session)
-    double l_min = 0.0;
-    double l_max = 0.0;
-    
-    void Update(double val) {
-        // Update Session Min/Max
-        if (val < session_min) session_min = val;
-        if (val > session_max) session_max = val;
-        
-        // Update Interval Accumulator
-        interval_sum += val;
-        interval_count++;
-    }
-    
-    // Called every interval (e.g. 1s) to latch data and reset interval counters
-    void ResetInterval() {
-        if (interval_count > 0) {
-            l_avg = interval_sum / interval_count;
-        } else {
-            l_avg = 0.0;
-        }
-        // Latch current session min/max for display
-        l_min = session_min;
-        l_max = session_max;
-        
-        // Reset interval data
-        interval_sum = 0.0; 
-        interval_count = 0;
-    }
-    
-    // Compatibility helper
-    double Avg() { return interval_count > 0 ? interval_sum / interval_count : 0.0; }
-    void Reset() { ResetInterval(); }
-};
+
+// ChannelStats moved to PerfStats.h
 
 // 1. Define the Snapshot Struct (Unified FFB + Telemetry)
 struct FFBSnapshot {
@@ -132,55 +90,7 @@ struct FFBSnapshot {
     float gen_torque_rate;
 };
 
-/**
- * @brief Bi-quad Filter (Direct Form II)
- * 
- * Used for filtering oscillations (e.g., steering wheel "death wobbles") 
- * and smoothing out high-frequency road noise.
- */
-struct BiquadNotch {
-    
-    // Coefficients
-    double b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
-    // State history (Inputs x, Outputs y)
-    double x1 = 0.0, x2 = 0.0;
-    double y1 = 0.0, y2 = 0.0;
-
-    // Update coefficients based on dynamic frequency
-    void Update(double center_freq, double sample_rate, double Q) {
-        // Safety: Clamp frequency to Nyquist (sample_rate / 2) and min 1Hz
-        center_freq = (std::max)(1.0, (std::min)(center_freq, sample_rate * 0.49));
-        
-        double omega = 2.0 * PI * center_freq / sample_rate;
-        double sn = std::sin(omega);
-        double cs = std::cos(omega);
-        double alpha = sn / (2.0 * Q);
-
-        double a0 = 1.0 + alpha;
-        
-        // Calculate and Normalize
-        b0 = 1.0 / a0;
-        b1 = (-2.0 * cs) / a0;
-        b2 = 1.0 / a0;
-        a1 = (-2.0 * cs) / a0;
-        a2 = (1.0 - alpha) / a0;
-    }
-
-    // Apply filter to single sample
-    double Process(double in) {
-        double out = b0 * in + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-        
-        // Shift history
-        x2 = x1; x1 = in;
-        y2 = y1; y1 = out;
-        
-        return out;
-    }
-    
-    void Reset() {
-        x1 = x2 = y1 = y2 = 0.0;
-    }
-};
+// BiquadNotch moved to MathUtils.h
 
 // Helper Result Struct for calculate_grip
 struct GripResult {
@@ -242,16 +152,7 @@ class FFBEngine {
     // 3. Config::Save() and Config::Load() in Config.cpp
 
 public:
-    enum class ParsedVehicleClass {
-        UNKNOWN = 0,
-        HYPERCAR,
-        LMP2_UNRESTRICTED, // 8500N (ELMS/Unrestricted)
-        LMP2_RESTRICTED,   // 7500N (WEC/Restricted)
-        LMP2_UNSPECIFIED,  // 8000N (Generic Fallback)
-        LMP3,              // 5800N
-        GTE,               // 5500N
-        GT3                // 4800N
-    };
+    using ParsedVehicleClass = ::ParsedVehicleClass;
 
     // Settings (GUI Sliders)
     // NOTE: These are initialized by Preset::ApplyDefaultsToEngine() in the constructor
@@ -710,103 +611,7 @@ private:
     std::string m_current_class_name = "";
     bool m_auto_load_normalization_enabled = true; // v0.7.43: Toggle for adaptation
 
-    // Helper: Parse car class from strings (v0.7.44 Refactor)
-    // Returns a ParsedVehicleClass enum for internal logic and categorization
-    __declspec(noinline) ParsedVehicleClass ParseVehicleClass(const char* className, const char* vehicleName) {
-        std::string cls = className ? className : "";
-        std::string name = vehicleName ? vehicleName : "";
-
-        // Normalize for case-insensitive matching
-        std::transform(cls.begin(), cls.end(), cls.begin(), ::toupper);
-        std::transform(name.begin(), name.end(), name.begin(), ::toupper);
-
-        // 1. Primary Identification via Class Name (Hierarchical)
-        if (cls.find("HYPERCAR") != std::string::npos || cls.find("LMH") != std::string::npos || cls.find("LMDH") != std::string::npos) {
-            return ParsedVehicleClass::HYPERCAR;
-        }
-        
-        if (cls.find("LMP2") != std::string::npos) {
-            if (cls.find("ELMS") != std::string::npos || name.find("DERESTRICTED") != std::string::npos) { return ParsedVehicleClass::LMP2_UNRESTRICTED; }
-            volatile bool is_wec = (cls.find("WEC") != std::string::npos);
-            if (is_wec) { return ParsedVehicleClass::LMP2_RESTRICTED; }
-            return ParsedVehicleClass::LMP2_UNSPECIFIED;
-        }
-
-        if (cls.find("LMP3") != std::string::npos) return ParsedVehicleClass::LMP3;
-        if (cls.find("GTE") != std::string::npos) return ParsedVehicleClass::GTE;
-        if (cls.find("GT3") != std::string::npos || cls.find("LMGT3") != std::string::npos) return ParsedVehicleClass::GT3;
-
-        // 2. Secondary Identification via Vehicle Name Keywords (Fallback)
-        if (!name.empty()) {
-            // Hypercars
-            if (name.find("499P") != std::string::npos || name.find("GR010") != std::string::npos ||
-                name.find("963") != std::string::npos || name.find("9X8") != std::string::npos ||
-                name.find("V-SERIES.R") != std::string::npos || name.find("SCG 007") != std::string::npos ||
-                name.find("GLICKENHAUS") != std::string::npos || name.find("VANWALL") != std::string::npos ||
-                name.find("A424") != std::string::npos || name.find("SC63") != std::string::npos ||
-                name.find("VALKYRIE") != std::string::npos || name.find("M HYBRID") != std::string::npos ||
-                name.find("TIPO 6") != std::string::npos || name.find("680") != std::string::npos) {
-                return ParsedVehicleClass::HYPERCAR;
-            }
-            
-            // LMP2
-            if (name.find("ORECA") != std::string::npos || name.find("07") != std::string::npos) {
-                return ParsedVehicleClass::LMP2_UNSPECIFIED;
-            }
-
-            // LMP3
-            if (name.find("LIGIER") != std::string::npos || name.find("GINETTA") != std::string::npos ||
-                name.find("DUQUEINE") != std::string::npos || name.find("P320") != std::string::npos ||
-                name.find("P325") != std::string::npos || name.find("G61") != std::string::npos ||
-                name.find("D09") != std::string::npos) {
-                return ParsedVehicleClass::LMP3;
-            }
-
-            // GTE
-            if (name.find("RSR-19") != std::string::npos || name.find("488 GTE") != std::string::npos ||
-                name.find("C8.R") != std::string::npos || name.find("VANTAGE AMR") != std::string::npos) {
-                return ParsedVehicleClass::GTE;
-            }
-
-            // GT3
-            if (name.find("LMGT3") != std::string::npos || name.find("296 GT3") != std::string::npos ||
-                name.find("M4 GT3") != std::string::npos || name.find("Z06 GT3") != std::string::npos ||
-                name.find("HURACAN") != std::string::npos || name.find("RC F") != std::string::npos ||
-                name.find("720S") != std::string::npos || name.find("MUSTANG") != std::string::npos) {
-                return ParsedVehicleClass::GT3;
-            }
-        }
-
-        return ParsedVehicleClass::UNKNOWN;
-    }
-
-    // Lookup table: Map ParsedVehicleClass to Seed Load (Newtons)
-    double GetDefaultLoadForClass(ParsedVehicleClass vclass) {
-        switch (vclass) {
-            case ParsedVehicleClass::HYPERCAR:         return 9500.0;
-            case ParsedVehicleClass::LMP2_UNRESTRICTED: return 8500.0;
-            case ParsedVehicleClass::LMP2_RESTRICTED:   return 7500.0;
-            case ParsedVehicleClass::LMP2_UNSPECIFIED:  return 7500.0;
-            case ParsedVehicleClass::LMP3:             return 5800.0;
-            case ParsedVehicleClass::GTE:              return 5500.0;
-            case ParsedVehicleClass::GT3:              return 4800.0;
-            default:                                   return 4500.0;
-        }
-    }
-
-    // Helper: String representation of parsed class for logging and UI
-    const char* VehicleClassToString(ParsedVehicleClass vclass) {
-        switch (vclass) {
-            case ParsedVehicleClass::HYPERCAR:         return "Hypercar";
-            case ParsedVehicleClass::LMP2_UNRESTRICTED: return "LMP2 Unrestricted";
-            case ParsedVehicleClass::LMP2_RESTRICTED:   return "LMP2 Restricted";
-            case ParsedVehicleClass::LMP2_UNSPECIFIED:  return "LMP2 Unspecified";
-            case ParsedVehicleClass::LMP3:             return "LMP3";
-            case ParsedVehicleClass::GTE:              return "GTE";
-            case ParsedVehicleClass::GT3:              return "GT3";
-            default:                                   return "Unknown";
-        }
-    }
+    // Vehicle utils moved to VehicleUtils.h
 
     // Helper: Learn static front load reference (v0.7.46)
     void update_static_load_reference(double current_load, double speed, double dt) {
@@ -1010,21 +815,7 @@ public:
         return w.mSuspForce + 300.0;
     }
 
-    // Helper: Adaptive Non-Linear Smoothing (v0.7.47)
-    // t=0 (Steady) uses slow_tau, t=1 (Transient) uses fast_tau
-    double apply_adaptive_smoothing(double input, double& prev_out, double dt,
-                                    double slow_tau, double fast_tau, double sensitivity) {
-        double delta = std::abs(input - prev_out);
-        double t = delta / (sensitivity + 0.000001);
-        t = (std::min)(1.0, t);
-
-        double tau = slow_tau + t * (fast_tau - slow_tau);
-        double alpha = dt / (tau + dt + 1e-9);
-        alpha = (std::max)(0.0, (std::min)(1.0, alpha));
-
-        prev_out = prev_out + alpha * (input - prev_out);
-        return prev_out;
-    }
+    // apply_adaptive_smoothing moved to MathUtils.h
 
     // Helper: Calculate Kinematic Load (v0.4.39)
     // Estimates tire load from chassis physics when telemetry (mSuspForce) is missing.
@@ -1092,47 +883,12 @@ public:
         return (wheel_vel - car_speed_ms) / denom;
     }
 
-    // Helper: Apply Slew Rate Limiter - v0.7.40
-    // Clamps the rate of change of a signal.
-    double apply_slew_limiter(double input, double& prev_val, double limit, double dt) {
-        double delta = input - prev_val;
-        double max_change = limit * dt;
-        delta = std::clamp(delta, -max_change, max_change);
-        prev_val += delta;
-        return prev_val;
-    }
+    // apply_slew_limiter moved to MathUtils.h
 
     // Helper: Calculate Savitzky-Golay First Derivative - v0.7.0
     // Uses closed-form coefficient generation for quadratic polynomial fit.
     // Reference: docs/dev_docs/plans/savitzky-golay coefficients deep research report.md
-    double calculate_sg_derivative(const std::array<double, SLOPE_BUFFER_MAX>& buffer, 
-                                   int count, int window, double dt) {
-        // Ensure we have enough samples
-        if (count < window) return 0.0;
-        
-        int M = window / 2;  // Half-width (e.g., window=15 -> M=7)
-        
-        // Calculate S_2 = M(M+1)(2M+1)/3
-        double S2 = (double)M * (M + 1.0) * (2.0 * M + 1.0) / 3.0;
-        
-        // Correct Indexing (v0.7.0 Fix)
-        // m_slope_buffer_index points to the next slot to write.
-        // Latest sample is at (index - 1). Center is at (index - 1 - M).
-        int latest_idx = (m_slope_buffer_index - 1 + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
-        int center_idx = (latest_idx - M + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
-        
-        double sum = 0.0;
-        for (int k = 1; k <= M; ++k) {
-            int idx_pos = (center_idx + k + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
-            int idx_neg = (center_idx - k + SLOPE_BUFFER_MAX) % SLOPE_BUFFER_MAX;
-            
-            // Weights for d=1 are simply k
-            sum += (double)k * (buffer[idx_pos] - buffer[idx_neg]);
-        }
-        
-        // Divide by dt to get derivative in units/second
-        return sum / (S2 * dt);
-    }
+    // calculate_sg_derivative moved to MathUtils.h
 
     // Helper: Calculate Grip Factor from Slope - v0.7.40 REWRITE
     // Robust projected slope estimation with hold-and-decay logic and torque-based anticipation.
@@ -1176,8 +932,8 @@ public:
         if (m_slope_buffer_count < SLOPE_BUFFER_MAX) m_slope_buffer_count++;
 
         // 3. Calculate G-based Derivatives (Savitzky-Golay)
-        double dG_dt = calculate_sg_derivative(m_slope_lat_g_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
-        double dAlpha_dt = calculate_sg_derivative(m_slope_slip_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
+        double dG_dt = calculate_sg_derivative(m_slope_lat_g_buffer, m_slope_buffer_count, m_slope_sg_window, dt, m_slope_buffer_index);
+        double dAlpha_dt = calculate_sg_derivative(m_slope_slip_buffer, m_slope_buffer_count, m_slope_sg_window, dt, m_slope_buffer_index);
 
         m_slope_dG_dt = dG_dt;
         m_slope_dAlpha_dt = dAlpha_dt;
@@ -1200,8 +956,8 @@ public:
         // 5. Calculate Torque-based Slope (Pneumatic Trail Anticipation)
         volatile bool can_calc_torque = (m_slope_use_torque && data != nullptr);
         if (can_calc_torque) {
-            double dTorque_dt = calculate_sg_derivative(m_slope_torque_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
-            double dSteer_dt = calculate_sg_derivative(m_slope_steer_buffer, m_slope_buffer_count, m_slope_sg_window, dt);
+            double dTorque_dt = calculate_sg_derivative(m_slope_torque_buffer, m_slope_buffer_count, m_slope_sg_window, dt, m_slope_buffer_index);
+            double dSteer_dt = calculate_sg_derivative(m_slope_steer_buffer, m_slope_buffer_count, m_slope_sg_window, dt, m_slope_buffer_index);
 
             if (std::abs(dSteer_dt) > (double)m_slope_alpha_threshold) { // Unified threshold for steering movement
                 m_debug_slope_torque_num = dTorque_dt * dSteer_dt;
@@ -1259,35 +1015,7 @@ public:
         return smoothstep((double)m_slope_alpha_threshold, (double)m_slope_confidence_max_rate, std::abs(dAlpha_dt));
     }
 
-    // Helper: Inverse linear interpolation - v0.7.11
-    // Returns normalized position of value between min and max
-    // Returns 0 if value >= min, 1 if value <= max (for negative threshold use)
-    // Clamped to [0, 1] range
-    inline double inverse_lerp(double min_val, double max_val, double value) {
-        double range = max_val - min_val;
-        if (std::abs(range) >= 0.0001) {
-            double t = (value - min_val) / (std::abs(range) >= 0.0001 ? range : 1.0);
-            return (std::max)(0.0, (std::min)(1.0, t));
-        }
-        
-        // Degenerate case when range is zero or near-zero
-        if (max_val >= min_val) return (value >= min_val) ? 1.0 : 0.0;
-        return (value <= min_val) ? 1.0 : 0.0;
-    }
-
-    // Helper: Smoothstep interpolation - v0.7.2
-    // Returns smooth S-curve interpolation from 0 to 1
-    // Uses Hermite polynomial: t² × (3 - 2t)
-    // Zero derivative at both endpoints for seamless transitions
-    inline double smoothstep(double edge0, double edge1, double x) {
-        double range = edge1 - edge0;
-        if (std::abs(range) >= 0.0001) {
-            double t = (x - edge0) / (std::abs(range) >= 0.0001 ? range : 1.0);
-            t = (std::max)(0.0, (std::min)(1.0, t));
-            return t * t * (3.0 - 2.0 * t);
-        }
-        return (x < edge0) ? 0.0 : 1.0;
-    }
+    // inverse_lerp and smoothstep moved to MathUtils.h
 
     // Helper: Calculate Slip Ratio from wheel (v0.6.36 - Extracted from lambdas)
     // Unified slip ratio calculation for lockup and spin detection.

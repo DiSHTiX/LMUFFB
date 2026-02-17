@@ -14,7 +14,7 @@ TEST_CASE(test_adaptive_smoothing_logic, "Physics") {
     // Action 1 (Steady): Input 0.1 (Delta 0.1 < Sensitivity)
     // Expected: Output should move slowly towards 0.1 (High Tau / Small Alpha)
     double input1 = 0.1;
-    double out1 = FFBEngineTestAccess::CallApplyAdaptiveSmoothing(engine, input1, prev_out, dt, slow_tau, fast_tau, sensitivity);
+    double out1 = apply_adaptive_smoothing(input1, prev_out, dt, slow_tau, fast_tau, sensitivity);
 
     // Alpha = 0.01 / (0.1 + 0.01) = 1/11 approx 0.0909
     // prev_out = 0.0 + 0.0909 * (0.1 - 0.0) = 0.00909
@@ -24,7 +24,7 @@ TEST_CASE(test_adaptive_smoothing_logic, "Physics") {
     // Action 2 (Transient): Input 10.0 (Delta 10.0 >> Sensitivity)
     // Expected: Output should jump almost instantly to 10.0 (Fast Tau / Large Alpha)
     double input2 = 10.0;
-    double out2 = FFBEngineTestAccess::CallApplyAdaptiveSmoothing(engine, input2, prev_out, dt, slow_tau, fast_tau, sensitivity);
+    double out2 = apply_adaptive_smoothing(input2, prev_out, dt, slow_tau, fast_tau, sensitivity);
 
     // Delta = 10.0 - 0.00909 = 9.99091
     // t = 9.99091 / 1.0 = 9.99091 -> clamped to 1.0

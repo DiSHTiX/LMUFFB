@@ -179,27 +179,7 @@ public:
     static double GetFrontGripSmoothedState(const FFBEngine& e) { return e.m_front_grip_smoothed_state; }
     static void SetFrontGripSmoothedState(FFBEngine& e, double val) { e.m_front_grip_smoothed_state = val; }
     static void SetStaticFrontLoad(FFBEngine& e, double val) { e.m_static_front_load = val; }
-    static double CallApplyAdaptiveSmoothing(FFBEngine& e, double in, double& prev, double dt, double slow, double fast, double sens) {
-        return e.apply_adaptive_smoothing(in, prev, dt, slow, fast, sens);
-    }
-    static double CallInverseLerp(FFBEngine& e, double min, double max, double val) {
-        return e.inverse_lerp(min, max, val);
-    }
-    static double CallSmoothstep(FFBEngine& e, double e0, double e1, double x) {
-        return e.smoothstep(e0, e1, x);
-    }
-    static double CallSGDerivative(FFBEngine& e, const std::array<double, 41>& buf, int count, int win, double dt) {
-        return e.calculate_sg_derivative(buf, count, win, dt);
-    }
-    static double CallApplySlewLimiter(FFBEngine& e, double in, double& prev, double lim, double dt) {
-        return e.apply_slew_limiter(in, prev, lim, dt);
-    }
-    static FFBEngine::ParsedVehicleClass CallParseVehicleClass(FFBEngine& e, const char* c, const char* n) {
-        return e.ParseVehicleClass(c, n);
-    }
-    static double CallGetDefaultLoadForClass(FFBEngine& e, FFBEngine::ParsedVehicleClass c) {
-        return e.GetDefaultLoadForClass(c);
-    }
+    // Wrappers for extracted utilities removed. Tests invoke them directly.
     static void SetSlopeDetectionEnabled(FFBEngine& e, bool val) { e.m_slope_detection_enabled = val; }
     static void SetSlopeBufferIndex(FFBEngine& e, int idx) { e.m_slope_buffer_index = idx; }
     static void SetSlopeBuffer(FFBEngine& e, const std::array<double, 41>& lat_g) { e.m_slope_lat_g_buffer = lat_g; }
