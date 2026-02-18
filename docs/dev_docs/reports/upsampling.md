@@ -235,4 +235,107 @@ For the best possible `lmuFFB` experience, use **both** methods for different pu
     *   Use **Method C**.
     *   *Reason:* Road texture is *supposed* to be sharp and high-frequency. Smoothing it with Method B might wash out the subtle details of cracks and bumps. You want to reconstruct the sharp edges.
 
-    
+
+## Answer 3
+
+
+Yes, increasing your FFB loop rate to **1000 Hz (1 kHz)** is highly recommended, provided your thread timing logic is precise enough to handle it.
+
+While it might seem counter-intuitive to output at 1000 Hz when the game only provides data at 100 Hz, this is standard practice in high-end Force Feedback development (e.g., Simucube, Fanatec, and VRS software all operate internally at >1 kHz).
+
+Here is the analysis of why you should do it, the specific benefits for your app, and the implementation challenges.
+
+### 1. The Advantages of 1000 Hz Upsampling
+
+#### A. Matching the USB Polling Rate
+Modern Direct Drive wheels communicate over USB at **1000 Hz** (1ms interval).
+*   **At 400 Hz:** You are sending updates every 2.5ms. This creates a "beat frequency" against the USB poll rate. Some USB frames carry new data, others carry old data. This introduces variable latency (jitter) of up to 1ms.
+*   **At 1000 Hz:** You synchronize with the hardware's native capability. Every USB packet carries a fresh, slightly incremented force value.
+
+#### B. High-Fidelity Textures (The "Buzz" vs. "Tone")
+Your app generates synthetic effects like **Road Texture**, **ABS Pulse**, and **Scrubbing**.
+*   **The Math:** To render a clean 50 Hz sine wave (ABS pulse), you need high temporal resolution.
+*   **At 400 Hz:** A 50 Hz wave has only 8 points per cycle. It looks like a jagged octagon.
+*   **At 1000 Hz:** A 50 Hz wave has 20 points per cycle. It feels like a smooth, pure tone.
+*   **Result:** Your "Road Texture" will feel less like "digital noise" and more like physical surface detail.
+
+#### C. Masking the 100Hz Source
+The gap between 100 Hz (Game) and 1000 Hz (Wheel) is massive.
+*   **Linear Interpolation at 1000 Hz:** You are drawing 9 intermediate points for every 1 real point. This turns the "staircase" of the physics signal into an incredibly smooth ramp. The user's hands act as a low-pass filter; they will perceive this as a continuous, organic force rather than a series of kicks.
+
+---
+
+### 2. Implementation Challenges & Solutions
+
+#### A. Windows Timer Resolution (The Hard Part)
+Windows is not a Real-Time Operating System (RTOS). Standard `sleep` functions are imprecise.
+*   **The Problem:** `std::this_thread::sleep_until` might sleep for 1.5ms instead of 1.0ms. At 400Hz (2.5ms), a 0.5ms error is 20%. At 1000Hz (1.0ms), a 0.5ms error is **50% jitter**.
+*   **The Solution:** You are already using `timeBeginPeriod(1)` in `main.cpp`, which is good. For 1000Hz, you might need to switch to a **spin-wait** hybrid approach for the last microsecond to ensure perfect timing, though this consumes one CPU core.
+
+**Recommendation:** Stick to `sleep_until` first. If the `RateMonitor` shows the loop fluctuating between 800Hz and 1200Hz, you may need a more aggressive timing loop.
+
+#### B. DirectInput Overhead
+Calling `IDirectInputEffect::SetParameters` 1000 times a second is heavy.
+*   **The Check:** Your `DirectInputFFB.cpp` already has this optimization:
+    ```cpp
+    if (magnitude == m_last_force) return false;
+    ```
+    **This is critical.** At 1000 Hz, if your upsampling calculates a change so small that it doesn't change the integer `magnitude` (0-10000), this check prevents the expensive USB call.
+*   **Result:** You effectively get "Variable Rate Shading" for FFB. You calculate at 1000 Hz, but only talk to the driver when the force actually changes.
+
+---
+
+### 3. Which Channels to Upsample to 1000 Hz?
+
+You should not upsample everything. Focus on the channels that drive the **output force**.
+
+1.  **`mSteeringShaftTorque` (or `FFBTorque`):**
+    *   **Method:** **Holt-Winters (Method B)**.
+    *   **Why:** You want the steering weight to feel organic and heavy. Holt-Winters at 1000 Hz will make the tire load-up feel incredibly smooth, hiding the 100 Hz steps completely.
+
+2.  **`mVerticalTireDeflection` (Road Texture):**
+    *   **Method:** **Inter-Frame Reconstruction (Method C)**.
+    *   **Why:** You want to preserve the "sharpness" of bumps. Linear interpolation at 1000 Hz will ensure that a curb strike feels like a distinct event, not a blurred vibration.
+
+3.  **Synthetic Oscillators (ABS, Lockup, Scrub):**
+    *   **Method:** Native Generation.
+    *   **Why:** These are generated mathematically in `FFBEngine`. Simply running the loop at 1000 Hz automatically upgrades these to "High Definition" because `sin(phase)` is evaluated more often.
+
+### 4. Proposed Architecture Change
+
+**In `src/main.cpp`:**
+
+Change the target period:
+```cpp
+// Target 1000Hz (1000 microseconds)
+const std::chrono::microseconds target_period(1000); 
+```
+
+**In `src/FFBEngine.cpp`:**
+
+Update your `calculate_force` to handle the smaller `dt`.
+*   **Critical:** Ensure your filters (Low Pass, etc.) use the `dt` passed in the context.
+*   **Issue:** `TelemInfoV01` comes from the game with `mDeltaTime = 0.01` (100Hz). If you pass this straight to your filters while running at 1000Hz, your math will break (filters will run 10x slower than reality).
+
+**The Fix:**
+You must override the `dt` in `FFBCalculationContext` to be your **loop time** (0.001s), not the **telemetry time** (0.01s), *when processing upsampled data*.
+
+```cpp
+// Inside FFBThread loop in main.cpp
+double loop_dt = 0.001; // 1000Hz
+
+// Inside FFBEngine::calculate_force
+FFBCalculationContext ctx;
+ctx.dt = loop_dt; // Use the actual FFB loop time for filters/generators
+
+// BUT for the TelemetryUpsampler, you need to know the GAME dt
+double game_dt = data->mDeltaTime; // 0.01s
+double upsampled_torque = m_torque_upsampler.Update(data->mSteeringShaftTorque, loop_dt);
+```
+
+### Summary Recommendation
+
+1.  **Go for 1000 Hz.** It is the "Pro" standard and will make your synthetic effects (ABS, Road) feel significantly better.
+2.  **Use Holt-Winters** for the main torque to make the 100 Hz signal feel like liquid.
+3.  **Watch your CPU usage.** If 1000 Hz causes stuttering, provide a "High Performance Mode" toggle in the GUI to switch back to 400 Hz.
+
