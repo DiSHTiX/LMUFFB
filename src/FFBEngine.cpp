@@ -11,14 +11,29 @@ FFBEngine::FFBEngine() {
     Preset::ApplyDefaultsToEngine(*this);
 }
 
-bool FFBEngine::IsFFBAllowed(const VehicleScoringInfoV01& scoring, unsigned char gamePhase) const {
-    if (!scoring.mIsPlayer || scoring.mControl != 0) return false;
-    if (gamePhase == 7 || gamePhase == 8) return false;
-    if (scoring.mFinishStatus == 3) return false;
-    return true;
-}
+    // v0.7.34: Safety Check for Issue #79
+    // Determines if FFB should be active based on vehicle scoring state.
+    // v0.7.49: Modified for #126 to allow cool-down laps after finish.
+    bool IsFFBAllowed(const VehicleScoringInfoV01& scoring, unsigned char gamePhase) const {
+        // mControl: 0 = local player, 1 = AI, 2 = Remote, -1 = None
+        // mFinishStatus: 0 = none, 1 = finished, 2 = DNF, 3 = DQ
+
+        // 1. Core control check
+        if (!scoring.mIsPlayer || scoring.mControl != 0) return false;
+
+        // 2. DO NOT use gamePhase to determine if IsFFBAllowed (eg. session over would cause no FFB after finish line, or time up)
+        // (gamePhase, Game Phases: 7=Stopped, 8=Session Over)
+
+        // 3. Individual status safety
+        // Allow Finished (1) and DNF (2) as long as player is in control.
+        // Mute for Disqualified (3).
+        if (scoring.mFinishStatus == 3) return false;
+
+        return true;
+    }
 
 double FFBEngine::ApplySafetySlew(double target_force, double dt, bool restricted) {
+    // TODO: review for correctedness and bugs
     if (!std::isfinite(target_force)) return 0.0;
     double max_slew = restricted ? 100.0 : 1000.0;
     double max_change = max_slew * dt;

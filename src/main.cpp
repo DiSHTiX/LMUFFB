@@ -199,7 +199,7 @@ void FFBThread() {
             g_engine.m_torque_rate = torqueMonitor.GetRate();
             g_engine.m_gen_torque_rate = genTorqueMonitor.GetRate();
 
-            force = g_engine.ApplySafetySlew(force, dt, restricted);
+            force = g_engine.ApplySafetySlew(force, dt, restricted);  // TODO: review for correctedness and bugs
         }
 
         if (DirectInputFFB::Get().UpdateForce(force)) {
