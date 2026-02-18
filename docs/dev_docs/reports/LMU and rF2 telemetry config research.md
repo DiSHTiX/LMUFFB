@@ -171,6 +171,11 @@ To resolve the 0.0 value issue, the following technical conditions must be met:
 
 By aligning these configuration steps with the requirements of the new SharedMemoryInterface.hpp header, developers can unlock the full potential of the Update 1.2 physics engine and achieve the high-frequency torque output necessary for professional-grade simulation feedback.
 
+## See also
+
+Player telemetry at ~400Hz* from rF2 Shared Memory Map plugin:
+* https://forum.studio-397.com/index.php?threads/faster-shared-memory-map-testing.81439/
+
 #### **Works cited**
 
 1. V1.2 (Update 2\) \- Le Mans Ultimate, accessed February 18, 2026, [https://guide.lemansultimate.com/hc/en-gb/articles/14556121957775-V1-2-Update-2](https://guide.lemansultimate.com/hc/en-gb/articles/14556121957775-V1-2-Update-2)  
