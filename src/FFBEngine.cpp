@@ -987,10 +987,14 @@ double FFBEngine::calculate_force(const TelemInfoV01* data, const char* vehicleC
     return (std::max)(-1.0, (std::min)(1.0, norm_force));
 }
 
+// Helper: Calculate Seat-of-the-Pants (SoP) Lateral & Oversteer Boost
 void FFBEngine::calculate_sop_lateral(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+    // 1. Raw Lateral G (Chassis-relative X)
+    // Clamp to 5G to prevent numeric instability in crashes
     double raw_g = (std::max)(-49.05, (std::min)(49.05, data->mLocalAccel.x));
     double lat_g = (raw_g / 9.81);
     
+    // Smoothing: Map 0.0-1.0 slider to 0.1-0.0001s tau
     double smoothness = 1.0 - (double)m_sop_smoothing_factor;
     smoothness = (std::max)(0.0, (std::min)(0.999, smoothness));
     double tau = smoothness * 0.1;
@@ -998,12 +1002,15 @@ void FFBEngine::calculate_sop_lateral(const TelemInfoV01* data, FFBCalculationCo
     alpha = (std::max)(0.001, (std::min)(1.0, alpha));
     m_sop_lat_g_smoothed += alpha * (lat_g - m_sop_lat_g_smoothed);
     
+    // Base SoP Force
     double sop_base = m_sop_lat_g_smoothed * m_sop_effect * (double)m_sop_scale * ctx.decoupling_scale;
-    ctx.sop_unboosted_force = sop_base; 
+    ctx.sop_unboosted_force = sop_base; // Store for snapshot
     
+    // 2. Oversteer Boost (Grip Differential)
+    // Calculate Rear Grip
     GripResult rear_grip_res = calculate_grip(data->mWheel[2], data->mWheel[3], ctx.avg_load, m_warned_rear_grip,
                                                 m_prev_slip_angle[2], m_prev_slip_angle[3],
-                                                ctx.car_speed, ctx.dt, data->mVehicleName, data, false);
+                                                ctx.car_speed, ctx.dt, data->mVehicleName, data, false /* is_front */);
     ctx.avg_rear_grip = rear_grip_res.value;
     m_grip_diag.rear_original = rear_grip_res.original;
     m_grip_diag.rear_approximated = rear_grip_res.approximated;
@@ -1018,20 +1025,28 @@ void FFBEngine::calculate_sop_lateral(const TelemInfoV01* data, FFBCalculationCo
     }
     ctx.sop_base_force = sop_base;
     
+    // 3. Rear Aligning Torque (v0.4.9)
+    // Calculate load for rear wheels (for tire stiffness scaling)
     double calc_load_rl = approximate_rear_load(data->mWheel[2]);
     double calc_load_rr = approximate_rear_load(data->mWheel[3]);
     ctx.avg_rear_load = (calc_load_rl + calc_load_rr) / 2.0;
     
+    // Rear lateral force estimation: F = Alpha * k * TireLoad
     double rear_slip_angle = m_grip_diag.rear_slip_angle;
     ctx.calc_rear_lat_force = rear_slip_angle * ctx.avg_rear_load * REAR_TIRE_STIFFNESS_COEFFICIENT;
     ctx.calc_rear_lat_force = (std::max)(-MAX_REAR_LATERAL_FORCE, (std::min)(MAX_REAR_LATERAL_FORCE, ctx.calc_rear_lat_force));
     
+    // Torque = Force * Aligning_Lever
+    // Note negative sign: Oversteer (Rear Slide) pushes wheel TOWARDS slip direction
     ctx.rear_torque = -ctx.calc_rear_lat_force * REAR_ALIGN_TORQUE_COEFFICIENT * m_rear_align_effect * ctx.decoupling_scale;
     
+    // 4. Yaw Kick (Inertial Oversteer)
     double raw_yaw_accel = data->mLocalRotAccel.y;
+    // v0.4.16: Reject yaw at low speeds and below threshold
     if (ctx.car_speed < 5.0) raw_yaw_accel = 0.0;
     else if (std::abs(raw_yaw_accel) < (double)m_yaw_kick_threshold) raw_yaw_accel = 0.0;
     
+    // Alpha Smoothing (v0.4.16)
     double tau_yaw = (double)m_yaw_accel_smoothing;
     if (tau_yaw < 0.0001) tau_yaw = 0.0001;
     double alpha_yaw = ctx.dt / (tau_yaw + ctx.dt);
@@ -1039,31 +1054,39 @@ void FFBEngine::calculate_sop_lateral(const TelemInfoV01* data, FFBCalculationCo
     
     ctx.yaw_force = -1.0 * m_yaw_accel_smoothed * m_sop_yaw_gain * (double)BASE_NM_YAW_KICK * ctx.decoupling_scale;
     
+    // Apply speed gate to all lateral effects
     ctx.sop_base_force *= ctx.speed_gate;
     ctx.rear_torque *= ctx.speed_gate;
     ctx.yaw_force *= ctx.speed_gate;
 }
 
+// Helper: Calculate Gyroscopic Damping (v0.4.17)
 void FFBEngine::calculate_gyro_damping(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+    // 1. Calculate Steering Velocity (rad/s)
     float range = data->mPhysicalSteeringWheelRange;
     if (range <= 0.0f) range = (float)DEFAULT_STEERING_RANGE_RAD;
     double steer_angle = data->mUnfilteredSteering * (range / 2.0);
     double steer_vel = (steer_angle - m_prev_steering_angle) / ctx.dt;
     m_prev_steering_angle = steer_angle;
     
+    // 2. Alpha Smoothing
     double tau_gyro = (double)m_gyro_smoothing;
     if (tau_gyro < 0.0001) tau_gyro = 0.0001;
     double alpha_gyro = ctx.dt / (tau_gyro + ctx.dt);
     m_steering_velocity_smoothed += alpha_gyro * (steer_vel - m_steering_velocity_smoothed);
     
+    // 3. Force = -Vel * Gain * Speed_Scaling
+    // Speed scaling: Gyro effect increases with wheel RPM (car speed)
     ctx.gyro_force = -1.0 * m_steering_velocity_smoothed * m_gyro_gain * (ctx.car_speed / GYRO_SPEED_SCALE) * ctx.decoupling_scale;
 }
 
+// Helper: Calculate ABS Pulse (v0.7.53)
 void FFBEngine::calculate_abs_pulse(const TelemInfoV01* data, FFBCalculationContext& ctx) {
     if (!m_abs_pulse_enabled) return;
     
     bool abs_active = false;
     for (int i = 0; i < 4; i++) {
+        // Detection: Sudden pressure oscillation + high brake pedal
         double pressure_delta = (data->mWheel[i].mBrakePressure - m_prev_brake_pressure[i]) / ctx.dt;
         if (data->mUnfilteredBrake > ABS_PEDAL_THRESHOLD && std::abs(pressure_delta) > ABS_PRESSURE_RATE_THRESHOLD) {
             abs_active = true;
@@ -1072,12 +1095,14 @@ void FFBEngine::calculate_abs_pulse(const TelemInfoV01* data, FFBCalculationCont
     }
     
     if (abs_active) {
+        // Generate sine pulse
         m_abs_phase += (double)m_abs_freq_hz * ctx.dt * TWO_PI;
         m_abs_phase = std::fmod(m_abs_phase, TWO_PI);
         ctx.abs_pulse_force = (double)(std::sin(m_abs_phase) * m_abs_gain * 2.0 * ctx.decoupling_scale * ctx.speed_gate);
     }
 }
 
+// Helper: Calculate Lockup Vibration (v0.4.36 - REWRITTEN as dedicated method)
 void FFBEngine::calculate_lockup_vibration(const TelemInfoV01* data, FFBCalculationContext& ctx) {
     if (!m_lockup_enabled) return;
     
@@ -1085,6 +1110,7 @@ void FFBEngine::calculate_lockup_vibration(const TelemInfoV01* data, FFBCalculat
     double chosen_freq_multiplier = 1.0;
     double chosen_pressure_factor = 0.0;
     
+    // Calculate reference slip for front wheels (v0.4.38)
     double slip_fl = calculate_wheel_slip_ratio(data->mWheel[0]);
     double slip_fr = calculate_wheel_slip_ratio(data->mWheel[1]);
     double worst_front = (std::min)(slip_fl, slip_fr);
@@ -1093,12 +1119,19 @@ void FFBEngine::calculate_lockup_vibration(const TelemInfoV01* data, FFBCalculat
         const auto& w = data->mWheel[i];
         double slip = calculate_wheel_slip_ratio(w);
         double slip_abs = std::abs(slip);
+
+        // 1. Predictive Lockup (v0.4.38)
+        // Detects rapidly decelerating wheels BEFORE they reach full lock
         double wheel_accel = (w.mRotation - m_prev_rotation[i]) / ctx.dt;
         double radius = (double)w.mStaticUndeflectedRadius / 100.0;
         if (radius < 0.1) radius = 0.33;
         double car_dec_ang = -std::abs(data->mLocalAccel.z / radius);
+
+        // Signal Quality Check (Reject surface bumps)
         double susp_vel = std::abs(w.mVerticalTireDeflection - m_prev_vert_deflection[i]) / ctx.dt;
         bool is_bumpy = (susp_vel > (double)m_lockup_bump_reject);
+
+        // Pre-conditions
         bool brake_active = (data->mUnfilteredBrake > PREDICTION_BRAKE_THRESHOLD);
         bool is_grounded = (w.mSuspForce > PREDICTION_LOAD_THRESHOLD);
 
@@ -1107,27 +1140,36 @@ void FFBEngine::calculate_lockup_vibration(const TelemInfoV01* data, FFBCalculat
         double trigger_threshold = full_threshold;
 
         if (brake_active && is_grounded && !is_bumpy) {
+            // Predictive Trigger: Wheel decelerating significantly faster than chassis
             double sensitivity_threshold = -1.0 * (double)m_lockup_prediction_sens;
             if (wheel_accel < car_dec_ang * 2.0 && wheel_accel < sensitivity_threshold) {
-                trigger_threshold = start_threshold;
+                trigger_threshold = start_threshold; // Ease into effect earlier
             }
         }
 
+        // 2. Intensity Calculation
         if (slip_abs > trigger_threshold) {
             double window = full_threshold - start_threshold;
             if (window < 0.01) window = 0.01;
+
             double normalized = (slip_abs - start_threshold) / window;
             double severity = (std::min)(1.0, (std::max)(0.0, normalized));
+            
+            // Apply gamma for curve control
             severity = std::pow(severity, (double)m_lockup_gamma);
             
+            // Frequency calculation
             double freq_mult = 1.0;
             if (i >= 2) {
+                // v0.4.38: Rear wheels use a different frequency to distinguish front/rear lockup
                 if (slip < (worst_front - AXLE_DIFF_HYSTERESIS)) {
                     freq_mult = LOCKUP_FREQ_MULTIPLIER_REAR;
                 }
             }
+
+            // Pressure weighting (v0.4.38)
             double pressure_factor = w.mBrakePressure;
-            if (pressure_factor < 0.1 && slip_abs > 0.5) pressure_factor = 0.5;
+            if (pressure_factor < 0.1 && slip_abs > 0.5) pressure_factor = 0.5; // Catch low-pressure lockups
 
             if (severity > worst_severity) {
                 worst_severity = severity;
@@ -1137,17 +1179,24 @@ void FFBEngine::calculate_lockup_vibration(const TelemInfoV01* data, FFBCalculat
         }
     }
 
+    // 3. Vibration Synthesis
     if (worst_severity > 0.0) {
         double base_freq = 10.0 + (ctx.car_speed * 1.5);
         double final_freq = base_freq * chosen_freq_multiplier * (double)m_lockup_freq_scale;
+        
         m_lockup_phase += final_freq * ctx.dt * TWO_PI;
         m_lockup_phase = std::fmod(m_lockup_phase, TWO_PI);
+        
         double amp = worst_severity * chosen_pressure_factor * m_lockup_gain * (double)BASE_NM_LOCKUP_VIBRATION * ctx.decoupling_scale * ctx.brake_load_factor;
+        
+        // v0.4.38: Boost rear lockup volume
         if (chosen_freq_multiplier < 1.0) amp *= (double)m_lockup_rear_boost;
+
         ctx.lockup_rumble = std::sin(m_lockup_phase) * amp * ctx.speed_gate;
     }
 }
 
+// Helper: Calculate Wheel Spin Vibration (v0.6.36)
 void FFBEngine::calculate_wheel_spin(const TelemInfoV01* data, FFBCalculationContext& ctx) {
     if (m_spin_enabled && data->mUnfilteredThrottle > 0.05) {
         double slip_rl = calculate_wheel_slip_ratio(data->mWheel[2]);
@@ -1158,47 +1207,70 @@ void FFBEngine::calculate_wheel_spin(const TelemInfoV01* data, FFBCalculationCon
             double severity = (max_slip - 0.2) / 0.5;
             severity = (std::min)(1.0, severity);
             
+            // Attenuate primary torque when spinning (Torque Drop)
+            // v0.6.43: Blunted effect (0.6 multiplier) to prevent complete loss of feel
             ctx.gain_reduction_factor = (1.0 - (severity * m_spin_gain * 0.6));
             
+            // Generate vibration based on spin velocity (RPM delta)
             double slip_speed_ms = ctx.car_speed * max_slip;
             double freq = (10.0 + (slip_speed_ms * 2.5)) * (double)m_spin_freq_scale;
-            if (freq > 80.0) freq = 80.0;
+            if (freq > 80.0) freq = 80.0; // Human sensory limit for gross vibration
+            
             m_spin_phase += freq * ctx.dt * TWO_PI;
             m_spin_phase = std::fmod(m_spin_phase, TWO_PI);
+            
             double amp = severity * m_spin_gain * (double)BASE_NM_SPIN_VIBRATION * ctx.decoupling_scale;
             ctx.spin_rumble = std::sin(m_spin_phase) * amp;
         }
     }
 }
 
+// Helper: Calculate Slide Texture (Friction Vibration)
 void FFBEngine::calculate_slide_texture(const TelemInfoV01* data, FFBCalculationContext& ctx) {
     if (!m_slide_texture_enabled) return;
+    
+    // Use average lateral patch velocity of front wheels
     double lat_vel_fl = std::abs(data->mWheel[0].mLateralPatchVel);
     double lat_vel_fr = std::abs(data->mWheel[1].mLateralPatchVel);
     double front_slip_avg = (lat_vel_fl + lat_vel_fr) / 2.0;
+
+    // Use average lateral patch velocity of rear wheels
     double lat_vel_rl = std::abs(data->mWheel[2].mLateralPatchVel);
     double lat_vel_rr = std::abs(data->mWheel[3].mLateralPatchVel);
     double rear_slip_avg = (lat_vel_rl + lat_vel_rr) / 2.0;
+
+    // Use the max slide velocity between axles
     double effective_slip_vel = (std::max)(front_slip_avg, rear_slip_avg);
     
     if (effective_slip_vel > 1.5) {
+        // High-frequency sawtooth noise for localized friction feel
         double base_freq = 10.0 + (effective_slip_vel * 5.0);
         double freq = base_freq * (double)m_slide_freq_scale;
-        if (freq > 250.0) freq = 250.0;
+        
+        if (freq > 250.0) freq = 250.0; // Hard clamp for hardware safety
+        
         m_slide_phase += freq * ctx.dt * TWO_PI;
         m_slide_phase = std::fmod(m_slide_phase, TWO_PI);
+        
+        // Sawtooth generator (0 to 1 range across TWO_PI) -> (-1 to 1)
         double sawtooth = (m_slide_phase / TWO_PI) * 2.0 - 1.0;
+        
+        // Intensity scaling (Grip based)
         double grip_scale = (std::max)(0.0, 1.0 - ctx.avg_grip);
+        
         ctx.slide_noise = sawtooth * m_slide_texture_gain * (double)BASE_NM_SLIDE_TEXTURE * ctx.texture_load_factor * grip_scale * ctx.decoupling_scale;
     }
 }
 
+// Helper: Calculate Road Texture & Scrub Drag
 void FFBEngine::calculate_road_texture(const TelemInfoV01* data, FFBCalculationContext& ctx) {
+    // 1. Scrub Drag (Longitudinal resistive force from lateral sliding)
     if (m_scrub_drag_gain > 0.0) {
         double avg_lat_vel = (data->mWheel[0].mLateralPatchVel + data->mWheel[1].mLateralPatchVel) / 2.0;
         double abs_lat_vel = std::abs(avg_lat_vel);
+        
         if (abs_lat_vel > 0.001) {
-            double fade = (std::min)(1.0, abs_lat_vel / 0.5);
+            double fade = (std::min)(1.0, abs_lat_vel / 0.5); // Fade in over 0.5m/s
             double drag_dir = (avg_lat_vel > 0.0) ? -1.0 : 1.0;
             ctx.scrub_drag_force = drag_dir * m_scrub_drag_gain * (double)BASE_NM_SCRUB_DRAG * fade * ctx.decoupling_scale;
         }
@@ -1206,61 +1278,77 @@ void FFBEngine::calculate_road_texture(const TelemInfoV01* data, FFBCalculationC
 
     if (!m_road_texture_enabled) return;
     
+    // 2. Road Texture (Delta Deflection Method)
+    // Measures the rate of change in tire vertical compression
     double delta_l = data->mWheel[0].mVerticalTireDeflection - m_prev_vert_deflection[0];
     double delta_r = data->mWheel[1].mVerticalTireDeflection - m_prev_vert_deflection[1];
+    
+    // Outlier rejection (crashes/jumps)
     delta_l = (std::max)(-0.01, (std::min)(0.01, delta_l));
     delta_r = (std::max)(-0.01, (std::min)(0.01, delta_r));
     
     double road_noise_val = 0.0;
+    
+    // FALLBACK (v0.6.36): If mVerticalTireDeflection is missing (Encrypted DLC),
+    // use Chassis Vertical Acceleration delta as a secondary source.
     bool deflection_active = (std::abs(delta_l) > 0.000001 || std::abs(delta_r) > 0.000001);
     
     if (deflection_active || ctx.car_speed < 5.0) {
-        road_noise_val = (delta_l + delta_r) * 50.0;
+        road_noise_val = (delta_l + delta_r) * 50.0; // Scale to NM
     } else {
+        // Fallback to vertical acceleration rate-of-change (jerk-like scaling)
         double vert_accel = data->mLocalAccel.y;
         double delta_accel = vert_accel - m_prev_vert_accel;
-        road_noise_val = delta_accel * 0.05 * 50.0;
+        road_noise_val = delta_accel * 0.05 * 50.0; // Blend into similar range
     }
     
     ctx.road_noise = road_noise_val * m_road_texture_gain * ctx.decoupling_scale * ctx.texture_load_factor;
     ctx.road_noise *= ctx.speed_gate;
 }
 
+// Helper: Calculate Suspension Bottoming (v0.6.22)
 void FFBEngine::calculate_suspension_bottoming(const TelemInfoV01* data, FFBCalculationContext& ctx) {
     if (!m_bottoming_enabled) return;
     bool triggered = false;
     double intensity = 0.0;
     
+    // Method 0: Direct Ride Height Monitoring
     if (m_bottoming_method == 0) {
         double min_rh = (std::min)(data->mWheel[0].mRideHeight, data->mWheel[1].mRideHeight);
-        if (min_rh < 0.002 && min_rh > -1.0) {
+        if (min_rh < 0.002 && min_rh > -1.0) { // < 2mm
             triggered = true;
-            intensity = (0.002 - min_rh) / 0.002;
+            intensity = (0.002 - min_rh) / 0.002; // Map 2mm->0mm to 0.0->1.0
         }
     } else {
+        // Method 1: Suspension Force Impulse (Rate of Change)
         double dForceL = (data->mWheel[0].mSuspForce - m_prev_susp_force[0]) / ctx.dt;
         double dForceR = (data->mWheel[1].mSuspForce - m_prev_susp_force[1]) / ctx.dt;
         double max_dForce = (std::max)(dForceL, dForceR);
-        if (max_dForce > 100000.0) {
+        
+        if (max_dForce > 100000.0) { // 100kN/s impulse
             triggered = true;
             intensity = (max_dForce - 100000.0) / 200000.0;
         }
     }
 
+    // Safety Trigger: Raw Load Peak (Catches Method 0/1 failures)
     if (!triggered) {
         double max_load = (std::max)(data->mWheel[0].mTireLoad, data->mWheel[1].mTireLoad);
         if (max_load > 8000.0) {
             triggered = true;
             double excess = max_load - 8000.0;
-            intensity = std::sqrt(excess) * 0.05;
+            intensity = std::sqrt(excess) * 0.05; // Non-linear response
         }
     }
 
     if (triggered) {
+        // Generate high-intensity low-frequency "thump"
         double bump_magnitude = intensity * m_bottoming_gain * (double)BASE_NM_BOTTOMING * ctx.decoupling_scale;
         double freq = 50.0;
+        
         m_bottoming_phase += freq * ctx.dt * TWO_PI;
         m_bottoming_phase = std::fmod(m_bottoming_phase, TWO_PI);
+        
         ctx.bottoming_crunch = std::sin(m_bottoming_phase) * bump_magnitude * ctx.speed_gate;
     }
 }
