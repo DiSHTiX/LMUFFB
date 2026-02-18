@@ -35,6 +35,7 @@ TEST_CASE(test_ffb_safety_allowed_logic, "Safety") {
     std::cout << "  [PASS] FFB muted on DQ." << std::endl;
 
     // Case 4: Session officially Over (Game Phase 8)
+    // TODO: FIX: keep FFB if session over, if the driver still in control of car. 
     scoring.mFinishStatus = 0;
     phase = 8;
     ASSERT_TRUE(!engine.IsFFBAllowed(scoring, phase));
