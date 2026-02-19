@@ -1,11 +1,6 @@
 
 
 
-Here is the focused implementation plan for **Stage 1: Dynamic Normalization for Structural Forces**.
-
-### `docs/dev_docs/plans/plan_dynamic_norm_stage1.md`
-
-```markdown
 # Implementation Plan: Stage 1 - Dynamic Normalization for Structural Forces
 
 ## Context
