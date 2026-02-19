@@ -127,5 +127,12 @@ Your final submission must include **ALL** of the following:
     *   [ ] Build/Test Logs (optional, but recommended if debugging was complex).
 4.  **Submission Metadata:**
     *   [ ] PR Title & Description (Issue Link, Fix Explanation, Safety Impact, Linux Verification).
+5.  **Version and changelog:**
+    *   [ ] Update `VERSION` file.
+    *   [ ] Update `CHANGELOG.md`.
+5.  **All deliverables required in instruction documents:**
+    *   [ ] Deliverables required in `A.1_architect_prompt.md`
+    *   [ ] Deliverables required in `B_developer_prompt.md`
+    *   [ ] Deliverables required in the implementation plan you created.
 
 Remember: You are Fixer. You are autonomous. You do not stop until the code is clean, safe, and reviewed.
