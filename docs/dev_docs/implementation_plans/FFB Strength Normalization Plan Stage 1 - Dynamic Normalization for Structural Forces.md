@@ -9,8 +9,8 @@ The current FFB architecture uses a static `m_max_torque_ref` to normalize the r
 Stage 1 introduces a **Session-Learned Dynamic Normalization** system using a Leaky Integrator (Exponential Decay) and Contextual Spike Rejection. Crucially, this normalization is applied *only* to structural forces (steering, SoP) via an EMA-smoothed gain multiplier, leaving tactile textures and user UI/Config untouched for now.
 
 ## Reference Documents
-*(../investigations/FFB%20Strength%20and%20Tire%20Load%20Normalization2.md)
-*(../investigations/FFB%20Strength%20and%20Tire%20Load%20Normalization3.md)
+* docs\dev_docs\investigations\FFB Strength and Tire Load Normalization2.md
+* docs\dev_docs\investigations\FFB Strength and Tire Load Normalization3.md
 
 ## Codebase Analysis Summary
 *   **Current Architecture:** In `FFBEngine::calculate_force`, all FFB effects are summed together into `total_sum`. This sum is then divided by `max_torque_safe` (derived from `m_max_torque_ref`) to produce the final `0.0 - 1.0` normalized signal.
