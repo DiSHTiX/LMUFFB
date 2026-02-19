@@ -10,7 +10,7 @@
     *   *Tip:* Use the **last corner (Virage du Pont)** for low-speed traction tests.
 
 **Global Setup:**
-1.  **In-Game (LMU):** FFB Strength 0%, Smoothing 0.
+1.  **In-Game (LMU):** FFB can be left enabled (required if using game FFB pass-through), Smoothing 0.
 2.  **Wheel Driver:** Set your physical wheel strength to **20-30%** (Safety first!).
 3.  **LMUFFB:** Start with the **"Default"** preset, then modify as instructed below.
 
