@@ -1313,6 +1313,8 @@ void FFBEngine::calculate_road_texture(const TelemInfoV01* data, FFBCalculationC
 }
 
 // Helper: Calculate Suspension Bottoming (v0.6.22)
+// TODO: move this function to another utils file or other ancillary file, since this (soft lock) can be considered not FFB logic.
+// The purpose is to minimize the code in FFBEngine.cpp to only FFB logic, since it is already a long code files.
 void FFBEngine::calculate_soft_lock(const TelemInfoV01* data, FFBCalculationContext& ctx) {
     ctx.soft_lock_force = 0.0;
     if (!m_soft_lock_enabled) return;
