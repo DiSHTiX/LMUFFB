@@ -9,6 +9,8 @@ Stage 4 introduces persistent storage for these learned values. Once a car's sta
 
 * `docs\dev_docs\investigations\FFB Strength and Tire Load Normalization2.md`
 * `docs\dev_docs\investigations\FFB Strength and Tire Load Normalization3.md`
+* Previous stage 1 implementation plan: `docs\dev_docs\implementation_plans\FFB Strength Normalization Plan Stage 1 - Dynamic Normalization for Structural Forces.md`
+* Previous stage 1 implementation plan (modified during development): `docs\dev_docs\implementation_plans\plan_152.md`
 
 ## Codebase Analysis Summary
 *   **Current Architecture:** `FFBEngine::InitializeLoadReference` seeds the `m_static_front_load` with a generic class default (e.g., 4500N for GT3) and relies on `update_static_load_reference` to refine it. `Config::Save` and `Config::Load` handle global settings and presets but do not store vehicle-specific data.
