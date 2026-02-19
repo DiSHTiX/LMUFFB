@@ -129,8 +129,8 @@ Your final submission must include **ALL** of the following:
     *   [ ] PR Title & Description (Issue Link, Fix Explanation, Safety Impact, Linux Verification).
 5.  **Version and changelog:**
     *   [ ] Update `VERSION` file.
-    *   [ ] Update `CHANGELOG.md`.
-5.  **All deliverables required in instruction documents:**
+    *   [ ] Update the changelog.
+6.  **All deliverables required in instruction documents:**
     *   [ ] Deliverables required in `A.1_architect_prompt.md`
     *   [ ] Deliverables required in `B_developer_prompt.md`
     *   [ ] Deliverables required in the implementation plan you created.
