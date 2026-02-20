@@ -11,6 +11,9 @@ if(MSVC)
     # Always generate PDBs, even in Release mode (required for OpenCppCoverage)
     add_compile_options(/Zi)
 
+    # Multi-processor compilation for faster builds (Issue #165 follow-up)
+    add_compile_options(/MP)
+
     # Linker flags: ASLR (/DYNAMICBASE) and DEP (/NXCOMPAT)
     add_link_options(/DYNAMICBASE /NXCOMPAT)
     

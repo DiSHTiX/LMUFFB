@@ -99,6 +99,11 @@ if(WIN32)
     target_link_libraries(run_combined_tests PRIVATE version imm32 dxgi)
 endif()
 
+# Speed up test compilation by reducing optimizations (Issue #165 follow-up)
+if(MSVC)
+    target_compile_options(run_combined_tests PRIVATE /Od)
+endif()
+
 # Add to CTest
 add_test(NAME CombinedTests COMMAND run_combined_tests)
 

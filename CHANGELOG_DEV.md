@@ -3,16 +3,17 @@
 All notable changes to this project will be documented in this file.
 
 
+## [0.7.73] - 2026-02-26
+### Added
+- **Build Speed Optimizations**: 
+  - Enabled multi-processor compilation (`/MP`) globally for MSVC.
+  - Reduced compiler optimizations to `/Od` specifically for the test suite, significantly speeding up the compilation of the 68+ test files.
 
 ## [0.7.72] - 2026-02-26
 ### Fixed
 - **Build Warnings**:  fixed the strncpy warning you identified in 
 test_ffb_persistent_load.cpp, switched to strncpy_s on Windows.
 - **Code Hygiene**: Fixed several MSVC build warnings regarding `strncpy_s` usage by switching to explicit buffer sizes and the `_TRUNCATE` flag.
-
-
-
-
 
 ## [0.7.71] - 2026-02-25
 ### Added
