@@ -153,6 +153,10 @@ set(APP_SOURCES
     src/main.cpp
 )
 
+if(WIN32)
+    list(APPEND APP_SOURCES ${CMAKE_BINARY_DIR}/src/res.rc)
+endif()
+
 add_executable(LMUFFB ${APP_SOURCES})
 target_link_libraries(LMUFFB PRIVATE LMUFFB_Core)
 

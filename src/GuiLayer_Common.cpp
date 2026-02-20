@@ -82,7 +82,11 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
     ImGui::Begin("MainUI", nullptr, flags);
 
-    ImGui::TextColored(ImVec4(1, 1, 1, 0.4f), "lmuFFB v%s", LMUFFB_VERSION);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.00f, 0.60f, 0.85f, 1.00f));
+    ImGui::Text("lmuFFB");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::TextDisabled("v%s", LMUFFB_VERSION);
     ImGui::Separator();
 
     static std::chrono::steady_clock::time_point last_check_time = std::chrono::steady_clock::now();

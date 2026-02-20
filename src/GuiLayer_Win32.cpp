@@ -151,6 +151,13 @@ bool GuiLayer::Init() {
         pos_x = 100; pos_y = 100;
     }
     g_hwnd = ::CreateWindowW(wc.lpszClassName, title.c_str(), WS_OVERLAPPEDWINDOW, pos_x, pos_y, start_w, start_h, NULL, NULL, wc.hInstance, NULL);
+    
+    // Explicitly set icons to ensure visibility in all places (Issue #165)
+    if (g_hwnd) {
+        SendMessage(g_hwnd, WM_SETICON, ICON_BIG, (LPARAM)wc.hIcon);
+        SendMessage(g_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)wc.hIconSm);
+    }
+
     if (!g_hwnd) {
         Logger::Get().LogWin32Error("CreateWindowW", GetLastError());
         return false;
