@@ -99,7 +99,7 @@ public:
 
     bool SavePresetFileDialog(std::string& outPath, const std::string& defaultName) override {
         char filename[MAX_PATH] = "";
-        strncpy_s(filename, defaultName.c_str(), _TRUNCATE);
+        strncpy_s(filename, sizeof(filename), defaultName.c_str(), _TRUNCATE);
         OPENFILENAMEA ofn;
         ZeroMemory(&ofn, sizeof(ofn));
         ofn.lStructSize = sizeof(ofn);

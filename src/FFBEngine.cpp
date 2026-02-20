@@ -637,10 +637,8 @@ double FFBEngine::calculate_force(const TelemInfoV01* data, const char* vehicleC
     // Only update if first char differs to avoid redundant copies
     if (m_vehicle_name[0] != data->mVehicleName[0] || m_vehicle_name[10] != data->mVehicleName[10]) {
 #ifdef _WIN32
-         strncpy_s(m_vehicle_name, data->mVehicleName, 63);
-         m_vehicle_name[63] = '\0';
-         strncpy_s(m_track_name, data->mTrackName, 63);
-         m_track_name[63] = '\0';
+         strncpy_s(m_vehicle_name, sizeof(m_vehicle_name), data->mVehicleName, _TRUNCATE);
+         strncpy_s(m_track_name, sizeof(m_track_name), data->mTrackName, _TRUNCATE);
 #else
          strncpy(m_vehicle_name, data->mVehicleName, 63);
          m_vehicle_name[63] = '\0';

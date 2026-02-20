@@ -789,7 +789,7 @@ void GuiLayer::DrawTuningWindow(FFBEngine& engine) {
 
             char log_path_buf[256];
 #ifdef _WIN32
-            strncpy_s(log_path_buf, Config::m_log_path.c_str(), 255);
+            strncpy_s(log_path_buf, sizeof(log_path_buf), Config::m_log_path.c_str(), _TRUNCATE);
 #else
             strncpy(log_path_buf, Config::m_log_path.c_str(), 255);
 #endif
