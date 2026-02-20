@@ -59,3 +59,27 @@ To ensure you can always feel what the front tires are doing, the way tactile ha
 *   **The 2-15 m/s Learning Phase:** The game learns the true, non-aero static weight of the car exclusively while driving at low speeds between 2 and 15 m/s. 
 *   **Persistent Storage:** You don't have to perform a "warm-up roll" every time you drive. Once a specific car's static weight is learned, it is permanently saved in your configuration. On all future sessions with that car, the application will instantly load the saved static weight, providing identical, perfect tactile detail straight out of the pits!
 *   **Soft-Knee Compression:** When you *do* reach top speeds in high-downforce cars, a sophisticated "Soft-Knee Compression" algorithm progressively tapers the tactile multipliers. This ensures road details remain prominent but prevents your wheel from violently shaking itself out of your hands under maximum aero load.
+
+
+## Q & A
+
+### Q1
+
+Dynamic auto FFB Strength normalization - Does this only get calculated once per session or every time you return to pit? Does this perhaps have a timed limit or how is this implemented?
+
+
+### A1
+
+(TODO)
+
+
+### Q2
+
+Is the following feature feasible, compatible with the current normalization implementation, and advisable?
+
+"It might also be convenient if one could click it to calculate [the dynamic normalization] and then only again when clicking a button as to sort of calibrate it once then leave it there and not continuously adjust every time as it makes muscle memory a bit difficult to adjust." 
+
+### A2
+
+(TODO)
+
