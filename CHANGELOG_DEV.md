@@ -2,8 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.75] - 2026-02-20
+### Refactored
+- **FFB Engine Decomposition (Grip & Load Estimation Extraction)**:
+  - Extracted core tire physics and estimation logic from the monolithic `FFBEngine.cpp` into a dedicated `GripLoadEstimation.cpp`.
+  - Moved 12 high-complexity estimation methods (Slope Detection, Kinematic Load, Static Load Learning, etc.) to the new source file, reducing `FFBEngine.cpp` by ~30% (~420 lines).
+  - This separation simplifies the FFB signal chain, making the primary force calculation loop significantly more readable and maintainable.
+  - See `docs/dev_docs/reports/FFBEngine_refactoring_analysis.md` for full architectural rationale.
+
+
 ## [0.7.74] - 2026-02-26
-### Added
 
 ### Fixed
 - **App Icon Visibility (#165)**:
