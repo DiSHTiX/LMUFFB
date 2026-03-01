@@ -74,23 +74,21 @@ jobs:
         shell: pwsh
         run: |
           $content = Get-Content CHANGELOG_DEV.md -Raw
-          # Split by the header pattern and take the first real section
-          # This looks for "## [x.y.z]" format
-          $pattern = '(?m)^## \['
-          $sections = $content -split $pattern
+          # Regex explained:
+          # (?s)      -> Single-line mode (. matches newlines)
+          # (## \[    -> Starts with "## ["
+          # [^\]]+    -> Matches the version number inside brackets
+          # \].+?     -> Matches close bracket and content (non-greedy)
+          # (?=## \[  -> Looks ahead for the next version header
+          # |\z)      -> OR stops at end of file
+          $regex = '(?s)(## \[[^\]]+\].+?)(?=## \[|\z)'
           
-          if ($sections.Count -gt 1) {
-              # sections[0] is everything before the first header.
-              # sections[1] is the content of the latest version starting from version number.
-              # We need to prepend the hashes back because -split removes them.
-              $latestEntry = "## [" + $sections[1].Trim()
-              
-              # Optional: Only take until the next header if it's too long, 
-              # but usually we want the whole latest section.
-              # Here we just save it to a file.
+          if ($content -match $regex) {
+              $latestEntry = $Matches[1].Trim()
               $latestEntry | Out-File -FilePath "LATEST_RELEASE_NOTES.md" -Encoding utf8
+              Write-Host "Successfully extracted latest entry."
           } else {
-              Write-Host "Warning: Could not extract changelog entry. Using fallback."
+              Write-Host "Warning: Regex failed to extract entry. Using fallback."
               "Release of version ${{ steps.version.outputs.VERSION }}" | Out-File -FilePath "LATEST_RELEASE_NOTES.md" -Encoding utf8
           }
 
