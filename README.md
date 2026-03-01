@@ -8,7 +8,8 @@ Experimental alpha version.
 
 ## 📥 Download
 
-**[Download the latest release from GitHub](https://github.com/coasting-nc/LMUFFB/releases)**
+*   **[Standard Releases (Recommended)](https://github.com/coasting-nc/LMUFFB/releases)**: Stable versions, released less frequently.
+*   **[Nightly builds (Latest features & fixes)](https://coasting-nc.github.io/LMUFFB/)**: Experimental versions compiled automatically based on the latest version of the code. They include the newest features and bug fixes but may be less stable. Once they have been out for a while and no major issues arise, they are promoted to standard releases.
 
 
 ## Installation & Configuration (LMU 1.2+)

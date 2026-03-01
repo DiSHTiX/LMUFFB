@@ -6,8 +6,15 @@ See README.md for full documentation with images and links.
 DOWNLOAD
 --------
 
-Download the latest release from GitHub:
-https://github.com/coasting-nc/LMUFFB/releases
+1. Standard Releases (Recommended):
+   https://github.com/coasting-nc/LMUFFB/releases
+   Stable versions, released less frequently.
+
+2. Nightly Hub (Latest Features & Fixes):
+   https://coasting-nc.github.io/LMUFFB/
+   Experimental versions compiled automatically from the latest code.
+   They include the newest features but may be less stable. 
+   Once stable, these are promoted to standard releases.
 
 
 INSTALLATION & CONFIGURATION (LMU 1.2+)
