@@ -9,6 +9,87 @@ All notable changes to this project will be documented in this file.
   - Preserved Soft Lock safety features for stationary garage and AI driving states where the game remains in real-time.
   - Leveraged the safety slew rate limiter to ensure a smooth relaxation of the wheel when entering menus.
 
+Cumulative changes from previous versions v0.7.66 - v0.7.107:
+
+### Fixed
+- **Garage FFB Muting (#185)**:
+  - Added explicit check for `mInGarageStall` in the FFB allowance logic. FFB is now completely muted when the car is in its garage stall.
+  - Guarded the "Minimum Force" logic to prevent tiny telemetry residuals from being amplified when FFB is muted.
+  - Preserved Soft Lock functionality in the garage by allowing it to bypass the muting logic if the force is significant (> 0.1 Nm), ensuring steering rack safety is always active.
+
+- **Soft Lock Stationary Support (#184)**:
+  - Enabled Soft Lock processing even when the car is stationary in the garage or when the player is not in control (e.g. AI driving).
+  - Implemented a "muted" FFB mode that allows safety effects (Soft Lock) to remain active while zeroing out all structural and tactile forces when full FFB is not allowed.
+  - This also ensures no unwanted FFB vibrations or jolts occur in the garage while maintaining the safety of rack limits (Issue #185).
+- **Soft Lock Weakness (#181)**:
+  - Relocated Soft Lock force from the normalized structural group to the absolute Nm scaling group (Textures).
+  - This ensures the steering rack limit resistance remains consistently strong regardless of learned session peak torque normalization.
+  - Verified with regression tests to provide full force at 1% steering excess.
+
+- **Tooltip Text Cropping (#179)**:
+  - Manually refactored all long tooltips in `Tooltips.h` using `\n` to ensure they fit within standard window widths and prevent cropping.
+
+- **App Icon Visibility (#165)**:
+  - Restored the application icon in the window title bar and taskbar.
+
+- **In-Game FFB Strength Normalization (#160)**:
+  - Corrected a mathematical error in the In-Game FFB path where the signal was being scaled by the target rim torque without prior normalization.
+  - The 400Hz signal is now correctly mapped to the wheelbase's maximum physical torque before being scaled to the user's target rim torque.
+
+### Changed
+- **Global FFB Inversion (#42)**:
+  - Moved the "Invert FFB Signal" setting out of individual tuning presets and into a global application setting.
+  - This ensures that hardware-specific inversion preferences remain constant when switching between different car profiles.
+  - Removed `invert_force` from `Preset` struct and all associated preset management logic.
+  - Updated configuration loading and saving to handle `invert_force` at the application level.
+
+### Removed
+- **Base Force Mode (#178)**:
+  - Removed the "Base Force Mode" feature to simplify the FFB signal chain and user interface.
+  - The application now always uses the native physics-based torque (Native mode) for the base steering force.
+  - Removed "Synthetic" and "Muted" modes which were redundant or rarely used.
+  - Cleaned up internal `Preset` structure and configuration parsing logic.
+
+### Added
+- **Independent In-Game FFB Gain (#160)**:
+  - Introduced a dedicated **In-Game FFB Gain** slider to allow independent control of the 400Hz native torque source.
+  - **Contextual UI**: The slider dynamically switches between "Steering Shaft Gain" (legacy) and "In-Game FFB Gain" (400Hz) based on the active source selection, reducing UI clutter.
+- **DirectX Pipeline Modernization (#189)**:
+  - Transitioned the GUI rendering pipeline from the legacy "BitBlt" model to the modern **Flip Model** (`DXGI_SWAP_EFFECT_FLIP_DISCARD`).
+  - Improved application performance, reduced latency, and ensured compatibility with modern Windows 10/11 features like Variable Refresh Rate (VRR) and independent flip.
+  - Replaced deprecated `D3D11CreateDeviceAndSwapChain` with a granular modernization flow using `D3D11CreateDevice` and `IDXGIFactory2::CreateSwapChainForHwnd`.
+
+Tactile Haptics Normalization changes:
+
+### Added
+- **Dynamic FFB Normalization (Stage 1) (#152)**:
+  - Introduced a Session-Learned Dynamic Normalization system for structural forces.
+  - **Peak Follower**: Continuously tracks peak steering torque with a fast-attack/slow-decay leaky integrator (0.5% reduction per second).
+  - **Contextual Spike Rejection**: Protects the learned peak from telemetry artifacts and wall hits using rolling average comparisons and acceleration-based gating.
+  - **Split Summation**: Structural forces (Steering, SoP, Rear Align, etc.) are now normalized by the learned session peak, while tactile textures (Road noise, Slide rumble) continue to use legacy hardware scaling.
+  - This ensures consistent FFB weight and detail across different car classes (e.g., GT3 vs. Hypercar) without requiring manual `m_max_torque_ref` adjustments.
+
+
+### Added
+- **Hardware Strength Scaling (Stage 2) (#153)**:
+  - Replaced the legacy `m_max_torque_ref` with a explicit **Physical Target Model**.
+  - **Wheelbase Max Torque**: Users now set the actual physical limit of their hardware (e.g., 15 Nm).
+  - **Target Rim Torque**: Users explicitly set the desired peak force they want to feel (e.g., 10 Nm).
+  - **Absolute Tactile Textures**: Textures (Road Details, Slide Rumble, etc.) are now rendered in absolute Newton-meters. A 2 Nm ABS pulse now feels exactly like 2 Nm on ANY wheelbase, preventing violent shaking on high-end DD wheels.
+  - **Migration Logic**: Legacy `max_torque_ref` settings are automatically migrated to the new dual-parameter model on first launch.
+### Changed
+- **UI Redesign**: Replaced the "Max Torque Ref" slider with two dedicated sliders in the General FFB section for better clarity and control.
+
+### Added
+- **Tactile Haptics Normalization (Stage 3) (#154)**:
+  - Transitioned tactile effect scaling (Road Texture, Slide Rumble, Lockup Vibration) from a dynamic peak-load baseline to a **Static Mechanical Load** baseline.
+  - **Static Load Latching**: Implemented logic to learn the vehicle's mechanical weight exclusively between 2-15 m/s and "freeze" the reference at higher speeds. This prevents high-speed aerodynamic downforce from polluting the normalization baseline and making low-speed effects feel "dead".
+  - **Giannoulis Soft-Knee Compression**: Implemented a smooth compression algorithm to handle high loads. Tactile effects are uncompressed below 1.25x static load, enter a quadratic transition zone up to 1.75x, and apply a 4:1 compression ratio above that. This ensures rich detail at all speeds without violent vibrations at top speed.
+  - **Tactile Smoothing**: Added a 100ms EMA filter to the tactile multiplier to ensure smooth transitions across load ranges.
+### Changed
+- **Bottoming Trigger**: Updated the suspension bottoming safety threshold to $2.5x$ the static load baseline for consistency with the new normalization model.
+
+
 ## [0.7.107] - 2026-02-28
 ### Fixed
 - **Static Analysis**: Resolved `readability-magic-numbers` warnings in Batch 1 (Core Physics). 
