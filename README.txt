@@ -108,9 +108,6 @@ Any other issue:
   - Alternatively, post in the thread in the LMU forum, but be aware that 
     forum posts are harder to track:
     https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/
-  - Important: You can help significantly by taking a screenshot (use the 
-    "Save Screenshot" button in the app) and attaching it to your post. 
-    This captures all your settings and the console log in one go.
 
 UPCOMING FEATURES
 -----------------

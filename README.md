@@ -87,7 +87,6 @@ Your testing and feedback is greatly appreciated! 🙏
 -   **Any other issue**:
     -   **Preferred**: [Open a GitHub Issue](https://github.com/coasting-nc/LMUFFB/issues). This is the best way to ensure your issue is tracked and addressed. Our AI agents periodically scan and attempt to fix GitHub issues.
     -   Alternatively, post in the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/), but be aware that forum posts are harder to track.
-    -   **Important**: Whether on GitHub or the forum, you can help significantly by taking a screenshot (use the "**Save Screenshot**" button in the app) and attaching it. This captures all your settings and the console log in one go.
 
 
 ### Upcoming Features
