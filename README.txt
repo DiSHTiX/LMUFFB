@@ -50,9 +50,12 @@ based on real-world testing.
 Please help us improve lmuFFB:
 1. Test with caution - Start with low wheel strength settings
 2. Experiment with settings - Try different effect combinations and gains
-3. Share your results - Post screenshots (including the lmuFFB console and the "Graphs" window) to the LMU Forum Thread:
+3. Share your results - Post screenshots, thoughts and settings to the LMU Forum Thread:
    https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/
-4. Report issues - Let us know what works and what doesn't!
+4. Report issues - For bugs and technical issues, opening a GitHub issue is MUCH BETTER than 
+   posting on the forum. Issues on GitHub are periodically tackled by AI agents, 
+   while forum posts are dispersive and difficult to track.
+   GitHub issues: https://github.com/coasting-nc/LMUFFB/issues
 
 Your testing and feedback is greatly appreciated!
 
@@ -104,9 +107,15 @@ The app has too many options and it's confusing:
     https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/
 
 Any other issue:
-  - Report it in the thread in the LMU forum to get support and get the app updated:
+  - PREFERRED: Open a GitHub Issue: https://github.com/coasting-nc/LMUFFB/issues
+    This is the best way to ensure your issue is tracked and addressed. 
+    Our AI agents periodically scan and attempt to fix GitHub issues.
+  - Alternatively, post in the thread in the LMU forum, but be aware that 
+    forum posts are harder to track:
     https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/
-  - Important: You can help significantly by taking a screenshot (use the "Save Screenshot" button in the app) and pasting it into your forum post. This captures all your settings and the console log in one go.
+  - Important: You can help significantly by taking a screenshot (use the 
+    "Save Screenshot" button in the app) and attaching it to your post. 
+    This captures all your settings and the console log in one go.
 
 UPCOMING FEATURES
 -----------------
@@ -125,10 +134,12 @@ FEEDBACK & SUPPORT
 ------------------
 
 For feedback, questions, or support:
+- GitHub Issues (RECOMMENDED for bugs): 
+  https://github.com/coasting-nc/LMUFFB/issues
+  GitHub issues are easier to track and are periodically tackled by AI development agents.
 - LMU Forum Thread for lmuFFB App: 
   https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/
-- GitHub Issues: 
-  https://github.com/coasting-nc/LMUFFB/issues
+  Best for general discussion and sharing settings.
 
 
 For full documentation, advanced settings, and tuning tips, 

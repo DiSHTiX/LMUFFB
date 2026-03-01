@@ -46,8 +46,8 @@ This is an **experimental release**, the FFB formulas may require refinement bas
 **Please help us improve lmuFFB:**
 1. **Test with caution** - Start with low wheel strength settings
 2. **Experiment with settings** - Try different effect combinations and gains
-3. **Share your results** - Post screenshots (including the lmuFFB console and the "Graphs" window) to the [LMU Forum Thread for the lmuFFB App](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
-4. **Report issues** - Let us know what works and what doesn't!
+3. **Share your results** - Post screenshots, thoughts and settings to the [LMU Forum Thread for the lmuFFB App](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
+4. **Report issues** - For bugs and technical issues, **it is much better to [open a GitHub issue](https://github.com/coasting-nc/LMUFFB/issues)** rather than posting on the forum. Issues on GitHub are periodically tackled by AI agents, while forum posts can be dispersive and difficult to track.
 
 Your testing and feedback is greatly appreciated! 🙏
 
@@ -88,8 +88,9 @@ Your testing and feedback is greatly appreciated! 🙏
     -   We need to first determine which settings work best for most users and wheel types (Direct Drive vs Belt/Gear).
     -   **Please leave feedback** on the forum thread telling us what settings work best for you: [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
 -   **Any other issue**:
-    -   Report it in the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/) to get support and help us update the app.
-    -   **Important**: You can help significantly by taking a screenshot (use the "**Save Screenshot**" button in the app) and pasting it into your forum post. This captures all your settings and the console log in one go.
+    -   **Preferred**: [Open a GitHub Issue](https://github.com/coasting-nc/LMUFFB/issues). This is the best way to ensure your issue is tracked and addressed. Our AI agents periodically scan and attempt to fix GitHub issues.
+    -   Alternatively, post in the [LMU Forum Thread](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/), but be aware that forum posts are harder to track.
+    -   **Important**: Whether on GitHub or the forum, you can help significantly by taking a screenshot (use the "**Save Screenshot**" button in the app) and attaching it. This captures all your settings and the console log in one go.
 
 
 ### Upcoming Features
@@ -104,8 +105,8 @@ Your testing and feedback is greatly appreciated! 🙏
 ## Feedback & Support
 
 For feedback, questions, or support:
-*   **LMU Forum Thread**: [lmuFFB App](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/)
-*   **GitHub Issues**: [Report bugs or request features](https://github.com/coasting-nc/LMUFFB/issues)
+*   **GitHub Issues (Recommended for Bugs)**: [Report bugs or request features](https://github.com/coasting-nc/LMUFFB/issues). GitHub issues are easier for us to track and are periodically tackled by AI development agents.
+*   **LMU Forum Thread**: [lmuFFB App](https://community.lemansultimate.com/index.php?threads/lmuffb-app.10440/). Best for general discussion and sharing settings.
 
 See also this Reddit thread: 
 * https://www.reddit.com/r/LeMansUltimateWEC/comments/1quwx67/lmuffb_telemetry_based_ffb_for_lmu/
