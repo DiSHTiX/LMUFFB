@@ -2,30 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.7.110] - 2026-03-02
-### Added
-- **Global Tactile Scaling (Issue #206)**:
-  - Introduced a dedicated "Tactile Strength" slider in the GUI to allow global scaling of all haptic textures (Road Details, Slide Rumble, Lockup Vibration, Spin, etc.).
-  - This allows users on different hardware (from T300 to high-end Direct Drive) to tune the intensity of absolute Nm tactile effects to their preference without affecting structural physics.
-  - **Soft Lock Preservation**: Explicitly excluded the Soft Lock force from the global tactile gain to ensure consistent and physically realistic rack limit resistance remains active for hardware safety.
-  - Fully integrated with the Preset and Persistence system, including safety clamping [0.0, 2.0].
+---
 
-## [0.7.109] - 2026-02-28
-### Fixed
-- **Normalization Consistency (Issue #207)**:
-  - Disabled **Session-Learned Dynamic Normalization** by default for both structural forces and tactile haptics.
-  - Implemented independent UI toggles for each normalization stage, allowing users to choose between manual fixed scaling and adaptive learning.
-  - Added `ResetNormalization` logic to restore class-default seeds and manual targets immediately when disabling toggles or changing vehicles.
-  - Resolved an issue where "learned" peaks from previous cars could pollute the FFB of a newly selected car.
 
-## [0.7.108] - 2026-02-28
-### Fixed
-- **FFB Control (Issue #174)**: Resolved "stuck" FFB forces when entering menus or pausing the game.
-  - Modified the FFB loop to explicitly zero out all forces (including Soft Lock) when the game reports it is no longer in real-time.
-  - Preserved Soft Lock safety features for stationary garage and AI driving states where the game remains in real-time.
-  - Leveraged the safety slew rate limiter to ensure a smooth relaxation of the wheel when entering menus.
-
-Cumulative changes from previous versions v0.7.66 - v0.7.107:
+## Cumulative changes from previous versions v0.7.66 - v0.7.107
 
 ### Fixed
 - **Garage FFB Muting (#185)**:
@@ -41,6 +21,11 @@ Cumulative changes from previous versions v0.7.66 - v0.7.107:
   - Relocated Soft Lock force from the normalized structural group to the absolute Nm scaling group (Textures).
   - This ensures the steering rack limit resistance remains consistently strong regardless of learned session peak torque normalization.
   - Verified with regression tests to provide full force at 1% steering excess.
+
+- **FFB Control (Issue #174)**: Resolved "stuck" FFB forces when entering menus or pausing the game.
+  - Modified the FFB loop to explicitly zero out all forces (including Soft Lock) when the game reports it is no longer in real-time.
+  - Preserved Soft Lock safety features for stationary garage and AI driving states where the game remains in real-time.
+  - Leveraged the safety slew rate limiter to ensure a smooth relaxation of the wheel when entering menus.
 
 - **Tooltip Text Cropping (#179)**:
   - Manually refactored all long tooltips in `Tooltips.h` using `\n` to ensure they fit within standard window widths and prevent cropping.
@@ -106,6 +91,32 @@ Dynamic FFB Normalization changes:
   - **Tactile Smoothing**: Added a 100ms EMA filter to the tactile multiplier to ensure smooth transitions across load ranges.
 ### Changed
 - **Bottoming Trigger**: Updated the suspension bottoming safety threshold to $2.5x$ the static load baseline for consistency with the new normalization model.
+
+
+---
+
+## [0.7.110] - 2026-03-02
+### Added
+- **Global Tactile Scaling (Issue #206)**:
+  - Introduced a dedicated "Tactile Strength" slider in the GUI to allow global scaling of all haptic textures (Road Details, Slide Rumble, Lockup Vibration, Spin, etc.).
+  - This allows users on different hardware (from T300 to high-end Direct Drive) to tune the intensity of absolute Nm tactile effects to their preference without affecting structural physics.
+  - **Soft Lock Preservation**: Explicitly excluded the Soft Lock force from the global tactile gain to ensure consistent and physically realistic rack limit resistance remains active for hardware safety.
+  - Fully integrated with the Preset and Persistence system, including safety clamping [0.0, 2.0].
+
+## [0.7.109] - 2026-02-28
+### Fixed
+- **Normalization Consistency (Issue #207)**:
+  - Disabled **Session-Learned Dynamic Normalization** by default for both structural forces and tactile haptics.
+  - Implemented independent UI toggles for each normalization stage, allowing users to choose between manual fixed scaling and adaptive learning.
+  - Added `ResetNormalization` logic to restore class-default seeds and manual targets immediately when disabling toggles or changing vehicles.
+  - Resolved an issue where "learned" peaks from previous cars could pollute the FFB of a newly selected car.
+
+## [0.7.108] - 2026-02-28
+### Fixed
+- **FFB Control (Issue #174)**: Resolved "stuck" FFB forces when entering menus or pausing the game.
+  - Modified the FFB loop to explicitly zero out all forces (including Soft Lock) when the game reports it is no longer in real-time.
+  - Preserved Soft Lock safety features for stationary garage and AI driving states where the game remains in real-time.
+  - Leveraged the safety slew rate limiter to ensure a smooth relaxation of the wheel when entering menus.
 
 
 ## [0.7.107] - 2026-02-28
